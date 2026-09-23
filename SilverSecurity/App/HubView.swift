@@ -15,6 +15,17 @@ struct HubView: View {
                                 .buttonStyle(.plain)
                         } else { ModuleCard(module: module) }
                     }
+                    VStack(alignment: .leading, spacing: 8) {
+                        Label("Music-safe observation", systemImage: "music.note")
+                            .font(.headline)
+                        Text("Silver watches BLE advertisements without disconnecting AirPods or changing the system Bluetooth radio. It reports suspicious bursts for you to act on.")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding()
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(.green.opacity(0.10))
+                    .clipShape(RoundedRectangle(cornerRadius: 16))
                     Text("Silver observes. It does not control Apple’s Bluetooth system UI or claim to block radio advertisements.")
                         .font(.footnote).foregroundStyle(.secondary).padding(.top, 4)
                 }.padding()
