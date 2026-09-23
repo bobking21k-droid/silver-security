@@ -8,8 +8,8 @@ Silver Security is an App Store-safe iPhone defensive app scaffold. The first mo
 - Core Bluetooth central scan with duplicate discoveries in the foreground.
 - Short-window, in-memory anomaly scoring for high-rate and payload-churn bursts.
 - Quiet local notification path for a detected episode.
-- ActivityKit Live Activity status surface; on iOS 26 this can preserve the scan’s foreground-like privileges while the phone remains in use.
-- App Store-safe permission strings and `bluetooth-central` background declaration.
+- ActivityKit Live Activity status surface for session status; it does not promise continuous background scanning.
+- App Store-safe permission strings and an explicit, conservative `bluetooth-central` declaration.
 - Pure unit-testable detector with no radio dependency.
 
 ## Build
