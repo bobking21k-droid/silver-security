@@ -3,12 +3,15 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+concurrency:
+  group: silver-iphone-build
+  cancel-in-progress: true
 jobs:
   build:
     runs-on: macos-15
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Install project generator
         run: brew install xcodegen
       - name: Generate project
@@ -24,7 +27,7 @@ jobs:
           cp -R work/device-build/Build/Products/Release-iphoneos/SilverSecurity.app work/package/Payload/
           cd work/package
           /usr/bin/zip -qr SilverSecurity-unsigned.ipa Payload
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: SilverSecurity-iPhone
           path: work/package/SilverSecurity-unsigned.ipa
