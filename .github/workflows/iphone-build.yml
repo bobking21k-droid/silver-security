@@ -1,0 +1,32 @@
+name: Build Silver for iPhone
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install project generator
+        run: brew install xcodegen
+      - name: Generate project
+        run: xcodegen generate
+      - name: Build for physical iPhone without signing
+        run: |
+          xcodebuild -project SilverSecurity.xcodeproj -scheme SilverSecurity \
+            -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' \
+            -derivedDataPath work/device-build CODE_SIGNING_ALLOWED=NO build
+      - name: Package for local signing
+        run: |
+          mkdir -p work/package/Payload
+          cp -R work/device-build/Build/Products/Release-iphoneos/SilverSecurity.app work/package/Payload/
+          cd work/package
+          /usr/bin/zip -qr SilverSecurity-unsigned.ipa Payload
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SilverSecurity-iPhone
+          path: work/package/SilverSecurity-unsigned.ipa
+          retention-days: 3
+          if-no-files-found: error
