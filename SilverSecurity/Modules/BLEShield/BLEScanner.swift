@@ -25,7 +25,6 @@ final class BLEScanner: NSObject, ObservableObject, CBCentralManagerDelegate {
     }
 
     func pauseForBackgroundIfNeeded() {
-        guard !hasLiveActivityBackgroundBehavior else { return }
         central?.stopScan()
         if requested { state = .starting }
     }
@@ -35,10 +34,6 @@ final class BLEScanner: NSObject, ObservableObject, CBCentralManagerDelegate {
         startScanIfReady()
     }
 
-    private var hasLiveActivityBackgroundBehavior: Bool {
-        ProcessInfo.processInfo.isOperatingSystemAtLeast(OperatingSystemVersion(majorVersion: 26, minorVersion: 0, patchVersion: 0))
-    }
-
     func centralManagerDidUpdateState(_ central: CBCentralManager) {
         startScanIfReady()
     }
@@ -46,11 +41,29 @@ final class BLEScanner: NSObject, ObservableObject, CBCentralManagerDelegate {
     private func startScanIfReady() {
         guard requested, let central else { return }
         guard central.state == .poweredOn else {
-            state = .unavailable("Bluetooth is unavailable or permission is not granted.")
+            state = .unavailable(Self.statusMessage(for: central))
             return
         }
         central.scanForPeripherals(withServices: nil, options: [CBCentralManagerScanOptionAllowDuplicatesKey: true])
         state = .monitoring
+    }
+
+    private static func statusMessage(for central: CBCentralManager) -> String {
+        switch central.authorization {
+        case .denied:
+            return "Bluetooth access is off. Enable it in Settings to observe nearby BLE."
+        case .restricted:
+            return "Bluetooth access is restricted on this device."
+        case .allowedAlways:
+            switch central.state {
+            case .poweredOff: return "Bluetooth is off. Turn it on to start observation."
+            case .unauthorized: return "Bluetooth permission is not granted."
+            case .unsupported: return "This device does not support Bluetooth Low Energy."
+            default: return "Bluetooth is becoming available…"
+            }
+        @unknown default:
+            return "Bluetooth permission or availability needs attention."
+        }
     }
 
     func centralManager(_ central: CBCentralManager, didDiscover peripheral: CBPeripheral, advertisementData: [String : Any], rssi RSSI: NSNumber) {

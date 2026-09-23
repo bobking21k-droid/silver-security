@@ -1,4 +1,5 @@
 import SwiftUI
+import Foundation
 
 struct BLEShieldView: View {
     @EnvironmentObject private var model: BLEShieldViewModel
@@ -22,6 +23,12 @@ struct BLEShieldView: View {
                 if !model.recentDetections.isEmpty {
                     incidentTimeline
                 }
+                ShareLink(item: model.sessionSummary) {
+                    Label("Share session summary", systemImage: "square.and.arrow.up")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .accessibilityHint("Shares a local text summary without uploading raw Bluetooth data.")
                 guidance
             }.padding()
         }
@@ -45,8 +52,16 @@ struct BLEShieldView: View {
             HStack {
                 Label("\(model.assessment.eventsPerSecond)/s", systemImage: "waveform.path.ecg")
                 Spacer()
-                Text("Observed, not blocked").font(.caption).foregroundStyle(.secondary)
+                Text("\(model.observedSampleCount) observed").font(.caption).foregroundStyle(.secondary)
             }.font(.caption)
+            if let started = model.sessionStartedAt {
+                Text("Session started \(started, style: .time)")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            Text("Observed locally; not blocked")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel("BLE Shield status: \(title). \(model.assessment.explanation)")
