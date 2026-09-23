@@ -27,3 +27,7 @@ Then select a real iPhone. The simulator cannot provide meaningful BLE-radio val
 ## Product truth
 
 Detection is not filtering. iOS public APIs expose Core Bluetooth discovery to an app, but do not let an App Store app drop another transmitter’s packets, prevent system nearby-device prompts, or toggle the system Bluetooth radio. The UI therefore uses “Detected” and “Observed,” never “Blocked.”
+
+## Free-install refresh
+
+When installed with a free Apple ID through AltStore, iOS app signing lasts seven days. Silver requests a local reminder on day six, but only AltServer can renew the signature. Keep AltServer running on the Windows laptop and enable AltStore Background Refresh; the phone and laptop must share Wi-Fi or be connected by USB.
