@@ -224,6 +224,7 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE *st)
 			if (k.ScanCode == SCAN_LEFT || k.ScanCode == SCAN_UP) c.sel = 0;
 			else if (k.ScanCode == SCAN_RIGHT || k.ScanCode == SCAN_DOWN) c.sel = c.windows_found ? 1 : 0;
 			else if (k.UnicodeChar == '\r' || k.UnicodeChar == ' ') go = c.sel;
+			else if (k.UnicodeChar == 'c' || k.UnicodeChar == 'C') calm ^= 1;
 			else if (k.UnicodeChar == '1') go = 0;
 			else if (k.UnicodeChar == '2' && c.windows_found) go = 1;
 		}

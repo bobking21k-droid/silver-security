@@ -88,7 +88,7 @@ message-bg-color: "#eeeff2"
     width = 400
     height = 5
     show_text = false
-    fg_color = "#0e0e10"
+    fg_color = "#e81018"
     bg_color = "#c9cbd2"
     border_color = "#c9cbd2"
 }
@@ -101,7 +101,7 @@ def main():
     for n in ('silveros', 'windows', 'advanced'):
         png(os.path.join(out, 'icons', n + '.png'), 600, 128, ink_on_clear(open(os.path.join(raw, f'tile_{n}.raw'), 'rb').read()))
     rounded_box(out, 'item', (120, 124, 134), 0.45, (255, 255, 255), 0.55, 1.5)
-    rounded_box(out, 'select', INK, 1.0, (255, 255, 255), 0.96, 3)
+    rounded_box(out, 'select', (232, 16, 24), 1.0, (255, 255, 255), 0.96, 3)
     with open(os.path.join(out, 'theme.txt'), 'w') as f:
         f.write(THEME)
 

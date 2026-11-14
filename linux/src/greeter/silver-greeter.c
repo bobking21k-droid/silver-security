@@ -1,19 +1,22 @@
 /*
  * silver-greeter -- the SilverOS login screen, drawn straight onto /dev/fb0 with sgfx.
  *
- * Intro (once per boot, ~7 s, any key skips):
- *   a marker scribbles the screen black -> "Silver OS" is written by hand in white ->
- *   a chrome pen slides in under it and snaps -> liquid silver leaks from the break and
- *   floods the screen, becoming the background -> the title settles bottom-right.
- * Then the lock screen: clock, date and a frosted sign-in card.
+ * Intro (once per boot, ~6.5 s, any key skips):
+ *   black -> a red dot beats like a heart -> "SILVER OS" slams in, letter by letter ->
+ *   a chrome pen rises up the middle, strains, and SNAPS -> from the break, red spurts out in
+ *   heartbeat pulses (lub-dub, lub-dub), each pulse surging the red across the screen until it
+ *   is the background -> a red flash, and the title settles bottom-right.
+ * Then the lock screen: clock, date and a hard-edged sign-in card.
  *
  * Sign-in: an account with an empty password just needs Enter. Otherwise the password is
  * checked against /etc/shadow with crypt(3). Root may not sign in here (use su). On success
  * the session starts with `login -f <user>` on this tty. Without a usable framebuffer we
  * fall back to getty.
  *
+ * Add `silver.calm` to the kernel command line to turn off the shake and flashes.
+ *
  * Usage (from silver-login, as root, stdin = the tty):  silver-greeter tty1
- * Build with -DRENDER for an offline renderer:  silver-greeter-render out.mp4 [w h]
+ * Build with -DRENDER for an offline renderer:  silver-greeter-render out.mp4 [w h [password]]
  */
 #define _GNU_SOURCE
 #include <fcntl.h>
@@ -39,14 +42,15 @@
 
 #define WHITE RGB(255, 255, 255)
 #define BLACK RGB(0, 0, 0)
-#define INK RGB(14, 14, 16)
-#define PAPER RGB(238, 238, 234)
+#define INK RGB(10, 10, 12)
+#define BLOOD RGB(232, 16, 24)
+#define HOT RGB(255, 62, 46)
 
-static Font FD, FT;
-static int W, H, scale = 1, fb_w, fb_h, stride;
+static Font FD, FT, FC;                       /* Silver Scrawl, Inter, Michroma */
+static int W, H, scale = 1, fb_w, fb_h, stride, calm;
 static float U;                               /* 1% of the screen height */
-static uint32_t *fbmem, *ink_bg, *canvas, *card_bg;
-static uint8_t *edge;                         /* ragged-edge noise for the ink front */
+static uint32_t *fbmem, *ink_bg, *canvas;
+static uint8_t *edge;                         /* ragged-edge noise for the red's advancing front */
 static Surf fb;
 static int tty_fd = 0;
 static struct termios saved_tio;
@@ -85,7 +89,7 @@ static int buffers(void)
 	U = H / 100.0f;
 	fb = sg_surf(malloc((size_t)W * H * 4), W, H);
 	ink_bg = malloc((size_t)W * H * 4); canvas = malloc((size_t)W * H * 4); edge = malloc((size_t)W * H);
-	return fb.px && ink_bg && canvas && edge && !sg_font_load(&FD, font_display) && !sg_font_load(&FT, font_text) ? 0 : -1;
+	return fb.px && ink_bg && canvas && edge && !sg_font_load(&FD, font_scrawl) && !sg_font_load(&FT, font_text) && !sg_font_load(&FC, font_caption) ? 0 : -1;
 }
 static int fb_open(void)
 {
@@ -102,7 +106,7 @@ static int fb_open(void)
 	return fbmem == MAP_FAILED ? -1 : buffers();
 }
 
-/* ================================================================ liquid silver */
+/* ================================================================ the red */
 static float bilerp(const float *g, int gw, int step, int x, int y)
 {
 	int i = x / step, j = y / step;
@@ -110,9 +114,10 @@ static float bilerp(const float *g, int gw, int step, int x, int y)
 	const float *p = g + j * gw + i;
 	return (p[0] * (1 - fx) + p[1] * fx) * (1 - fy) + (p[gw] * (1 - fx) + p[gw + 1] * fx) * fy;
 }
+static float step_at(float v, float th) { return sg_smooth((v - th) / 0.04f + 0.5f); }
 
-/* The background is a height field of slow, swirling metal, lit from the upper left:
- * broad soft highlights, darker troughs, and thin bright specular ridges. */
+/* The background is a height field of slow, swirling liquid, lit from the upper left, then
+ * posterized into hard bands: black, dark red, red, hot red and a pale glint. */
 static void build_ink(void)
 {
 	const int st = 4, gw = W / st + 3, gh = H / st + 3;
@@ -133,91 +138,50 @@ static void build_ink(void)
 			V3 n = v3_norm(v3(-hx * 46, -hy * 46, 1));
 			float diff = v3_dot(n, L), spec = v3_dot(n, Hv);
 			spec = spec > 0 ? spec : 0; spec *= spec; spec *= spec; spec *= spec; spec *= spec;      /* ^16 */
-			float band = sg_abs(sg_sin(h0 * 16));                                                     /* faint flow lines */
-			float v = 0.34f + 0.46f * diff + 0.46f * spec - 0.035f * (1 - band) * (1 - band) + 0.16f * (h0 - 0.5f);
-			float vig = 1 - 0.20f * (((x - W * .5f) / W) * ((x - W * .5f) / W) + ((y - H * .5f) / H) * ((y - H * .5f) / H)) * 4;
-			int g = (int)(sg_sat(v * vig) * 255 + (((sg_hash(x, y) >> 9) & 3) - 1.5f));
-			g = g < 0 ? 0 : g > 255 ? 255 : g;
-			ink_bg[y * W + x] = RGB(g, g, g + 5 > 255 ? 255 : g + 5);
+			float v = 0.30f + 0.50f * diff + 0.50f * spec + 0.20f * (h0 - 0.5f);
+			float dx = (x - W * .5f) / W, dy = (y - H * .5f) / H;
+			v -= 0.34f * (dx * dx + dy * dy) * 4;                                                      /* dark corners */
+			uint32_t c = BLACK;
+			c = sg_mix(c, RGB(74, 3, 8), step_at(v, 0.24f));
+			c = sg_mix(c, RGB(168, 8, 16), step_at(v, 0.44f));
+			c = sg_mix(c, HOT, step_at(v, 0.70f));
+			c = sg_mix(c, RGB(255, 214, 196), step_at(v, 0.96f));
+			int g = (int)(((sg_hash(x, y) >> 9) & 7) - 3);                                             /* film grain */
+			int r = (int)((c >> 16) & 255) + g, gg = (int)((c >> 8) & 255) + g / 2, b = (int)(c & 255) + g / 2;
+			ink_bg[y * W + x] = RGB(r < 0 ? 0 : r > 255 ? 255 : r, gg < 0 ? 0 : gg > 255 ? 255 : gg, b < 0 ? 0 : b > 255 ? 255 : b);
 			edge[y * W + x] = (uint8_t)sg_clamp(bilerp(eg, gw, st, x, y) * 255, 0, 255);
 		}
 	free(hgt); free(eg);
 }
 
-/* ================================================================ handwriting */
-/* Each letter is one or more pen strokes through control points (x right, y up; x-height 1,
- * capitals 2), smoothed with Catmull-Rom splines. 99 ends a stroke, 100 ends the letter. */
-static const float L_S[] = {1.02f, 1.62f, 0.80f, 1.95f, 0.42f, 1.98f, 0.14f, 1.66f, 0.26f, 1.24f, 0.66f, 0.98f, 0.98f, 0.62f, 0.88f, 0.18f, 0.48f, -0.02f, 0.06f, 0.26f, 99, 100};
-static const float L_i[] = {0.06f, 0.98f, 0.10f, 0.34f, 0.22f, 0.02f, 0.46f, 0.16f, 99, 0.08f, 1.46f, 0.11f, 1.52f, 99, 100};
-static const float L_l[] = {0.06f, 2.02f, 0.08f, 0.36f, 0.20f, 0.02f, 0.44f, 0.16f, 99, 100};
-static const float L_v[] = {0.00f, 1.00f, 0.14f, 0.52f, 0.32f, 0.02f, 0.52f, 0.52f, 0.70f, 1.02f, 99, 100};
-static const float L_e[] = {0.10f, 0.50f, 0.52f, 0.56f, 0.70f, 0.80f, 0.46f, 1.02f, 0.16f, 0.82f, 0.08f, 0.40f, 0.30f, 0.03f, 0.74f, 0.20f, 99, 100};
-static const float L_r[] = {0.06f, 1.02f, 0.10f, 0.50f, 0.10f, 0.00f, 99, 0.10f, 0.58f, 0.30f, 0.92f, 0.62f, 0.98f, 99, 100};
-static const float L_O[] = {0.70f, 1.94f, 0.30f, 1.82f, 0.06f, 1.04f, 0.22f, 0.26f, 0.62f, 0.00f, 1.00f, 0.30f, 1.14f, 1.00f, 0.96f, 1.74f, 0.58f, 1.99f, 0.34f, 1.76f, 99, 100};
-static const struct { const float *pts; float adv; } TITLE[] = {{L_S, 1.34f}, {L_i, 0.62f}, {L_l, 0.60f}, {L_v, 0.92f}, {L_e, 0.96f}, {L_r, 0.84f}, {0, 0.62f}, {L_O, 1.46f}, {L_S, 1.10f}};
-#define TITLE_N 9
-#define TITLE_W 8.46f
-#define MAXSEG 900
-static struct { V2 a, b; float len, w; } seg[MAXSEG];   /* the title as short straight pieces, in letter units */
-static int nseg;
-static float seg_total;
+/* ================================================================ the title */
+static const char *TITLE = "SILVER OS";
+static float title_w(float size) { return sg_text_w(&FD, TITLE, size, 0); }
 
-static void build_title(void)
+/* Draw the title with its baseline at `by`, centred on cx. `t` is seconds since the first letter
+ * began to slam in (a large t draws it settled). Each letter drops in oversized, with a red echo. */
+static void title(float cx, float by, float size, float t, float alpha)
 {
-	float ox = 0;
-	for (int l = 0; l < TITLE_N; l++) {
-		const float *p = TITLE[l].pts;
-		while (p && *p != 100) {
-			V2 c[16]; int n = 0;
-			for (; *p != 99; p += 2) c[n++] = (V2){ox + p[0] + 0.16f * p[1], -p[1]};     /* slant; screen y points down */
-			p++;
-			for (int i = 0; i + 1 < n; i++) {
-				V2 p0 = c[i ? i - 1 : 0], p1 = c[i], p2 = c[i + 1], p3 = c[i + 2 < n ? i + 2 : n - 1], prev = p1;
-				for (int k = 1; k <= 8 && nseg < MAXSEG; k++) {
-					float t = k / 8.f, t2 = t * t, t3 = t2 * t;
-					V2 q = {0.5f * (2 * p1.x + (-p0.x + p2.x) * t + (2 * p0.x - 5 * p1.x + 4 * p2.x - p3.x) * t2 + (-p0.x + 3 * p1.x - 3 * p2.x + p3.x) * t3),
-						0.5f * (2 * p1.y + (-p0.y + p2.y) * t + (2 * p0.y - 5 * p1.y + 4 * p2.y - p3.y) * t2 + (-p0.y + 3 * p1.y - 3 * p2.y + p3.y) * t3)};
-					float len = sg_sqrt((q.x - prev.x) * (q.x - prev.x) + (q.y - prev.y) * (q.y - prev.y));
-					float along = (i + t) / (n - 1);                                   /* pressure: lighter at both ends of a stroke */
-					seg[nseg].a = prev; seg[nseg].b = q; seg[nseg].len = len;
-					seg[nseg].w = 0.72f + 0.38f * sg_sin(along * SG_PI);
-					seg_total += len; nseg++; prev = q;
-				}
-			}
-		}
-		ox += TITLE[l].adv;
+	float left = cx - title_w(size) / 2;
+	char pre[16];
+	for (int i = 0; TITLE[i]; i++) {
+		float k = (t - i * 0.115f) / 0.17f;
+		if (k <= 0) continue;
+		memcpy(pre, TITLE, (size_t)i); pre[i] = 0;
+		char one[2] = {TITLE[i], 0};
+		float x = left + sg_text_w(&FD, pre, size, 0) + (i ? 0 : 0), wch = sg_text_w(&FD, one, size, 0);
+		float sc = k >= 1 ? 1 : 1 + 0.55f * (1 - sg_ease_out(k)), a = sg_sat(k * 5) * alpha;
+		float sz = size * sc, xd = x + wch / 2 - sg_text_w(&FD, one, sz, 0) / 2, yd = by + 0.36f * size * (sc - 1);
+		if (k < 1.3f && !calm) sg_text(&fb, &FD, xd - U * 0.9f, yd, one, sz, BLOOD, a * sg_sat(1.3f - k), 0);     /* red echo */
+		sg_text(&fb, &FD, xd + size * 0.025f, yd + size * 0.025f, one, sz, BLACK, a * 0.55f, 0);                  /* drop shadow */
+		sg_text(&fb, &FD, xd, yd, one, sz, WHITE, a, 0);
 	}
 }
 
-/* Is this pixel under the ink yet? (r = current radius of the flood; r < 0: no ink anywhere) */
-static float ink_r = -1, ink_x, ink_y;
-static int inked(float x, float y)
-{
-	if (ink_r < 0) return 0;
-	if (ink_r > 1e8f) return 1;
-	int xi = (int)sg_clamp(x, 0, W - 1), yi = (int)sg_clamp(y, 0, H - 1);
-	float dx = x - ink_x, dy = (y - ink_y) * 1.15f;
-	return sg_sqrt(dx * dx + dy * dy) + (edge[yi * W + xi] - 128) * 0.9f < ink_r;
-}
-
-/* Draw the first `amount` (0..1) of the title centred on (cx, cy), `u` pixels per letter unit.
- * Each piece is white on black and turns dark the moment the silver reaches it. */
-static void title(float cx, float cy, float u, float amount)
-{
-	float left = cx - TITLE_W * u / 2, top = cy + u, lw = sg_max(1.6f, u * 0.17f), want = seg_total * amount, done = 0;
-	for (int i = 0; i < nseg && done < want; i++) {
-		float f = sg_min(1, (want - done) / (seg[i].len + 1e-6f));
-		V2 a = {left + seg[i].a.x * u, top + seg[i].a.y * u};
-		V2 b = {left + (seg[i].a.x + (seg[i].b.x - seg[i].a.x) * f) * u, top + (seg[i].a.y + (seg[i].b.y - seg[i].a.y) * f) * u};
-		sg_line(&fb, a, b, lw * seg[i].w, inked((a.x + b.x) / 2, (a.y + b.y) / 2) ? INK : WHITE, 1);
-		done += seg[i].len;
-	}
-}
-
-/* ================================================================ the pen */
+/* ================================================================ the pen (vertical) */
 static V2 rot(V2 o, float c, float s, float x, float y) { return (V2){o.x + x * c - y * s, o.y + x * s + y * c}; }
 
-/* a tube from x0 to x1 (half-thickness t0 -> t1), shaded like polished metal */
+/* a tube from x0 to x1 along the local x axis (half-thickness t0 -> t1), shaded like polished metal */
 static void tube(V2 o, float c, float s, float x0, float x1, float t0, float t1, uint32_t dark, uint32_t light, float a)
 {
 	enum { N = 9 };
@@ -231,13 +195,16 @@ static void tube(V2 o, float c, float s, float x0, float x1, float t0, float t1,
 	}
 }
 
-/* snap: 0 = whole, 1 = broken open. (cx, cy) is the break point. */
-static void pen(float cx, float cy, float L, float snap, float a)
+/* Standing pen, cap up, nib down. (cx, cy) is the break point. snap: 0 whole .. 1 broken.
+ * recoil: extra separation, driven by the heartbeat. */
+static void pen(float cx, float cy, float L, float snap, float recoil, float a)
 {
-	float k = sg_ease_out(snap), ang = 0.50f * k, th = L * 0.036f, half = L / 2, gap = L * 0.035f * k, sag = L * 0.07f * k;
+	float k = sg_ease_out(snap), ang = 0.36f * k, th = L * 0.040f, half = L / 2;
+	float gap = L * (0.012f + 0.020f * recoil) * k + L * 0.004f * k;
 	const uint32_t d = RGB(58, 60, 68), l = RGB(252, 252, 255), gd = RGB(18, 18, 22), gl = RGB(120, 122, 132);
-	/* cap half (left) */
-	V2 o = {cx - gap, cy + sag}; float c = sg_cos(ang), s = sg_sin(ang);
+	/* cap half (up) */
+	float t1 = 1.5707963f + ang;
+	V2 o = {cx + gap * 0.3f, cy - gap}; float c = sg_cos(t1), s = sg_sin(t1);
 	tube(o, c, s, -half * 0.985f, 0, th, th, d, l, a);
 	tube(o, c, s, -half, -half * 0.985f, th * 0.72f, th, d, l, a);                                  /* rounded end */
 	tube(o, c, s, -half * 0.62f, -half * 0.585f, th * 1.08f, th * 1.08f, gd, gl, a);                 /* band */
@@ -249,8 +216,9 @@ static void pen(float cx, float cy, float L, float snap, float a)
 		float v = -1 + 0.4f * j;
 		sg_tri(&fb, rot(o, c, s, 0, v * th), rot(o, c, s, th * (0.35f + 0.5f * ((j * 7) % 3) * 0.5f), (v + 0.2f) * th), rot(o, c, s, 0, (v + 0.4f) * th), sg_mix(d, l, 0.3f + 0.15f * j), a);
 	}
-	/* nib half (right) */
-	o = (V2){cx + gap, cy + sag}; c = sg_cos(-ang); s = sg_sin(-ang);
+	/* nib half (down) */
+	t1 = 1.5707963f - ang;
+	o = (V2){cx - gap * 0.3f, cy + gap}; c = sg_cos(t1); s = sg_sin(t1);
 	tube(o, c, s, 0, half * 0.70f, th, th, d, l, a);
 	tube(o, c, s, half * 0.70f, half * 0.735f, th * 1.08f, th * 1.08f, gd, gl, a);                   /* grip ring */
 	tube(o, c, s, half * 0.735f, half * 0.93f, th, th * 0.30f, d, l, a);                             /* taper */
@@ -261,13 +229,84 @@ static void pen(float cx, float cy, float L, float snap, float a)
 	}
 }
 
-/* ================================================================ intro */
-static void corner_title(void) { float u = sg_max(4.2f, U * 1.55f); title(W - TITLE_W * u / 2 - U * 5.5f, H - U * 5.0f - u, u, 1); }
+/* ================================================================ the heart */
+#define HB 0.62f                      /* seconds between beats */
+#define NBEAT 4
 
-/* spread the silver to radius r around (ink_x, ink_y) over whatever is in the frame */
+/* One jet: a stream of liquid thrown from (ox, oy) at angle `ang` and speed `v`, bending under
+ * gravity. Only the part between its tail (where the pulse stopped feeding it) and its head
+ * (the front, tau seconds after launch) exists, so each beat sends a surge of liquid out. */
+static void jet(float ox, float oy, float ang, float v, float tau, float flow, float w0, float life)
+{
+	const float g = H * 1.9f, ca = sg_cos(ang), sa = sg_sin(ang);
+	float tt = sg_max(0, tau - flow);
+	enum { N = 20 };
+	V2 pt[N + 1]; float wd[N + 1];
+	for (int i = 0; i <= N; i++) {
+		float u = tt + (tau - tt) * i / N, f = (float)i / N;
+		pt[i] = (V2){ox + ca * v * u, oy + sa * v * u + 0.5f * g * u * u};
+		wd[i] = w0 * (0.20f + 0.80f * f * f * (3 - 2 * f)) * (1 - 0.28f * u);                     /* thin tail, fat head */
+	}
+	for (int i = 1; i <= N; i++) sg_line(&fb, pt[i - 1], pt[i], wd[i] + U * 0.6f, BLACK, 0.5f * life);   /* dark rim, so it reads on red */
+	for (int i = 1; i <= N; i++) sg_line(&fb, pt[i - 1], pt[i], wd[i], sg_mix(BLOOD, HOT, (float)i / N), life);
+	for (int i = 1; i <= N; i++) sg_line(&fb, pt[i - 1], pt[i], wd[i] * 0.30f, RGB(255, 200, 180), 0.5f * life * (float)i / N);   /* wet highlight */
+	sg_disc(&fb, pt[N].x, pt[N].y, wd[N] * 0.62f + U * 0.5f, BLACK, 0.5f * life);                 /* the leading drop */
+	sg_disc(&fb, pt[N].x, pt[N].y, wd[N] * 0.62f, HOT, life);
+}
+
+/* Spurts from (ox, oy), like a heart that has been cut: each beat (lub) throws a fan of jets
+ * up and out, the second thump (dub) a smaller one. t is seconds since the first lub. */
+static void spurt(float t, float ox, float oy)
+{
+	for (int k = 0; k < NBEAT; k++)
+		for (int d = 0; d < 2; d++) {
+			float tau = t - k * HB - d * 0.21f, str = d ? 0.5f : 1.0f;
+			if (tau < 0 || tau > 1.1f) continue;
+			int n = d ? 5 : 9;
+			float life = sg_sat((1.1f - tau) * 4) * sg_sat(tau * 25);
+			for (int i = 0; i < n; i++) {
+				uint32_t h = sg_hash(k * 7 + d, i * 13 + 5);
+				float u1 = ((h & 255) / 255.f - .5f) * 0.5f, u2 = ((h >> 8) & 255) / 255.f, u3 = ((h >> 16) & 255) / 255.f;
+				float ang = -SG_PI * (0.08f + 0.84f * (i + 0.5f + u1) / n);                         /* an even fan across the top */
+				float v = H * (0.62f + 0.52f * u2) * (0.65f + 0.35f * str);
+				jet(ox, oy, ang, v, tau, 0.40f * (0.7f + 0.3f * str), U * (2.5f + 2.3f * u3) * (0.55f + 0.45f * str), life);
+			}
+			for (int i = 0; i < 22 * (d ? 1 : 2); i++) {                                            /* a fine mist around the break */
+				uint32_t h = sg_hash(k * 11 + d + 90, i * 17 + 3);
+				float u1 = (h & 255) / 255.f, u2 = ((h >> 8) & 255) / 255.f;
+				float ang = -SG_PI * (0.02f + 0.96f * u1), v = H * (0.25f + 0.85f * u2), g = H * 1.9f;
+				V2 p = {ox + sg_cos(ang) * v * tau, oy + sg_sin(ang) * v * tau + 0.5f * g * tau * tau};
+				sg_disc(&fb, p.x, p.y, U * (0.25f + 0.35f * u2), BLACK, 0.4f * life);
+				sg_disc(&fb, p.x, p.y, U * (0.18f + 0.30f * u2), HOT, life);
+			}
+		}
+}
+
+/* ================================================================ intro */
+static void shake_frame(float dx, float dy)
+{
+	if (dx < 1 && dx > -1 && dy < 1 && dy > -1) return;
+	memcpy(canvas, fb.px, (size_t)W * H * 4);
+	for (int y = 0; y < H; y++) {
+		int sy = y - (int)dy; sy = sy < 0 ? 0 : sy >= H ? H - 1 : sy;
+		for (int x = 0; x < W; x++) { int sx = x - (int)dx; sx = sx < 0 ? 0 : sx >= W ? W - 1 : sx; fb.px[y * W + x] = canvas[sy * W + sx]; }
+	}
+}
+
+static float tsize;                /* title size */
+static float corner_size(void) { return sg_max(18.0f, U * 4.6f); }
+static void corner_title(float alpha)
+{
+	float sz = corner_size(), cx = W - title_w(sz) / 2 - U * 4.5f, by = H - U * 5.2f;
+	sg_text(&fb, &FD, cx - title_w(sz) / 2 - U * 0.25f, by, TITLE, sz, BLOOD, alpha * 0.9f, 0);
+	sg_text(&fb, &FD, cx - title_w(sz) / 2 + sz * 0.03f, by + sz * 0.03f, TITLE, sz, BLACK, alpha * 0.6f, 0);
+	sg_text(&fb, &FD, cx - title_w(sz) / 2, by, TITLE, sz, WHITE, alpha, 0);
+}
+
+/* spread the red to radius r around (ink_x, ink_y) over whatever is in the frame */
+static float ink_x, ink_y;
 static void flood(float r)
 {
-	ink_r = r;
 	float rin = r - 118, rout = r + 124;        /* the ragged edge moves the front by at most ~115 px */
 	for (int y = 0; y < H; y++) {
 		float dy = (y - ink_y) * 1.15f, oo = rout * rout - dy * dy;
@@ -284,93 +323,92 @@ static void flood(float r)
 		for (int x = xo0; x < xo1; x++) {
 			if (x == xi0 && xi1 > xi0) { memcpy(row + xi0, src + xi0, (size_t)(xi1 - xi0) * 4); x = xi1 - 1; continue; }
 			float dx = x - ink_x, d = sg_sqrt(dx * dx + dy * dy) + (edge[y * W + x] - 128) * 0.9f, in = r - d;
-			if (in > 0) row[x] = in < 9 ? sg_add(src[x], WHITE, 0.55f * (1 - in / 9)) : src[x];      /* bright meniscus at the front */
-			else if (in > -7) row[x] = sg_mix(row[x], BLACK, 0.6f * (1 + in / 7));                   /* and its shadow */
+			if (in > 0) row[x] = in < 7 ? sg_mix(src[x], HOT, 0.8f * (1 - in / 7)) : src[x];          /* a wet, bright rim at the front */
+			else if (in > -6) row[x] = sg_mix(row[x], BLACK, 0.7f * (1 + in / 6));
 		}
 	}
 }
 
-#define T_PAPER 0.30f
-#define T_SCRIB 1.35f
-#define T_WRITE 2.05f
-#define T_PEN 3.90f          /* pen slides in */
-#define T_SNAP 4.60f
-#define T_INK 4.80f
-#define T_MOVE 6.65f
-#define T_END 7.60f
+#define T_DOT 0.35f
+#define T_TITLE 1.15f
+#define T_PEN 2.55f
+#define T_SNAP 3.55f
+#define T_FLASH 5.95f
+#define T_END 6.55f
 
 static void intro(void)
 {
-	float bu = sg_min(W * 0.062f, H * 0.105f);               /* title size while it is being written */
-	float eu = sg_max(4.2f, U * 1.55f);
-	float tcx = W / 2.0f, tcy = H * 0.36f, px = W / 2.0f, py = H * 0.63f, PL = sg_min(W * 0.50f, H * 0.82f);
-	float maxr = sg_sqrt((float)W * W / 4 + (float)H * H * 0.75f) + 140;
+	float PL = sg_min(H * 0.60f, W * 0.62f), py = H * 0.615f, px = W / 2.0f;     /* the break point */
+	tsize = sg_min(U * 14.5f, W * 0.84f / (title_w(1.0f)));
+	float by = H * 0.205f + tsize * 0.40f;
+	float maxr = sg_sqrt((float)W * W / 4 + (float)H * H) + 160;
+	ink_x = px; ink_y = py;
 	static struct { float vx, vy, spin, size; } chip[14];
 	for (int i = 0; i < 14; i++) chip[i] = (typeof(chip[0])){(sg_frand() - .5f) * 2.2f, -0.4f - sg_frand() * 1.5f, (sg_frand() - .5f) * 14, 0.25f + sg_frand() * 0.75f};
-	Surf cv = sg_surf(canvas, W, H);
-	sg_clear(&cv, PAPER);
-	/* the marker's path: a fast zigzag down the page */
-	enum { Z1 = 11, Z2 = 15, ZN = Z1 + Z2 + 1 };
-	V2 zig[ZN + 1];
-	for (int k = 0; k <= Z1; k++)                             /* first pass: side to side, working down the page */
-		zig[k] = (V2){(k & 1) ? W * (1.0f + sg_frand() * 0.08f) : -W * sg_frand() * 0.08f, -H * 0.10f + k * (H * 1.2f / Z1) + (sg_frand() - .5f) * H * 0.07f};
-	for (int k = 0; k <= Z2; k++)                             /* second pass: up and down, working back across */
-		zig[Z1 + 1 + k] = (V2){W * 1.08f - k * (W * 1.16f / Z2) + (sg_frand() - .5f) * W * 0.03f, (k & 1) ? -H * sg_frand() * 0.08f : H * (1.0f + sg_frand() * 0.08f)};
-	float drawn = 0, zw = H * 0.105f;
-	ink_r = -1; ink_x = px; ink_y = py + PL * 0.07f;
 	double t0 = now();
 	for (;;) {
 		float t = (float)(now() - t0);
 		if (t > T_END || key_waiting()) break;
-		if (t < T_WRITE) {                                     /* the scribble eats the page */
-			float want = sg_smooth((t - T_PAPER) / (T_SCRIB)) * ZN;
-			while (drawn < want) {
-				float nx = sg_min(want, drawn + 0.04f);
-				int k = (int)drawn; float f0 = drawn - k, f1 = nx - k; if (f1 > 1) f1 = 1;
-				V2 a = {zig[k].x + (zig[k + 1].x - zig[k].x) * f0, zig[k].y + (zig[k + 1].y - zig[k].y) * f0};
-				V2 b = {zig[k].x + (zig[k + 1].x - zig[k].x) * f1, zig[k].y + (zig[k + 1].y - zig[k].y) * f1};
-				float wob = sg_noise(drawn * 9, 3.3f);
-				a.y += (wob - .5f) * H * 0.02f; b.y += (wob - .5f) * H * 0.02f;
-				sg_line(&cv, a, b, zw * (0.78f + 0.5f * wob), INK, 1);
-				drawn = k + f1 >= k + 1 ? (float)(k + 1) : nx;
-				if (drawn >= ZN) break;
-			}
-			memcpy(fb.px, canvas, (size_t)W * H * 4);
-			float settle = sg_smooth((t - T_PAPER - T_SCRIB + 0.1f) / 0.3f);
-			if (settle > 0) sg_rect(&fb, 0, 0, W, H, BLACK, settle);
-		} else sg_clear(&fb, BLACK);
+		sg_clear(&fb, BLACK);
 
-		float r = t > T_INK ? maxr * sg_ease_io((t - T_INK) / (T_MOVE - T_INK + 0.25f)) : -1;
-		if (r > 0) flood(r); else ink_r = -1;
+		/* the red, surging with each beat once the pen has snapped */
+		float p = 0;
+		if (t > T_SNAP) {
+			for (int k = 0; k < NBEAT; k++) p += sg_smooth((t - (T_SNAP + 0.05f + k * HB)) / 0.20f);
+			p /= NBEAT;
+		}
+		float st = t - (T_SNAP + 0.05f);                         /* time since the first lub */
+		if (p > 0) flood(maxr * p);
 
-		/* the pen: slides in, snaps, falls away as the silver takes over */
-		if (t > T_PEN && t < T_INK + 1.2f) {
-			float in = sg_ease_out((t - T_PEN) / 0.45f), snap = (t - T_SNAP) / 0.22f, out = sg_smooth((t - T_INK - 0.5f) / 0.7f);
-			float shake = (t > T_SNAP - 0.25f && t < T_SNAP) ? sg_sin(t * 90) * U * 0.35f * (t - T_SNAP + 0.25f) / 0.25f : 0;   /* it strains first */
-			pen(px + (1 - in) * W * 0.5f + shake, py + out * H * 0.1f, PL, snap, (1 - out) * in);
+		/* the dot, beating in the dark, then lying under the pen */
+		float hb = sg_heart(t - T_DOT, 0.82f);
+		if (t > T_DOT && t < T_SNAP + 0.05f) {
+			float grow = sg_smooth((t - T_DOT) / 0.3f), r = U * (0.9f + 0.9f * hb) * grow;
+			sg_glow(&fb, px, py, U * (6 + 5 * hb), BLOOD, 0.55f * grow * (0.5f + 0.5f * hb));
+			sg_disc(&fb, px, py, r, BLOOD, grow);
+		}
+
+		/* the pen: rises up the middle, strains, snaps */
+		if (t > T_PEN) {
+			float in = sg_ease_out((t - T_PEN) / 0.55f), snap = (t - T_SNAP) / 0.12f;
+			float strain = (t > T_SNAP - 0.5f && t < T_SNAP) ? (t - T_SNAP + 0.5f) / 0.5f : 0;
+			float shk = calm ? 0 : sg_sin(t * 110) * U * 0.30f * strain;                      /* it trembles before it goes */
+			float fall = t > T_SNAP + 0.9f ? sg_smooth((t - T_SNAP - 0.9f) / 1.0f) : 0;
+			float rec = sg_heart(t - (T_SNAP + 0.05f), HB);                                   /* each beat shoves the halves apart */
+			float ox = px + shk, oy = py + (1 - in) * H * 0.62f + fall * fall * H * 0.5f;
+			pen(ox, oy, PL, snap > 0 ? sg_sat(snap) : 0, t > T_SNAP ? rec : 0, (1 - fall) * sg_sat(in * 4));
 			if (t > T_SNAP) {
 				float dt = t - T_SNAP;
-				for (int i = 0; i < 14; i++) {                         /* chips of metal */
+				for (int i = 0; i < 14; i++) {                                              /* chips of metal */
 					float x = px + chip[i].vx * dt * H * 0.5f, y = py + chip[i].vy * dt * H * 0.35f + dt * dt * H * 0.9f, sz = chip[i].size * U * 1.5f, a = chip[i].spin * dt;
 					V2 o = {x, y}; float c = sg_cos(a), s = sg_sin(a);
 					sg_tri(&fb, rot(o, c, s, -sz, -sz * 0.5f), rot(o, c, s, sz * 1.1f, -sz * 0.2f), rot(o, c, s, -sz * 0.2f, sz), RGB(226, 228, 236), sg_sat(1.6f - dt * 1.6f));
 				}
-				for (int i = 0; i < 18; i++) {                         /* drops of silver */
-					float d2 = dt - 0.03f * (i % 6);
-					if (d2 < 0) continue;
-					float x = ink_x + (i % 7 - 3) * U * 0.7f + (i % 5 - 2) * d2 * U * 9, y = ink_y + d2 * d2 * H * 1.5f + d2 * H * 0.12f;
-					if (r > 0 && inked(x, y)) continue;
-					sg_line(&fb, (V2){x, y - U * (1.5f + d2 * 8)}, (V2){x, y}, U * (0.5f + 0.25f * (i % 3)), RGB(226, 228, 236), 1);
-				}
 			}
 		}
-		/* the title: written on, later carried to its corner */
-		float mv = sg_ease_io((t - T_MOVE) / (T_END - T_MOVE - 0.1f));
-		float u = bu + (eu - bu) * mv;
-		title(tcx + (W - TITLE_W * eu / 2 - U * 5.5f - tcx) * mv, tcy + (H - U * 5.0f - eu - tcy) * mv, u, sg_sat((t - T_WRITE - 0.1f) / 1.55f));
+		if (st > 0) {
+			sg_glow(&fb, px, py, U * 9, HOT, 0.65f * sg_heart(st, HB));                    /* the break glows with each beat */
+			spurt(st, px, py);
+		}
+
+		/* the title: slams in, later carried to the corner */
+		float mv = sg_ease_io((t - (T_FLASH - 0.7f)) / 0.9f);
+		float csz = corner_size(), cx = W - title_w(csz) / 2 - U * 4.5f, cby = H - U * 5.2f;
+		float sz = tsize + (csz - tsize) * mv;
+		title(W / 2.0f + (cx - W / 2.0f) * mv, by + (cby - by) * mv, sz, t - T_TITLE, 1);
+
+		if (t < T_TITLE + 1.2f)                                                            /* the notice, like a game's disclaimer */
+			sg_text_c(&fb, &FC, W / 2.0f, H - U * 3.4f, "CONTAINS FLASHING LIGHTS  /  ANY KEY SKIPS", U * 0.9f, WHITE, 0.55f * sg_sat((T_TITLE + 1.2f - t) * 3) * sg_sat((t - 0.15f) * 4), 0.26f);
+
+		/* a thump on every lub, a white flash on the snap, a red flash at the end */
+		if (!calm) {
+			float thump = st > 0 ? sg_heart(st, HB) : 0;
+			shake_frame(sg_sin(t * 97) * U * 0.9f * thump, sg_cos(t * 83) * U * 0.9f * thump);
+			if (t > T_SNAP && t < T_SNAP + 0.09f) sg_rect(&fb, 0, 0, W, H, WHITE, 0.85f * (1 - (t - T_SNAP) / 0.09f));
+		}
+		if (t > T_FLASH) sg_rect(&fb, 0, 0, W, H, BLOOD, (calm ? 0.5f : 0.8f) * sg_sat(1 - (t - T_FLASH) / 0.6f));
 		flip();
 	}
-	ink_r = 1e9f;
 }
 
 /* ================================================================ lock screen */
@@ -379,97 +417,81 @@ static int field = 1;             /* 0 user name, 1 password */
 static const char *status = "";
 static int cw, ch, cx0, cy0;
 
-static void bake_card(int simple)
+static void card_geom(int simple)
 {
-	cw = (int)(U * 66); ch = (int)(U * (simple ? 18.5f : 27));
+	cw = (int)(U * 66); ch = (int)(U * (simple ? 18.5f : 28));
 	cx0 = (W - cw) / 2; cy0 = (int)(H * 0.60f);
-	free(card_bg);
-	card_bg = malloc((size_t)cw * ch * 4);
-	uint32_t *tmp = malloc((size_t)cw * ch * 4);
-	for (int y = 0; y < ch; y++) memcpy(card_bg + y * cw, ink_bg + (cy0 + y) * W + cx0, (size_t)cw * 4);
-	sg_blur(card_bg, tmp, cw, ch, (int)(U * 2.4f) + 1, 3);                 /* frosted glass */
-	for (int i = 0; i < cw * ch; i++) card_bg[i] = sg_mix(card_bg[i], WHITE, 0.58f);
-	free(tmp);
 }
 
-static void glass(float alpha, float dx)
+static void red_text(float x, float y, const char *str, float size, float alpha, int centered)
 {
-	float r = U * 3.2f, x = cx0 + dx, y = cy0;
-	sg_blob(&fb, x + cw / 2.0f, y + ch + U * 1.2f, cw * 0.56f, U * 5.5f, BLACK, 0.26f * alpha);       /* shadow */
-	float hx = cw / 2.0f, hy = ch / 2.0f;
-	for (int j = 0; j < ch; j++) {
-		int py = cy0 + j;
-		if (py < 0 || py >= H) continue;
-		float qy = sg_abs(j + .5f - hy) - (hy - r);
-		for (int i = 0; i < cw; i++) {
-			int pxx = (int)x + i;
-			if (pxx < 0 || pxx >= W) continue;
-			float qx = sg_abs(i + .5f - hx) - (hx - r);
-			float d = (qx > 0 && qy > 0) ? sg_sqrt(qx * qx + qy * qy) - r : sg_max(qx, qy) - r;
-			float cov = .5f - d;
-			if (cov > 0) fb.px[py * W + pxx] = sg_mix(fb.px[py * W + pxx], card_bg[j * cw + i], alpha * (cov > 1 ? 1 : cov));
-		}
-	}
-	sg_rrect(&fb, x, y, cw, ch, r, sg_max(1.2f, U * 0.16f), WHITE, 0.75f * alpha);                      /* light edge */
+	if (centered) x -= sg_text_w(&FD, str, size, 0) / 2;
+	sg_text(&fb, &FD, x + size * 0.035f, y + size * 0.035f, str, size, BLACK, alpha * 0.6f, 0);
+	sg_text(&fb, &FD, x - size * 0.03f, y, str, size, BLOOD, alpha * 0.9f, 0);
+	sg_text(&fb, &FD, x, y, str, size, WHITE, alpha, 0);
 }
 
 static void clock_text(char *hm, char *date)
 {
 #ifdef RENDER
-	strcpy(hm, "9:41"); strcpy(date, "Saturday, 14 November");
+	strcpy(hm, "9:41"); strcpy(date, "SATURDAY  -  14 NOVEMBER");
 #else
-	static const char *dn[] = {"Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"};
-	static const char *mn[] = {"January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"};
+	static const char *dn[] = {"SUNDAY", "MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY"};
+	static const char *mn[] = {"JANUARY", "FEBRUARY", "MARCH", "APRIL", "MAY", "JUNE", "JULY", "AUGUST", "SEPTEMBER", "OCTOBER", "NOVEMBER", "DECEMBER"};
 	time_t t = time(NULL);
 	struct tm tm;
 	gmtime_r(&t, &tm);          /* the PC clock as it is set (local time on a Windows dual-boot machine) */
 	snprintf(hm, 8, "%d:%02d", tm.tm_hour, tm.tm_min);
-	snprintf(date, 40, "%s, %d %s", dn[tm.tm_wday], tm.tm_mday, mn[tm.tm_mon]);
+	snprintf(date, 48, "%s  -  %d %s", dn[tm.tm_wday], tm.tm_mday, mn[tm.tm_mon]);
 #endif
-}
-
-static void avatar(float cx, float cy, float r, float a)
-{
-	sg_disc(&fb, cx, cy, r, INK, a);
-	sg_ring(&fb, cx, cy, r * 0.56f, r * 0.17f, WHITE, a);
-	sg_disc(&fb, cx, cy, r * 0.17f, WHITE, a);
 }
 
 /* alpha: fade-in of the UI; shake: sideways offset of the card; out: fade to black on the way in */
 static void lock_frame(int simple, float alpha, float shake, float out)
 {
 	memcpy(fb.px, ink_bg, (size_t)W * H * 4);
-	corner_title();
-	char hm[8], date[40];
+	corner_title(alpha);
+	char hm[8], date[48];
 	clock_text(hm, date);
-	float rise = (1 - sg_ease_out(alpha)) * U * 2;
-	sg_text_c(&fb, &FD, W / 2.0f, H * 0.300f + rise, hm, U * 19, INK, alpha * 0.92f, -0.02f);
-	sg_text_c(&fb, &FT, W / 2.0f, H * 0.300f + U * 6.4f + rise, date, U * 3.3f, RGB(24, 24, 28), alpha * 0.92f, 0.02f);
-	glass(alpha, shake);
-	float x = cx0 + shake, pulse = 0.5f + 0.5f * sg_sin((float)now() * 4.2f);
+	float t = (float)now(), beat = sg_heart(t, 0.9f), rise = (1 - sg_ease_out(alpha)) * U * 2;
+	red_text(W / 2.0f, H * 0.315f + rise, hm, U * 19.5f, alpha, 1);
+	sg_text_c(&fb, &FC, W / 2.0f + U * 0.1f, H * 0.315f + U * 6.6f + rise + 1, date, U * 1.55f, BLACK, alpha * 0.6f, 0.26f);
+	sg_text_c(&fb, &FC, W / 2.0f, H * 0.315f + U * 6.6f + rise, date, U * 1.55f, WHITE, alpha, 0.26f);
+
+	float x = cx0 + shake, y = cy0, pb = U * 0.55f;
+	sg_rect(&fb, x + U * 0.9f, y + U * 0.9f, cw, ch, BLACK, 0.5f * alpha);                       /* hard shadow */
+	sg_rect(&fb, x, y, cw, ch, INK, 0.96f * alpha);
+	sg_rect(&fb, x, y, cw, pb, BLOOD, alpha);                                                     /* red bar */
+	sg_rect(&fb, x, y + ch - sg_max(1, U * 0.12f), cw, sg_max(1, U * 0.12f), WHITE, 0.25f * alpha);
 	if (simple) {
-		float ar = U * 5.4f, cy = cy0 + ch / 2.0f;
-		avatar(x + U * 10.2f, cy, ar, alpha);
-		sg_text(&fb, &FD, x + U * 18.6f, cy - U * 0.2f, user, U * 5.8f, INK, alpha, -0.01f);
-		sg_text(&fb, &FT, x + U * 18.8f, cy + U * 4.0f, "Press Enter to sign in", U * 2.3f, RGB(60, 60, 68), alpha, 0.02f);
-		float pw = sg_text_w(&FT, "Enter", U * 2.3f, 0.06f) + U * 5.4f, ph = U * 6.4f, bx = x + cw - pw - U * 6.0f;
-		sg_rrect(&fb, bx, cy - ph / 2, pw, ph, ph / 2, 0, INK, alpha * (0.86f + 0.14f * pulse));
-		sg_text(&fb, &FT, bx + U * 2.7f, cy + U * 0.82f, "Enter", U * 2.3f, WHITE, alpha, 0.06f);
+		float ar = U * 5.0f, cy = y + ch / 2.0f + pb / 2;
+		sg_glow(&fb, x + U * 10.0f, cy, ar * 2.4f, BLOOD, 0.35f * alpha * beat);
+		sg_disc(&fb, x + U * 10.0f, cy, ar, BLOOD, alpha);                                       /* the mark: a beating red dot in a ring */
+		sg_ring(&fb, x + U * 10.0f, cy, ar * 1.32f, sg_max(1.4f, U * 0.18f), WHITE, alpha);
+		sg_disc(&fb, x + U * 10.0f, cy, ar * 0.30f, BLACK, alpha);
+		red_text(x + U * 18.5f, cy - U * 0.2f, "silver", U * 6.0f, alpha, 0);
+		sg_text(&fb, &FC, x + U * 18.8f, cy + U * 4.2f, "NO PASSWORD NEEDED", U * 1.05f, RGB(150, 150, 156), alpha, 0.24f);
+		float lw = sg_text_w(&FC, "ENTER", U * 1.25f, 0.2f) + U * 5.2f, lh = U * 5.0f, bx = x + cw - lw - U * 6.0f;
+		sg_glow(&fb, bx + lw / 2, cy, lw * 0.9f, BLOOD, 0.28f * alpha * beat);
+		sg_rrect(&fb, bx, cy - lh / 2, lw, lh, lh / 2, 0, BLOOD, alpha);
+		sg_text(&fb, &FC, bx + U * 2.6f, cy + U * 0.5f, "ENTER", U * 1.25f, WHITE, alpha, 0.2f);
 	} else {
-		float ar = U * 3.6f, top = cy0 + U * 6.8f;
-		avatar(x + U * 7.6f, top, ar, alpha);
-		float nx = sg_text(&fb, &FD, x + U * 13.4f, top + U * 1.5f, user[0] ? user : "user name", U * 4.2f, user[0] ? INK : RGB(120, 120, 128), alpha, -0.01f);
-		if (field == 0 && ((long)(now() * 2) & 1)) sg_rect(&fb, nx + U * 0.4f, top - U * 2.2f, sg_max(2, U * 0.3f), U * 4.2f, INK, alpha);
-		float fx = x + U * 5.0f, fy = top + U * 6.2f, fw = cw - U * 10.0f, fh = U * 6.4f;
-		sg_rrect(&fb, fx, fy, fw, fh, fh / 2, 0, WHITE, 0.55f * alpha);
-		sg_rrect(&fb, fx, fy, fw, fh, fh / 2, sg_max(1.4f, U * 0.2f), field == 1 ? INK : RGB(120, 120, 128), alpha * (field == 1 ? 0.9f : 0.45f));
+		float top = y + U * 8.2f;
+		sg_disc(&fb, x + U * 7.6f, top, U * 3.4f, BLOOD, alpha);
+		sg_ring(&fb, x + U * 7.6f, top, U * 4.5f, sg_max(1.4f, U * 0.18f), WHITE, alpha);
+		float nx = sg_text(&fb, &FD, x + U * 14.0f, top + U * 2.0f, user[0] ? user : "user", U * 5.2f, user[0] ? WHITE : RGB(110, 110, 116), alpha, 0);
+		if (field == 0 && ((long)(now() * 2) & 1)) sg_rect(&fb, nx + U * 0.5f, top - U * 2.6f, sg_max(2, U * 0.4f), U * 5.2f, WHITE, alpha);
+		float fx = x + U * 5.0f, fy = top + U * 7.4f, fw = cw - U * 10.0f, fh = U * 6.6f;
+		sg_rect(&fb, fx, fy, fw, fh, BLACK, 0.6f * alpha);
+		sg_rrect(&fb, fx, fy, fw, fh, U * 0.3f, sg_max(1.4f, U * 0.2f), field == 1 ? WHITE : RGB(110, 110, 116), alpha * (field == 1 ? 1 : 0.5f));
 		size_t n = strlen(pass);
-		if (!n) sg_text(&fb, &FT, fx + U * 3.0f, fy + fh / 2 + U * 0.7f, "Password", U * 2.0f, RGB(110, 110, 118), alpha, 0.02f);
-		for (size_t k = 0; k < n && k < 36; k++) sg_disc(&fb, fx + U * 3.6f + k * U * 1.9f, fy + fh / 2, U * 0.62f, INK, alpha);
-		if (field == 1 && ((long)(now() * 2) & 1)) sg_rect(&fb, fx + U * 3.0f + (n > 36 ? 36 : n) * U * 1.9f, fy + U * 1.6f, sg_max(2, U * 0.3f), fh - U * 3.2f, INK, alpha);
-		sg_text(&fb, &FT, fx + U * 0.6f, fy + fh + U * 3.3f, status[0] ? status : "Enter to sign in  -  Tab to change user", U * 1.75f,
-			status[0] ? RGB(150, 20, 26) : RGB(74, 74, 82), alpha, 0.02f);
+		if (!n) sg_text(&fb, &FC, fx + U * 2.4f, fy + fh / 2 + U * 0.4f, "PASSWORD", U * 1.15f, RGB(120, 120, 126), alpha, 0.24f);
+		for (size_t k = 0; k < n && k < 36; k++) sg_disc(&fb, fx + U * 3.4f + k * U * 1.9f, fy + fh / 2, U * 0.62f, BLOOD, alpha);
+		if (field == 1 && ((long)(now() * 2) & 1)) sg_rect(&fb, fx + U * 2.6f + (n > 36 ? 36 : n) * U * 1.9f, fy + U * 1.5f, sg_max(2, U * 0.35f), fh - U * 3.0f, WHITE, alpha);
+		sg_text(&fb, &FC, fx, fy + fh + U * 3.6f, status[0] ? status : "ENTER TO SIGN IN  /  TAB TO CHANGE USER", U * 0.98f,
+			status[0] ? HOT : RGB(170, 170, 176), alpha, 0.22f);
 	}
+	sg_text_c(&fb, &FC, W / 2.0f, H - U * 3.4f, "-- PRESS ANY BUTTON TO CONTINUE --", U * 0.85f, RGB(190, 190, 196), 0.55f * alpha * (0.6f + 0.4f * sg_heart(t, 1.8f)), 0.3f);
 	if (out > 0) sg_rect(&fb, 0, 0, W, H, BLACK, out);
 	flip();
 }
@@ -526,13 +548,13 @@ static void lock_loop(void)
 {
 	snprintf(user, sizeof user, "silver");
 	int simple = account_open(user);
-	bake_card(simple);
+	card_geom(simple);
 	double t0 = now();
 	for (;;) {
-		float a = sg_sat((float)(now() - t0) / 0.6f);
+		float a = sg_sat((float)(now() - t0) / 0.5f);
 		lock_frame(simple, a, 0, 0);
 		struct pollfd p = {tty_fd, POLLIN, 0};
-		if (poll(&p, 1, a < 1 ? 16 : 120) <= 0) continue;
+		if (poll(&p, 1, a < 1 ? 16 : 60) <= 0) continue;
 		char c;
 		if (read(tty_fd, &c, 1) != 1) continue;
 		if (c == '\033') { char junk[8]; usleep(2000); if (read(tty_fd, junk, sizeof junk) < 0) { /* drop arrows etc. */ } continue; }
@@ -543,11 +565,11 @@ static void lock_loop(void)
 		if (c == 127 || c == 8) { if (n) dst[n - 1] = 0; continue; }
 		if (c == 21) { dst[0] = 0; continue; }
 		if (c == '\r' || c == '\n') {
-			if (field == 0) { field = 1; if (account_open(user)) { simple = 1; bake_card(1); } continue; }
+			if (field == 0) { field = 1; if (account_open(user)) { simple = 1; card_geom(1); } continue; }
 			struct passwd *pw = getpwnam(user);
-			if (pw && pw->pw_uid == 0) status = "root cannot sign in here - use su";
+			if (pw && pw->pw_uid == 0) status = "ROOT CANNOT SIGN IN HERE - USE SU";
 			else if (pw && check_password(user, pass)) start_session(0);
-			else status = "Wrong user name or password";
+			else status = "WRONG USER NAME OR PASSWORD";
 			memset(pass, 0, sizeof pass);
 			for (int k = 0; k < 14; k++) { lock_frame(0, 1, sg_sin(k * 1.9f) * (14 - k) * U * 0.22f, 0); usleep(16000); }
 			sleep(1);                                               /* slow down guessing */
@@ -567,13 +589,13 @@ int main(int argc, char **argv)
 	snprintf(cmd, sizeof cmd, "ffmpeg -v error -y -f rawvideo -pix_fmt bgr0 -s %dx%d -r 30 -i - -c:v libx264 -crf 16 -preset medium -pix_fmt yuv420p '%s'",
 		 W, H, argc > 1 ? argv[1] : "greeter.mp4");
 	outpipe = popen(cmd, "w");
-	build_ink(); build_title();
+	build_ink();
 	intro();
 	snprintf(user, sizeof user, "silver");
 	int simple = !(argc > 4);
-	bake_card(simple);
+	card_geom(simple);
 	if (!simple) strcpy(pass, "12345678");
-	for (int f = 0; f < 110; f++) lock_frame(simple, sg_sat(f / 18.f), 0, 0);
+	for (int f = 0; f < 110; f++) lock_frame(simple, sg_sat(f / 15.f), 0, 0);
 	for (int f = 1; f <= 8; f++) lock_frame(simple, 1, 0, f / 8.f);
 	pclose(outpipe);
 	return 0;
@@ -583,6 +605,12 @@ int main(int argc, char **argv)
 {
 	if (argc > 1) tty_name = argv[1];
 	if (fb_open() < 0) fallback_getty();
+	{
+		char cmd[1024] = "";
+		FILE *f = fopen("/proc/cmdline", "r");
+		if (f) { if (fgets(cmd, sizeof cmd, f)) { /* read */ } fclose(f); }
+		calm = strstr(cmd, "silver.calm") != NULL;
+	}
 	tcgetattr(tty_fd, &saved_tio);
 	struct termios raw = saved_tio;
 	raw.c_lflag &= ~(ICANON | ECHO | ISIG);
@@ -591,10 +619,9 @@ int main(int argc, char **argv)
 	tcsetattr(tty_fd, TCSANOW, &raw);
 	ioctl(tty_fd, KDSETMODE, KD_GRAPHICS);            /* stop the text console drawing over us */
 	sg_clear(&fb, BLACK); flip();
-	build_ink(); build_title();
+	build_ink();
 	/* the full intro plays once per boot; later sign-ins go straight to the lock screen */
 	if (mkdir("/run/silver-greeter", 0700) == 0) intro();
-	ink_r = 1e9f;
 	tcflush(tty_fd, TCIFLUSH);
 	lock_loop();
 	return 0;

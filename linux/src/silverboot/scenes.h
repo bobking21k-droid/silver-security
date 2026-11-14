@@ -13,14 +13,16 @@
 #include "../common/sgfx.h"
 
 extern void *sb_alloc(size_t bytes);
-extern const uint8_t font_display[], font_text[], font_mono[];
+extern const uint8_t font_scrawl[], font_text[], font_caption[];
 
 #define WHITE RGB(255, 255, 255)
 #define BLACK RGB(0, 0, 0)
 #define INK RGB(12, 12, 14)
 #define TIMEOUT_S 8.0f
 
-static Font FD, FT, FM;                  /* display (bold), text, mono */
+static Font FD, FT, FC;                  /* display (Silver Scrawl), text (Inter), caption (Michroma) */
+#define BLOOD RGB(232, 16, 24)
+static int calm;                         /* calm mode: no strobing, flashes become fades */
 static int W, H;
 static uint32_t *bg_a, *bg_b, *snap, *scene;   /* baked backgrounds (SilverOS / Windows selected), scratch */
 static float U;                          /* layout unit: 1% of the screen height */
@@ -265,46 +267,46 @@ static void arrow(Surf *s, float cx, float cy, float r, int dir, uint32_t c, flo
 }
 static float keycap(Surf *s, float x, float cy, const char *label, int arrow_dir, uint32_t c, float a)
 {
-	float h = U * 3.0f, sz = U * 1.75f;
-	float w = label ? sg_text_w(&FT, label, sz, 0.04f) + U * 1.8f : h;
-	sg_rrect(s, x, cy - h / 2, w, h, U * 0.7f, sg_max(1.2f, U * 0.16f), c, a);
-	if (label) sg_text(s, &FT, x + U * 0.9f, cy + sz * 0.26f, label, sz, c, a, 0.04f);
+	float h = U * 3.0f, sz = U * 1.12f;
+	float w = label ? sg_text_w(&FC, label, sz, 0.14f) + U * 2.2f : h;
+	sg_rrect(s, x, cy - h / 2, w, h, U * 0.45f, sg_max(1.2f, U * 0.16f), c, a);
+	if (label) sg_text(s, &FC, x + U * 1.1f, cy + sz * 0.36f, label, sz, c, a, 0.14f);
 	else arrow(s, x + w / 2, cy, h * 0.42f, arrow_dir, c, a);
 	return x + w;
 }
 static void hints(Surf *s, float x, uint32_t c, float a)
 {
-	float sz = U * 1.75f, cy = H - U * 4.6f;
+	float sz = U * 1.12f, cy = H - U * 4.6f;
 	x = keycap(s, x, cy, 0, -1, c, a) + U * 0.6f;
-	x = keycap(s, x, cy, 0, 1, c, a) + U * 1.2f;
-	x = sg_text(s, &FT, x, cy + sz * 0.26f, "choose", sz, c, a, 0.02f) + U * 3.4f;
-	x = keycap(s, x, cy, "Enter", 0, c, a) + U * 1.2f;
-	sg_text(s, &FT, x, cy + sz * 0.26f, "start", sz, c, a, 0.02f);
+	x = keycap(s, x, cy, 0, 1, c, a) + U * 1.3f;
+	x = sg_text(s, &FC, x, cy + sz * 0.36f, "CHOOSE", sz, c, a, 0.16f) + U * 3.2f;
+	x = keycap(s, x, cy, "ENTER", 0, c, a) + U * 1.3f;
+	sg_text(s, &FC, x, cy + sz * 0.36f, "START", sz, c, a, 0.16f);
 }
 
 /* ================================================================ chooser */
 typedef struct {
 	int sel, windows_found, counting, show_mouse, mx, my;
-	float selblend, scene_t, real_t, burst, idle, timescale, countdown;
+	float selblend, scene_t, real_t, burst, idle, timescale, countdown, flash;
+	int last_sel;
 	const char *err;
 } Chooser;
 
-static const char *SUB_L = "BUILT FROM NOTHING";
 static void bake_backgrounds(const Chooser *c)
 {
 	Surf a = sg_surf(bg_a, W, H), t = sg_surf(snap, W, H);
 	int mid = W / 2, m = (int)(W * 0.03f);
 	white_room(&a, 0, mid + m);
 	landscape(&t, mid - m, W);                            /* composed for the right half */
-	/* titles */
-	float ts = U * 10.5f, by = H * 0.745f, ss = U * 1.9f;
-	sg_text_c(&a, &FD, W * 0.25f, by, "SilverOS", ts, INK, 1, -0.015f);
-	sg_text_c(&a, &FT, W * 0.25f, by + U * 4.6f, SUB_L, ss, RGB(112, 114, 124), 1, 0.34f);
+	/* titles: thick, messy, with tiny wide captions underneath */
+	float ts = U * 11.5f, by = H * 0.735f, ss = U * 1.08f;
+	sg_text_c(&a, &FD, W * 0.25f, by, "SilverOS", ts, INK, 1, 0.0f);
+	sg_text_c(&a, &FC, W * 0.25f, by + U * 4.8f, "BUILT FROM NOTHING", ss, RGB(96, 98, 108), 1, 0.30f);
 	const char *sub = c->windows_found ? "WINDOWS BOOT MANAGER" : "NOT FOUND ON THIS PC";
-	float tw = sg_text_w(&FD, "Windows", ts, -0.015f);
-	sg_text_ex(&t, &FD, W * 0.75f - tw / 2, by + U * 0.5f, "Windows", ts, RGB(8, 50, 20), 0.35f, -0.015f, 0.8f, U * 1.2f);   /* soft shadow */
-	sg_text_c(&t, &FD, W * 0.75f, by, "Windows", ts, WHITE, 1, -0.015f);
-	sg_text_c(&t, &FT, W * 0.75f, by + U * 4.6f, sub, ss, RGB(236, 248, 232), 0.92f, 0.34f);
+	float tw = sg_text_w(&FD, "Windows", ts, 0.0f);
+	sg_text_ex(&t, &FD, W * 0.75f - tw / 2 + U * 0.3f, by + U * 0.5f, "Windows", ts, RGB(4, 36, 12), 0.5f, 0.0f, 0.9f, U * 1.0f);   /* soft shadow */
+	sg_text_c(&t, &FD, W * 0.75f, by, "Windows", ts, WHITE, 1, 0.0f);
+	sg_text_c(&t, &FC, W * 0.75f, by + U * 4.8f, sub, ss, RGB(236, 248, 232), 0.95f, 0.30f);
 	/* join the worlds along the seam: the white room lies on top and casts a shadow */
 	for (int y = 0; y < H; y++) {
 		float sx = seam_x(y + .5f);
@@ -344,7 +346,7 @@ static void chooser_init(Chooser *c)
 		cross_[i].speed = 0.05f + sg_frand() * 0.10f; cross_[i].size = 0.7f + sg_frand() * sg_frand() * 3.0f;
 		cross_[i].spin = (sg_frand() - .5f) * 5; cross_[i].reach = 0.05f + sg_frand() * 0.2f; cross_[i].col = (int)(sg_rand() & 3);
 	}
-	c->sel = 0; c->selblend = 0; c->scene_t = 0; c->real_t = 0; c->burst = 0; c->idle = 99;
+	c->sel = 0; c->last_sel = 0; c->flash = 0; c->selblend = 0; c->scene_t = 0; c->real_t = 0; c->burst = 0; c->idle = 99;
 	c->timescale = 0.08f; c->countdown = TIMEOUT_S; c->counting = 1; c->show_mouse = 0; c->err = 0;
 	c->mx = W / 2; c->my = H / 2;
 	bake_backgrounds(c);
@@ -361,13 +363,16 @@ static void chooser_update(Chooser *c, float dt)
 	c->burst *= 1 - sg_min(1, dt * 2.2f);
 	c->selblend += ((float)c->sel - c->selblend) * sg_min(1, dt * 12);
 	if (c->counting) c->countdown -= dt;
+	if (c->sel != c->last_sel) { c->last_sel = c->sel; c->flash = calm ? 0.35f : 1; }       /* a cut, like a strobe */
+	c->flash *= 1 - sg_min(1, dt * 7);
 }
 
 static void pill(Surf *s, float cx, float cy, const char *label, uint32_t fill, uint32_t ink, float a, float pulse)
 {
-	float sz = U * 1.7f, w = sg_text_w(&FT, label, sz, 0.22f) + U * 4.4f, h = U * 4.0f;
-	sg_rrect(s, cx - w / 2, cy - h / 2, w, h, h / 2, 0, fill, a * (0.82f + 0.18f * pulse));
-	sg_text_c(s, &FT, cx, cy + sz * 0.27f, label, sz, ink, a, 0.22f);
+	float sz = U * 1.25f, w = sg_text_w(&FC, label, sz, 0.2f) + U * 5.0f, h = U * 4.2f;
+	sg_glow(s, cx, cy, w * 0.9f, fill, 0.20f * a * pulse);
+	sg_rrect(s, cx - w / 2, cy - h / 2, w, h, h / 2, 0, fill, a);
+	sg_text_c(s, &FC, cx, cy + sz * 0.36f, label, sz, ink, a, 0.2f);
 }
 
 static void chooser_draw(Surf *s, const Chooser *c)
@@ -392,19 +397,41 @@ static void chooser_draw(Surf *s, const Chooser *c)
 	sg_noclip(s);
 
 	crossing(s, t);
+	float hb = sg_heart(c->real_t, 0.9f);                   /* the seam beats like a heart */
+	for (int y = 0; y < H; y += H / 48) {
+		V2 p0 = {seam_x((float)y), (float)y}, p1 = {seam_x((float)(y + H / 48)), (float)(y + H / 48)};
+		sg_line(s, p0, p1, U * (1.2f + 1.6f * hb), BLOOD, 0.12f + 0.20f * hb);
+		sg_line(s, p0, p1, U * 0.30f, BLOOD, 0.95f);
+	}
 	/* which side is live */
-	float py = H * 0.745f + U * 9.4f;
-	if (b < 0.5f) pill(s, W * 0.25f, py, "PRESS ENTER", INK, WHITE, 1 - 2 * b, pulse);
-	else pill(s, W * 0.75f, py, "PRESS ENTER", WHITE, RGB(16, 70, 160), 2 * b - 1, pulse);
+	float py = H * 0.735f + U * 9.6f;
+	if (b < 0.5f) pill(s, W * 0.25f, py, "PRESS ENTER", BLOOD, WHITE, 1 - 2 * b, pulse);
+	else pill(s, W * 0.75f, py, "PRESS ENTER", WHITE, BLOOD, 2 * b - 1, pulse);
 
-	hints(s, U * 4, RGB(84, 86, 96), 0.8f * (1 - 0.4f * b));
+	hints(s, U * 4, RGB(84, 86, 96), 0.85f * (1 - 0.4f * b));
 	if (c->counting && c->countdown > 0) {                  /* auto-start countdown, under the button */
-		char msg[] = "Starts on its own in 0";
+		char msg[] = "STARTS ON ITS OWN IN 0";
 		msg[21] = (char)('0' + (int)(c->countdown + 0.999f));
-		sg_text_c(s, &FT, W * 0.25f, py + U * 4.9f, msg, U * 1.6f, RGB(120, 122, 132), 1, 0.03f);
-		float bw = U * 20, k = c->countdown / TIMEOUT_S;
-		sg_rrect(s, W * 0.25f - bw / 2, py + U * 5.9f, bw, sg_max(2, U * 0.3f), U * 0.15f, 0, RGB(200, 202, 208), 1);
-		sg_rrect(s, W * 0.25f - bw / 2, py + U * 5.9f, bw * k, sg_max(2, U * 0.3f), U * 0.15f, 0, INK, 1);
+		sg_text_c(s, &FC, W * 0.25f, py + U * 6.2f, msg, U * 0.95f, RGB(112, 114, 124), 1, 0.2f);
+		float bw = U * 22, k = c->countdown / TIMEOUT_S;
+		sg_rect(s, W * 0.25f - bw / 2, py + U * 7.6f, bw, sg_max(2, U * 0.28f), RGB(200, 202, 208), 1);
+		sg_rect(s, W * 0.25f - bw / 2, py + U * 7.6f, bw * k, sg_max(2, U * 0.28f), BLOOD, 1);
+	}
+	sg_text(s, &FC, W - sg_text_w(&FC, calm ? "CALM MODE ON  /  C TO CHANGE" : "CONTAINS FLASHING LIGHTS  /  C FOR CALM MODE", U * 0.8f, 0.2f) - U * 4, H - U * 2.2f,
+		calm ? "CALM MODE ON  /  C TO CHANGE" : "CONTAINS FLASHING LIGHTS  /  C FOR CALM MODE", U * 0.8f, WHITE, 0.62f, 0.2f);
+	if (c->flash > 0.02f) {                                 /* selection strobe: red wash, torn bands, split colour */
+		sg_rect(s, 0, 0, W, H, BLOOD, 0.34f * c->flash);
+		for (int g = 0; g < 5; g++) {
+			int y0 = (int)(sg_frand() * H), hh = 2 + (int)(sg_frand() * H * 0.04f);
+			float sh = (sg_frand() - .5f) * W * 0.05f * c->flash;
+			for (int y = y0; y < y0 + hh && y < H; y++) {
+				uint32_t *row = s->px + y * W;
+				for (int x = (sh > 0 ? W - 1 : 0); sh > 0 ? x >= 0 : x < W; x += (sh > 0 ? -1 : 1)) {
+					int sx = x - (int)sh; sx = sx < 0 ? 0 : sx >= W ? W - 1 : sx;
+					row[x] = (row[sx] & 0x00ffff) | (row[sx > 3 ? sx - 4 : sx] & 0xff0000);
+				}
+			}
+		}
 	}
 	if (c->err) {
 		float w = sg_text_w(&FT, c->err, U * 2.2f, 0.02f) + U * 5;
@@ -456,8 +483,7 @@ static void classic(Surf *s, float t)
 
 static void melt_step(int step)
 {
-	static const uint32_t pal[8] = {RGB(240, 56, 40), RGB(30, 190, 210), RGB(250, 214, 40), RGB(40, 70, 240),
-					RGB(244, 244, 244), RGB(8, 8, 10), RGB(120, 220, 70), RGB(230, 90, 200)};
+	static const uint32_t pal[6] = {RGB(0, 0, 0), RGB(255, 255, 255), RGB(18, 18, 18), RGB(226, 226, 226), RGB(0, 0, 0), RGB(255, 255, 255)};
 	static int16_t v[8192];
 	int w = W < 8192 ? W : 8192;
 	for (int x = 0; x < w; x++) {                           /* each column drips at its own, changing speed */
@@ -468,27 +494,26 @@ static void melt_step(int step)
 		uint32_t *row = melt_px + y * W;
 		for (int x = 0; x < w; x++) { int sy = y - v[x]; row[x] = melt_px[(sy < 0 ? 0 : sy) * W + x]; }
 	}
-	for (int k = 0; k < 5; k++) {                           /* fresh colour seeps in at the top */
+	for (int k = 0; k < 5; k++) {                           /* black and white seeps in at the top */
 		int x0 = (int)(sg_frand() * W), len = (int)((0.01f + sg_frand() * sg_frand() * 0.14f) * W);
-		uint32_t c = (sg_rand() & 3) ? melt_px[((int)(sg_frand() * H)) * W + (int)(sg_frand() * W)] : pal[sg_rand() & 7];
-		if (sg_rand() & 1) c = sg_mix(c, pal[sg_rand() & 7], 0.6f);
+		uint32_t c = (sg_rand() & 3) ? melt_px[((int)(sg_frand() * H)) * W + (int)(sg_frand() * W)] : pal[sg_rand() % 6];
 		for (int x = x0; x < x0 + len && x < W; x++) melt_px[x] = melt_px[W + x] = c;
 	}
 	for (int k = 0; k < 3; k++) {                           /* blocks slip sideways (datamosh) */
 		int bw = (int)((0.04f + sg_frand() * 0.22f) * W), bh = (int)((0.01f + sg_frand() * 0.12f) * H);
 		int sx = (int)(sg_frand() * (W - bw)), sy = (int)(sg_frand() * (H - bh)), dx = (int)((sg_frand() - .5f) * 0.12f * W);
 		int tx = sx + dx; if (tx < 0) tx = 0; if (tx + bw > W) tx = W - bw;
-		uint32_t tint = pal[sg_rand() & 7]; float ta = (sg_rand() & 3) ? 0 : 0.35f;
+		int inv = (sg_rand() & 7) == 0;                       /* now and then a block flips to its negative */
 		for (int y = sy; y < sy + bh; y++) {
 			uint32_t *row = melt_px + y * W;
-			if (tx < sx) for (int x = 0; x < bw; x++) row[tx + x] = sg_mix(row[sx + x], tint, ta);
-			else for (int x = bw - 1; x >= 0; x--) row[tx + x] = sg_mix(row[sx + x], tint, ta);
+			if (tx < sx) for (int x = 0; x < bw; x++) row[tx + x] = inv ? row[sx + x] ^ 0xffffff : row[sx + x];
+			else for (int x = bw - 1; x >= 0; x--) row[tx + x] = inv ? row[sx + x] ^ 0xffffff : row[sx + x];
 		}
 	}
 }
 
 static const struct { float dur; int inv, logo; } FLICK[] = {
-	{0.18f, 0, 0}, {0.50f, 0, 1}, {0.26f, 1, 1}, {0.36f, 0, 1}, {0.16f, 1, 1}, {0.10f, 0, 1}, {0.14f, 1, 1}, {0.55f, 0, 1}};
+	{0.18f, 0, 0}, {0.50f, 0, 1}, {0.26f, 1, 1}, {0.36f, 0, 1}, {0.16f, 1, 1}, {0.09f, 2, 1}, {0.14f, 1, 1}, {0.55f, 0, 1}};
 #define T_CLASSIC 2.8f
 #define T_FLIP 0.62f
 #define T_MELT 3.9f
@@ -519,39 +544,39 @@ static int trans_frame(Surf *s, float t)
 	}
 	t -= T_FLIP;
 	if (t < T_MELT) {                                       /* 3. it melts */
-		if (melt_steps < 0) {
+		if (melt_steps < 0) {                                 /* the flipped, grey image is what melts */
 			classic(s, T_CLASSIC);
 			melt_px = scene;
-			sg_copy(melt_px, s->px, (size_t)W * H * 4);
+			for (int y = 0; y < H; y++)
+				for (int x = 0; x < W; x++) melt_px[y * W + x] = sg_gray(s->px[(H - 1 - y) * W + x]);
 			melt_steps = 0;
 		}
 		int want = (int)(t * 30);                             /* the melt advances 30 steps per second */
 		for (; melt_steps < want; melt_steps++) melt_step(melt_steps);
 		sg_copy(s->px, melt_px, (size_t)W * H * 4);
-		for (int g = 0; g < 7; g++) {                         /* torn bands with split colour channels */
+		for (int g = 0; g < 7; g++) {                         /* torn bands, pushed sideways */
 			int y0 = (int)(sg_frand() * H), hh = 2 + (int)(sg_frand() * H * 0.03f), sh = (int)((sg_frand() - .5f) * W * 0.10f);
 			for (int y = y0; y < y0 + hh && y < H; y++) {
 				uint32_t *row = s->px + y * W; const uint32_t *src = melt_px + y * W;
-				for (int x = 0; x < W; x++) {
-					int a = x - sh, b = a - (int)(U * 1.2f);
-					row[x] = ((a >= 0 && a < W ? src[a] : 0) & 0x00ffff) | ((b >= 0 && b < W ? src[b] : 0) & 0xff0000);
-				}
+				for (int x = 0; x < W; x++) { int a = x - sh; row[x] = a >= 0 && a < W ? src[a] : 0; }
 			}
 		}
 		float u = t / T_MELT;
-		if (u > 0.62f) sg_rect(s, 0, 0, W, H, RGB(28, 18, 10), (u - 0.62f) / 0.38f * 0.72f);   /* sinks into the dark */
+		if (u > 0.62f) sg_rect(s, 0, 0, W, H, BLACK, (u - 0.62f) / 0.38f * 0.80f);   /* sinks into the dark */
 		return 0;
 	}
 	t -= T_MELT;
 	float size = H * 0.34f, zoom = 1 + t * 0.03f;
 	for (unsigned i = 0; i < sizeof FLICK / sizeof FLICK[0]; i++) {       /* 4. white flash, the logo flickers */
 		if (t < FLICK[i].dur) {
-			uint32_t bgc = FLICK[i].inv ? RGB(6, 6, 10) : RGB(250, 250, 246), fg = FLICK[i].inv ? RGB(248, 248, 248) : RGB(66, 68, 78);
+			int inv = calm ? 0 : FLICK[i].inv;
+			uint32_t bgc = inv == 2 ? BLOOD : inv ? RGB(6, 6, 10) : RGB(250, 250, 246), fg = inv == 2 ? BLACK : inv ? RGB(248, 248, 248) : RGB(66, 68, 78);
 			sg_clear(s, bgc);
 			if (FLICK[i].logo) {
 				float jx = (sg_frand() < 0.12f) ? (sg_frand() - .5f) * U : 0;
-				if (FLICK[i].inv) sg_glow(s, W / 2.0f, H / 2.0f, size * 1.25f, WHITE, 0.22f);
-				else sg_blob(s, W / 2.0f, H / 2.0f + size * 0.06f, size * 0.9f, size * 0.9f, RGB(120, 124, 140), 0.22f);
+				if (inv == 1) sg_glow(s, W / 2.0f, H / 2.0f, size * 1.25f, WHITE, 0.22f);
+				else if (inv == 2) sg_glow(s, W / 2.0f, H / 2.0f, size * 1.3f, BLACK, 0.0f);
+				else if (!inv) sg_blob(s, W / 2.0f, H / 2.0f + size * 0.06f, size * 0.9f, size * 0.9f, RGB(120, 124, 140), 0.22f);
 				logo4(s, W / 2.0f + jx, H / 2.0f, size * zoom, fg, fg, fg, fg, 1);
 			}
 			return 0;
@@ -573,57 +598,48 @@ static int trans_frame(Surf *s, float t)
 typedef struct { char cpu[64], gpu[48], ram[32], disk[48]; int ok[4]; } SysInfo;
 #define T_CHECKS 4.6f
 
-static void tick(Surf *s, float cx, float cy, float r, float a, float pop)
-{
-	float w = sg_max(1.6f, r * 0.24f);
-	sg_ring(s, cx, cy, r * (1 + 0.5f * pop), sg_max(1.2f, r * 0.14f), WHITE, a * (1 - pop) * 0.9f + a * 0.0f);
-	sg_glow(s, cx, cy, r * 2.4f, WHITE, 0.18f * a);
-	sg_line(s, (V2){cx - r * 0.42f, cy + r * 0.02f}, (V2){cx - r * 0.10f, cy + r * 0.34f}, w, WHITE, a);
-	sg_line(s, (V2){cx - r * 0.10f, cy + r * 0.34f}, (V2){cx + r * 0.46f, cy - r * 0.32f}, w, WHITE, a);
-}
-static void cross_mark(Surf *s, float cx, float cy, float r, float a)
-{
-	float w = sg_max(1.6f, r * 0.24f);
-	sg_line(s, (V2){cx - r * 0.35f, cy - r * 0.35f}, (V2){cx + r * 0.35f, cy + r * 0.35f}, w, WHITE, a);
-	sg_line(s, (V2){cx + r * 0.35f, cy - r * 0.35f}, (V2){cx - r * 0.35f, cy + r * 0.35f}, w, WHITE, a);
-}
-
 static int checks_frame(Surf *s, float t, const SysInfo *si)
 {
 	static const char *name[4] = {"CPU", "GPU", "RAM", "STORAGE"};
 	const char *info[4] = {si->cpu, si->gpu, si->ram, si->disk};
-	float x0 = W * 0.16f, row0 = H * 0.44f, dy = U * 9.2f, ms = U * 3.5f;
-	float fade = sg_smooth(t / 0.35f) * (1 - sg_smooth((t - (T_CHECKS - 0.45f)) / 0.45f));
-	sg_clear(s, RGB(4, 4, 5));
-	sg_glow(s, W * 0.3f, H * 0.5f, H * 0.9f, RGB(255, 255, 255), 0.035f * fade);
-	sg_text(s, &FT, x0, H * 0.20f, "SILVER OS", U * 1.8f, RGB(150, 150, 156), fade, 0.5f);
-	sg_text(s, &FD, x0, H * 0.20f + U * 8.4f, "System check", U * 7.0f, WHITE, fade, -0.01f);
+	float x0 = W * 0.115f, row0 = H * 0.47f, dy = U * 9.4f, ns = U * 1.9f;
+	float fade = sg_smooth(t / 0.30f) * (1 - sg_smooth((t - (T_CHECKS - 0.4f)) / 0.4f));
+	float hb = sg_heart(t, 0.9f);
+	sg_clear(s, BLACK);
+	sg_glow(s, W * 0.5f, H * 1.12f, H * 0.95f, BLOOD, (0.10f + 0.10f * hb) * fade);              /* a red glow from below, beating */
+	sg_text(s, &FC, x0, H * 0.155f, "SILVER OS  //  BOOT", U * 1.0f, RGB(130, 130, 136), fade, 0.30f);
+	sg_text(s, &FD, x0 + U * 0.5f, H * 0.155f + U * 10.2f, "SYSTEM CHECK", U * 8.6f, BLOOD, fade * 0.85f, 0.0f);          /* red echo, offset */
+	sg_text(s, &FD, x0, H * 0.155f + U * 10.2f, "SYSTEM CHECK", U * 8.6f, WHITE, fade, 0.0f);
 	float done = 0;
 	for (int i = 0; i < 4; i++) {
 		float ti = t - 0.55f - i * 0.72f, y = row0 + i * dy;
 		if (ti < 0) break;
-		float in = sg_ease_out(ti / 0.25f);
-		float jit = (ti < 0.2f && (sg_rand() & 3) == 0) ? (sg_frand() - .5f) * U * 1.5f : 0;   /* a flicker as it appears */
-		sg_text_ex(s, &FM, x0 + jit - (1 - in) * U * 2, y, name[i], ms, WHITE, in * fade, 0.06f, 0.5f, U * 0.9f);
-		float lx0 = x0 + U * 21, lx1 = x0 + U * 44, k = sg_sat((ti - 0.1f) / 0.42f);
-		for (int d = 0; d < 14; d++) {                        /* dotted leader fills in */
-			float f = d / 13.f;
-			if (f <= k) sg_disc(s, lx0 + (lx1 - lx0) * f, y - ms * 0.26f, sg_max(1.1f, U * 0.22f), RGB(150, 150, 156), fade * (0.35f + 0.65f * sg_sat((k - f) * 6)));
+		float in = sg_ease_out(ti / 0.22f);
+		float jit = (ti < 0.18f && (sg_rand() & 3) == 0) ? (sg_frand() - .5f) * U * 1.6f : 0;       /* a flicker as it appears */
+		sg_text(s, &FC, x0 + jit - (1 - in) * U * 2, y, name[i], ns, WHITE, in * fade, 0.22f);
+		float lx0 = x0 + U * 24, lx1 = x0 + U * 46, k = sg_sat((ti - 0.1f) / 0.40f);
+		for (int d = 0; d < 16; d++) {                        /* dotted leader fills in, red */
+			float f = d / 15.f;
+			if (f <= k) sg_disc(s, lx0 + (lx1 - lx0) * f, y - ns * 0.30f, sg_max(1.1f, U * 0.24f), BLOOD, fade * (0.30f + 0.70f * sg_sat((k - f) * 6)));
 		}
 		float tc = ti - 0.52f;
 		if (tc > 0) {
-			float pop = 1 - sg_ease_out(tc / 0.3f);
-			if (si->ok[i]) tick(s, lx1 + U * 4.2f, y - ms * 0.27f, U * 1.9f * (1 + 0.25f * pop), fade, pop);
-			else cross_mark(s, lx1 + U * 4.2f, y - ms * 0.27f, U * 1.9f, fade);
-			sg_text(s, &FT, lx1 + U * 9, y - ms * 0.04f, info[i], U * 2.25f, RGB(168, 168, 174), sg_sat(tc / 0.3f) * fade, 0.01f);
-			done = (i + sg_sat(tc / 0.3f)) / 4.f + 0;
+			float pop = 1 - sg_ease_out(tc / 0.3f), cx = lx1 + U * 3.4f, cy = y - ns * 0.32f;
+			if (si->ok[i]) {
+				sg_glow(s, cx, cy, U * 4.6f * (1 + pop), BLOOD, 0.55f * fade * (0.6f + 0.4f * hb));
+				sg_disc(s, cx, cy, U * 1.05f * (1 + 0.5f * pop), BLOOD, fade);
+				sg_text(s, &FC, cx + U * 2.2f, y, "OK", ns, BLOOD, fade, 0.22f);
+			} else sg_text(s, &FC, cx - U * 1.0f, y, "FAIL", ns, WHITE, fade, 0.22f);
+			sg_text(s, &FT, lx1 + U * 12.5f, y - ns * 0.05f, info[i], U * 2.2f, RGB(176, 176, 182), sg_sat(tc / 0.3f) * fade, 0.01f);
+			done = (i + sg_sat(tc / 0.3f)) / 4.f;
 		}
 	}
-	float bx = x0, bw = W - 2 * x0, by = H * 0.875f;
-	sg_rrect(s, bx, by, bw, sg_max(2, U * 0.36f), U * 0.2f, 0, RGB(48, 48, 52), fade);
-	sg_rrect(s, bx, by, bw * sg_sat(done + 0.02f), sg_max(2, U * 0.36f), U * 0.2f, 0, WHITE, fade);
+	float bx = x0, bw = W - 2 * x0, by = H * 0.885f;
+	sg_rect(s, bx, by, bw, sg_max(2, U * 0.30f), RGB(44, 44, 48), fade);
+	sg_rect(s, bx, by, bw * sg_sat(done + 0.02f), sg_max(2, U * 0.30f), BLOOD, fade);
 	if (t > 0.55f + 3 * 0.72f + 0.9f)
-		sg_text(s, &FT, bx, by - U * 2.0f, "Starting SilverOS", U * 1.9f, WHITE, fade * sg_sat((t - (0.55f + 3 * 0.72f + 0.9f)) / 0.3f), 0.04f);
+		sg_text(s, &FC, bx, by - U * 2.2f, "STARTING SILVEROS", U * 1.05f, WHITE, fade * sg_sat((t - (0.55f + 3 * 0.72f + 0.9f)) / 0.3f), 0.28f);
+	sg_text_c(s, &FC, W / 2.0f, H - U * 3.0f, "-- PLEASE WAIT --", U * 0.8f, RGB(110, 110, 116), fade * (0.5f + 0.5f * sg_heart(t, 1.8f)), 0.3f);
 	for (int y = 1; y < H; y += 3) {                          /* faint scanlines */
 		uint32_t *row = s->px + y * W;
 		for (int x = 0; x < W; x++) row[x] = (row[x] >> 1) & 0x7f7f7f;
@@ -692,7 +708,7 @@ static int shatter_frame(Surf *s, float t)
 static int scenes_init(int w, int h)
 {
 	W = w; H = h; U = H / 100.0f;
-	if (sg_font_load(&FD, font_display) || sg_font_load(&FT, font_text) || sg_font_load(&FM, font_mono)) return -1;
+	if (sg_font_load(&FD, font_scrawl) || sg_font_load(&FT, font_text) || sg_font_load(&FC, font_caption)) return -1;
 	bg_a = sb_alloc((size_t)W * H * 4); bg_b = sb_alloc((size_t)W * H * 4);
 	snap = sb_alloc((size_t)W * H * 4); scene = sb_alloc((size_t)W * H * 4);
 	return bg_a && bg_b && snap && scene ? 0 : -1;

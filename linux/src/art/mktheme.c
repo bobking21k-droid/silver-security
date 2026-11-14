@@ -45,8 +45,8 @@ int main(int argc, char **argv)
 	white_room(&s, 0, W);
 	sg_blob(&s, W / 2.0f, 96, 150, 9, BLACK, 0.10f);
 	pencil(&s, W / 2.0f, 58, 7.2f, 2.0f, 0.12f, 0);
-	sg_text_c(&s, &FD, W / 2.0f, 168, name, 62, INK, 1, -0.015f);
-	sg_text_c(&s, &FT, W / 2.0f, 200, "CHOOSE YOUR SYSTEM", 13.5f, RGB(112, 114, 124), 1, 0.34f);
+	sg_text_c(&s, &FD, W / 2.0f, 172, name, 66, INK, 1, 0.0f);
+	sg_text_c(&s, &FC, W / 2.0f, 202, "CHOOSE YOUR SYSTEM", 10.5f, RGB(96, 98, 108), 1, 0.30f);
 	uint32_t hc = RGB(84, 86, 96);
 	float x = W / 2.0f - 150, cy = H - 44, sz = 13;
 	sg_rrect(&s, x, cy - 11, 22, 22, 5, 1.3f, hc, 0.8f); varrow(&s, x + 11, cy, 9, -1, hc, 0.8f); x += 27;

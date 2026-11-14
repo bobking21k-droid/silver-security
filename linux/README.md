@@ -9,23 +9,33 @@ and soon the desktop down to the pixel.
 
 ## Power-on experience
 
+The look is stark and gritty: black, vivid red and white, thick messy lettering, tiny wide
+captions, and a heartbeat that runs through everything. (It takes its mood from a game-intro
+reference, not its content.)
+
 1. **The chooser** (`src/silverboot`, our own UEFI program in C): the screen splits exactly in
-   half along a torn seam. On the left is SilverOS: a bright white room where a broken, flat-shaded
-   3D pencil turns slowly in the air among its splinters, and time crawls until you press a key
-   or move the mouse. On the right is Windows, in full colour: sky, sun, clouds, rolling hills
-   and four glass panes. Shards of each world drift across the seam into the other. The side
-   you are not on steps back into grey. Use <- -> or the mouse, then press Enter or click;
-   `1` and `2` jump straight to SilverOS or Windows. It starts SilverOS after 8 s if untouched.
+   half along a torn seam that glows red and beats like a heart. On the left is SilverOS: a
+   bright white room where a broken, flat-shaded 3D pencil turns slowly in the air among its
+   splinters, and time crawls until you press a key or move the mouse. On the right is
+   Windows, in full colour: sky, sun, clouds, hills and four glass panes. Shards of each world
+   drift across the seam into the other, and every change of selection cuts with a brief red
+   strobe. Use <- -> or the mouse, then press Enter or click; `1` and `2` jump straight to a
+   system; `C` turns on calm mode (no strobing). It starts SilverOS after 8 s if untouched.
 2. **Pick SilverOS:** a full-screen classic Windows boot scene appears, flips upside-down in
-   grey, then melts: columns drip at their own speeds, blocks slip sideways, colour seeps in.
-   A white flash, the four-pane logo flickers between light and dark, and then a black-and-white
-   system check runs (CPU, GPU, RAM, STORAGE) with values read from the real hardware.
-3. **The greeter** (`src/greeter`): a marker scribbles the screen black, "Silver OS" is written
-   by hand, a chrome pen slides in under it and snaps, and liquid silver floods out from the
-   break until it is the background. The title settles bottom-right and the lock screen appears:
-   clock, date and a frosted-glass card. Press Enter: no password. The intro plays once per
-   boot; any key skips it.
+   grey, then melts, in pure black and white: columns drip at their own speeds, blocks slip
+   sideways and flip to negative. A white flash, the four-pane logo flickers (with one red cut),
+   and then the system check runs (CPU, GPU, RAM, STORAGE) with values read from the real
+   hardware, each confirmed by a beating red dot.
+3. **The greeter** (`src/greeter`): a red dot beats in the dark. "SILVER OS" slams in letter by
+   letter. A chrome pen rises up the middle, strains and snaps, and from the break red spurts
+   out in heartbeat pulses (lub-dub, lub-dub) like a cut heart. Every pulse thumps the screen and
+   surges the red outward until it is the background. A red flash, and the title settles
+   bottom-right over the lock screen: clock, date and a hard-edged card. Press Enter: no
+   password. The intro plays once per boot; any key skips it. Add `silver.calm` to the kernel
+   command line to turn off its shake and flashes.
 4. **Pick Windows:** the screen shatters like glass and Windows Boot Manager starts as normal.
+
+Both the chooser and the intro contain flashing lights; they say so on screen.
 
 ### How it is drawn
 
@@ -38,9 +48,12 @@ artwork. Screens above 2100 px wide are drawn at half size and shown doubled, to
 `scripts/render-demo.sh` renders videos of the whole experience on the build machine with the
 exact code that ships, so the look can be changed and reviewed without rebooting anything.
 
-Fonts: Inter (titles and labels) and JetBrains Mono (system check), both under the SIL Open
-Font License 1.1. They are baked into `src/common/fonts/*.sdf` by `src/art/mkfont.py` and
-committed, so building needs neither the font files nor that script's dependencies.
+Fonts: **Silver Scrawl**, a thick, messy display face made for SilverOS by `src/art/mkfont.py
+--messy` (it fattens Bowlby One and roughens its outline: wobble, bumps, grit, dry-brush bites,
+splatter, and a different tilt, size and baseline for every letter); Michroma for the tiny wide
+captions; Inter for readable sentences. All under the SIL Open Font License 1.1 (see
+`src/common/fonts/LICENSES.md`). They are baked into `src/common/fonts/*.sdf` and committed, so
+building needs neither the font files nor that script's dependencies.
 
 ## What's in it
 

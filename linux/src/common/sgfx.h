@@ -35,6 +35,14 @@ static inline float sg_lerp(float a, float b, float t) { return a + (b - a) * t;
 static inline float sg_smooth(float x) { x = sg_sat(x); return x * x * (3 - 2 * x); }
 static inline float sg_ease_out(float x) { x = 1 - sg_sat(x); return 1 - x * x * x; }
 static inline float sg_ease_io(float x) { x = sg_sat(x); return x < .5f ? 4 * x * x * x : 1 - (2 - 2 * x) * (2 - 2 * x) * (2 - 2 * x) / 2; }
+/* a heartbeat: "lub-dub" once per `period` seconds. 0..1, sharp attack, quick fall. */
+static inline float sg_bump(float x, float w) { x = x < 0 ? -x : x; if (x >= w) return 0; x = 1 - (x / w) * (x / w); return x * x; }
+static float sg_heart(float t, float period)
+{
+	float ph = t / period; ph -= (float)(int)ph;
+	float a = sg_bump(ph - 0.07f, 0.10f), b = 0.62f * sg_bump(ph - 0.30f, 0.085f);
+	return a > b ? a : b;
+}
 static float sg_sin(float x)
 {
 	x -= sg_floor(x / (2 * SG_PI)) * 2 * SG_PI;
