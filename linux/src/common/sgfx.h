@@ -300,28 +300,52 @@ static void sg_blur(uint32_t *img, uint32_t *tmp, int w, int h, int r, int passe
 }
 
 /* ------------------------------------------------------------------ text (SDF fonts) */
-typedef struct { const uint8_t *glyphs, *tex; int em, spread, ascent, descent, cap, n; } Font;
+typedef struct { const uint8_t *glyphs, *tex; int em, spread, ascent, descent, cap, n, nr; uint32_t rs[16], re[16]; int ri[16]; } Font;
 
 static inline int sg_rd16(const uint8_t *p) { return (int16_t)(p[0] | p[1] << 8); }
 static inline uint32_t sg_rd32(const uint8_t *p) { return p[0] | p[1] << 8 | p[2] << 16 | (uint32_t)p[3] << 24; }
 static int sg_font_load(Font *f, const uint8_t *blob)
 {
-	if (blob[0] != 'S' || blob[1] != 'S' || blob[2] != 'D' || blob[3] != 'F') return -1;
+	if (blob[0] != 'S' || blob[1] != 'S' || blob[2] != 'D' || blob[3] != '2') return -1;
 	f->em = sg_rd16(blob + 4); f->spread = sg_rd16(blob + 6); f->ascent = sg_rd16(blob + 8);
-	f->descent = sg_rd16(blob + 10); f->cap = sg_rd16(blob + 12); f->n = sg_rd16(blob + 14);
-	f->glyphs = blob + 16; f->tex = f->glyphs + f->n * 14;
+	f->descent = sg_rd16(blob + 10); f->cap = sg_rd16(blob + 12); f->nr = sg_rd16(blob + 14);
+	if (f->nr > 16) return -1;
+	const uint8_t *p = blob + 16;
+	int idx = 0;
+	for (int i = 0; i < f->nr; i++, p += 8) { f->rs[i] = sg_rd32(p); f->re[i] = sg_rd32(p + 4); f->ri[i] = idx; idx += (int)(f->re[i] - f->rs[i] + 1); }
+	f->n = idx; f->glyphs = p; f->tex = p + idx * 14;
+	return 0;
+}
+/* next code point of a UTF-8 string; invalid bytes come back as U+FFFD */
+static uint32_t sg_utf8(const char **sp)
+{
+	const uint8_t *s = (const uint8_t *)*sp;
+	uint32_t c = *s++;
+	if (c < 0x80) { *sp = (const char *)s; return c; }
+	int n = c >= 0xF0 ? 3 : c >= 0xE0 ? 2 : c >= 0xC0 ? 1 : 0;
+	if (!n) { *sp = (const char *)s; return 0xFFFD; }
+	c &= (0x3F >> n);
+	while (n-- && (*s & 0xC0) == 0x80) c = (c << 6) | (*s++ & 0x3F);
+	*sp = (const char *)s;
+	return c;
+}
+/* glyph record for a code point, or NULL if the font does not have it */
+static const uint8_t *sg_glyph(const Font *f, uint32_t cp)
+{
+	for (int i = 0; i < f->nr; i++) if (cp >= f->rs[i] && cp <= f->re[i]) return f->glyphs + (f->ri[i] + (int)(cp - f->rs[i])) * 14;
 	return 0;
 }
 /* width of a string at `size` (em height in px); tracking is extra space per glyph, in em */
 static float sg_text_w(const Font *f, const char *str, float size, float tracking)
 {
-	float sc = size / f->em, w = 0;
-	for (; *str; str++) {
-		int ch = (unsigned char)*str;
-		if (ch < 32 || ch >= 32 + f->n) ch = '?';
-		w += (uint16_t)sg_rd16(f->glyphs + (ch - 32) * 14 + 12) / 64.f * sc + tracking * size;
+	float sc = size / f->em, w = 0; int n = 0;
+	while (*str) {
+		uint32_t cp = sg_utf8(&str);
+		const uint8_t *g = sg_glyph(f, cp);
+		if (!g) continue;                                   /* symbols the font lacks (emoji...) take no room */
+		w += (uint16_t)sg_rd16(g + 12) / 64.f * sc + tracking * size; n++;
 	}
-	return w - tracking * size;
+	return n ? w - tracking * size : 0;
 }
 /* Draw text with its baseline at y. glow > 0 adds a soft halo of `glow_px` pixels (limited by
  * the font's baked spread). Returns the x position after the last glyph. */
@@ -330,10 +354,10 @@ static float sg_text_ex(Surf *s, const Font *f, float x, float y, const char *st
 {
 	float sc = size / f->em, inv = 1 / sc, dist = (float)f->spread * sc / 127.f;
 	if (glow_px > f->spread * sc * 0.92f) glow_px = f->spread * sc * 0.92f;   /* the halo must end inside the glyph cell */
-	for (; *str; str++) {
-		int ch = (unsigned char)*str;
-		if (ch < 32 || ch >= 32 + f->n) ch = '?';
-		const uint8_t *g = f->glyphs + (ch - 32) * 14;
+	while (*str) {
+		uint32_t cp = sg_utf8(&str);
+		const uint8_t *g = sg_glyph(f, cp);
+		if (!g) continue;
 		int gw = (uint16_t)sg_rd16(g + 4), gh = (uint16_t)sg_rd16(g + 6);
 		float adv = (uint16_t)sg_rd16(g + 12) / 64.f * sc;
 		if (gw && gh) {

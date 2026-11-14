@@ -70,6 +70,12 @@ cp "$e2/e2fsck/e2fsck" "$WORK/stage/sbin/e2fsck"
 # ---- silver-efiboot: our own UEFI boot-entry manager ----
 $CC $HARDEN -static -Wall -Wextra -o "$WORK/stage/sbin/silver-efiboot" "$TOP/src/tools/silver-efiboot.c"
 
+# ---- silver-fetch: HTTPS downloads with certificate checking (BearSSL), used by the greeter's YouTube search ----
+bs="$BUILD/bearssl-$BEARSSL_VER"
+[[ -d "$bs" ]] || tar -C "$BUILD" -xf "$SOURCES/bearssl-$BEARSSL_VER.tar.gz"
+make -C "$bs" -j"$(nproc)" CC="$CC" LD="$CC" AR=ar CFLAGS="-W -Wall -Os -fPIC -fstack-protector-strong" lib >/dev/null
+$CC $HARDEN -static -DBUILD_EPOCH="$(date +%s)" -I"$bs/inc" -o "$WORK/stage/sbin/silver-fetch" "$TOP/src/tools/silver-fetch.c" "$bs/build/libbearssl.a"
+
 # ---- silver-greeter: graphical login on the framebuffer ----
 $CC $HARDEN -O2 -fno-math-errno -static -Wall -Wextra -Wno-unused-function -DFONT_DIR="\"$TOP/src/common/fonts\"" \
     -o "$WORK/stage/sbin/silver-greeter" "$TOP/src/greeter/silver-greeter.c" -lm

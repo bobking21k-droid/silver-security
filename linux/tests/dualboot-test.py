@@ -100,7 +100,7 @@ for at, name in [(2.0, "intro-1"), (6.0, "intro-2"), (9.0, "intro-3"), (12.0, "i
 vm.key("right"); time.sleep(1); vm.key("down"); time.sleep(1.5); vm.shot("home-files-selected")
 vm.key("ret"); time.sleep(2.5); vm.shot("files")
 vm.key("down"); time.sleep(1.5); vm.shot("files-2"); vm.key("esc"); time.sleep(1.5)
-vm.key("up"); time.sleep(0.8); vm.key("ret"); time.sleep(2); vm.key("s"); time.sleep(1); vm.key("y"); time.sleep(1.5); vm.shot("search")
+vm.key("up"); time.sleep(0.8); vm.key("ret"); time.sleep(2); vm.key("l"); time.sleep(0.5); vm.key("o"); time.sleep(0.5); vm.key("f"); time.sleep(0.5); vm.key("i"); time.sleep(0.5); vm.key("ret"); time.sleep(6); vm.shot("search")
 vm.key("esc"); time.sleep(1.5); vm.key("left"); time.sleep(0.8); vm.key("ret"); time.sleep(2.5); vm.shot("settings")
 vm.key("esc"); time.sleep(1.5); vm.key("down"); time.sleep(0.8); vm.key("ret"); time.sleep(2.5); vm.shot("apps")
 vm.key("ret"); time.sleep(5); vm.shot("terminal")                                  # Terminal: a shell on tty1, as the user

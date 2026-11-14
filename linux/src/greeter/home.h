@@ -393,45 +393,7 @@ static void sys_read(Sys *s, float t)
 #endif
 }
 
-/* ================================================================ search index */
-typedef struct { char name[64]; char path[200]; int kind; } SItem;     /* kind: 0 app, 1 setting, 2 file, 3 folder */
-#define MAXITEM 3500
-static SItem *sitems; static int nsit;
-static void add_item(const char *name, const char *path, int kind)
-{
-	if (nsit >= MAXITEM) return;
-	snprintf(sitems[nsit].name, sizeof sitems[0].name, "%s", name); snprintf(sitems[nsit].path, sizeof sitems[0].path, "%s", path); sitems[nsit].kind = kind; nsit++;
-}
-#ifndef RENDER
-static void walk_dir(const char *path, int depth)
-{
-	if (depth > 5 || nsit >= MAXITEM) return;
-	DIR *d = opendir(path);
-	struct dirent *de;
-	if (!d) return;
-	while ((de = readdir(d)) && nsit < MAXITEM) {
-		if (de->d_name[0] == '.') continue;
-		char full[512]; struct stat st;
-		snprintf(full, sizeof full, "%s/%s", path, de->d_name);
-		if (lstat(full, &st)) continue;
-		if (S_ISDIR(st.st_mode)) { add_item(de->d_name, full, 3); walk_dir(full, depth + 1); }
-		else if (S_ISREG(st.st_mode)) add_item(de->d_name, full, 2);
-	}
-	closedir(d);
-}
-#endif
-static void build_index(void)
-{
-	if (sitems) return;
-	sitems = malloc(sizeof(SItem) * MAXITEM); nsit = 0;
-	add_item("Terminal", "app", 0); add_item("System Monitor", "app", 0); add_item("About SilverOS", "app", 0);
-	add_item("Network", "setting", 1); add_item("Display", "setting", 1); add_item("Calm mode", "setting", 1); add_item("Restart", "setting", 1); add_item("Shut down", "setting", 1);
-#ifdef RENDER
-	for (unsigned i = 0; i < sizeof MOCK / sizeof MOCK[0]; i++) add_item(strrchr(MOCK[i].path, '/') + 1, MOCK[i].path, MOCK[i].dir ? 3 : 2);
-#else
-	walk_dir(homedir, 0); walk_dir("/etc", 3);
-#endif
-}
+#include "search.h"
 
 /* ================================================================ drawing helpers */
 static void fit(const char *s, float size, float maxw, char *out, size_t n)
@@ -451,7 +413,9 @@ typedef struct {
 	int row;                                /* current row in a list */
 	int top;                                /* first visible row */
 	int sub;                                /* 0 list, 1 monitor, 2 about */
-	char query[48]; int nres, res[64];
+	Search sr; int sr_ready;                 /* the file search engine (Files only) */
+	int fs, fs_scope;                        /* Files: searching, and what in (0 names, 1 text) */
+	int focus;                               /* YouTube search: 0 box, 1 results */
 	int files_sel[16], depth;               /* remembered selection per directory level */
 	int confirm;                            /* settings: which dangerous row awaits a second Enter */
 	float cpu_hist[90]; int hn; float last_sample;
@@ -476,13 +440,20 @@ static void foot_hints(const char *s)
 	cap_text(W - U * 6.0f, H - U * 3.4f, w, U * 1.05f, RGB(120, 120, 126), 1, 1);
 }
 
+static void ui_card(float x, float y, float w, float h, float r, uint32_t fill, float a, float shadow);
 static void row_box(float x, float y, float w, float h, int sel, float pulse)
 {
+	(void)pulse;
+	float g = U * 0.35f, r = U * 1.1f;
 	if (sel) {
-		sg_rect(&fb, x, y, w, h, WHITE, 0.94f);
-		sg_rect(&fb, x, y, U * 0.5f, h, RED, 1);
-		(void)pulse;
-	} else sg_rect(&fb, x, y + h - 1, w, 1, WHITE, 0.08f);
+		sg_blob(&fb, x + w / 2, y + h / 2 + U * 0.8f, w * 0.56f, h * 0.9f, BLACK, 0.5f);
+		sg_rrect(&fb, x, y + g, w, h - 2 * g, r, 0, WHITE, 0.95f);
+		sg_rrect(&fb, x, y + g, w, (h - 2 * g) * 0.5f, r, 0, WHITE, 0.25f);
+		sg_rrect(&fb, x + U * 0.7f, y + h * 0.28f, U * 0.42f, h * 0.44f, U * 0.21f, 0, RED, 1);
+	} else {
+		sg_rrect(&fb, x, y + g, w, h - 2 * g, r, 0, WHITE, 0.045f);
+		sg_rrect(&fb, x, y + g, w, h - 2 * g, r, sg_max(1, U * 0.1f), WHITE, 0.06f);
+	}
 }
 
 /* ---------------------------------------------------------------- files */
@@ -512,8 +483,7 @@ static void draw_files(Home *h, float t)
 	}
 	/* preview pane */
 	float px = W * 0.62f, pw = W - px - U * 6, py = ly, ph = H - ly - U * 9;
-	sg_rect(&fb, px, py, pw, ph, BLACK, 0.55f);
-	sg_rect(&fb, px, py, pw, sg_max(1.5f, U * 0.18f), WHITE, 0.35f);
+	ui_card(px, py, pw, ph, U * 1.6f, BLACK, 0.55f, 0.4f);
 	if (nent && !ents[h->row].dir) {
 		FEnt *e = &ents[h->row];
 		char nm[128]; fit(e->name, U * 2.4f, pw - U * 4, nm, sizeof nm);
@@ -533,53 +503,7 @@ static void draw_files(Home *h, float t)
 	(void)t;
 }
 
-/* ---------------------------------------------------------------- search */
-static int match(const char *hay, const char *needle)
-{
-	if (!*needle) return 1;
-	size_t n = strlen(needle);
-	for (; *hay; hay++) if (!strncasecmp(hay, needle, n)) return 1;
-	return 0;
-}
-static void do_search(Home *h)
-{
-	build_index();
-	h->nres = 0;
-	for (int i = 0; i < nsit && h->nres < 64; i++)
-		if (match(sitems[i].name, h->query) && (h->query[0] || sitems[i].kind < 2)) h->res[h->nres++] = i;
-	if (h->row >= h->nres) h->row = h->nres ? h->nres - 1 : 0;
-}
-static void draw_search(Home *h, float t)
-{
-	memcpy(fb.px, bg_sec, (size_t)W * H * 4);
-	title_block("SEARCH", "FILES  APPS  SETTINGS", I_SEARCH);
-	float lx = U * 6, lw = W - U * 12, by = U * 24;
-	sg_rect(&fb, lx, by, lw, U * 7.4f, BLACK, 0.6f);
-	sg_rect(&fb, lx, by + U * 7.4f - sg_max(2, U * 0.3f), lw, sg_max(2, U * 0.3f), RED, 1);
-	icon(I_SEARCH, lx + U * 3.6f, by + U * 3.7f, U * 1.7f, WHITE, 1);
-	float tx = lx + U * 7.2f;
-	if (!h->query[0]) sg_text(&fb, &FT, tx, by + U * 4.7f, "Type to search", U * 2.8f, RGB(120, 120, 126), 1, 0.01f);
-	float qx = sg_text(&fb, &FT, tx, by + U * 4.7f, h->query, U * 2.8f, WHITE, 1, 0.01f);
-	if ((int)(t * 2) & 1) sg_rect(&fb, qx + U * 0.3f, by + U * 1.5f, sg_max(2, U * 0.3f), U * 4.4f, WHITE, 1);
-	float ly = by + U * 10.5f, rh = U * 5.4f;
-	int vis = (int)((H - ly - U * 9) / rh);
-	if (h->row < h->top) h->top = h->row;
-	if (h->row >= h->top + vis) h->top = h->row - vis + 1;
-	static const char *tag[4] = {"APP", "SETTING", "FILE", "FOLDER"};
-	static const int ik[4] = {I_APPS, I_SETTINGS, I_FILE, I_FOLDER};
-	if (!h->nres) sg_text(&fb, &FT, lx, ly + U * 4, "Nothing found", U * 2.2f, RGB(150, 150, 156), 1, 0.01f);
-	for (int i = 0; i < vis && h->top + i < h->nres; i++) {
-		SItem *it = &sitems[h->res[h->top + i]];
-		float y = ly + i * rh; int sel = h->top + i == h->row;
-		row_box(lx, y, lw, rh, sel, 0);
-		icon(ik[it->kind], lx + U * 3.4f, y + rh / 2, U * 1.6f, sel ? INK : WHITE, 1);
-		char nm[96]; fit(it->name, U * 2.2f, lw * 0.4f, nm, sizeof nm);
-		sg_text(&fb, &FT, lx + U * 7, y + rh / 2 + U * 0.8f, nm, U * 2.2f, sel ? INK : WHITE, 1, 0.01f);
-		if (it->kind >= 2) { char pth[200]; fit(it->path, U * 1.5f, lw * 0.42f, pth, sizeof pth); sg_text(&fb, &FT, lx + lw * 0.45f, y + rh / 2 + U * 0.6f, pth, U * 1.5f, sel ? RGB(70, 70, 78) : RGB(140, 140, 146), 1, 0.01f); }
-		cap_text(lx + lw - U * 1.6f, y + rh / 2 + U * 0.5f, tag[it->kind], U * 1.0f, sel ? RGB(80, 80, 88) : RGB(130, 130, 136), 1, 1);
-	}
-	foot_hints("TYPE  SEARCH      UP DOWN  MOVE      ENTER  OPEN      ESC  HOME");
-}
+#include "ytui.h"
 
 /* ---------------------------------------------------------------- apps */
 static const char *APPNAME[3] = {"Terminal", "System Monitor", "About SilverOS"};
@@ -696,7 +620,7 @@ static void draw_settings(Home *h, float t)
 
 /* ================================================================ the home screen itself */
 static const char *TILE_NAME[4] = {"SETTINGS", "SEARCH", "APPS", "FILES"};
-static const char *TILE_CAP[4] = {"NETWORK  DISPLAY  POWER", "FIND ANYTHING", "TERMINAL  MONITOR", "BROWSE YOUR HOME"};
+static const char *TILE_CAP[4] = {"NETWORK  DISPLAY  POWER", "WATCH  YOUTUBE", "TERMINAL  MONITOR", "BROWSE YOUR HOME"};
 static const int TILE_ICON[4] = {I_SETTINGS, I_SEARCH, I_APPS, I_FILES};
 
 static void tile_content(int q, float a, float blend, float beat)

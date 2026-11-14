@@ -36,7 +36,14 @@ reference, not its content.)
    to white glass), Enter opens it, Esc comes back. Every section works:
    - **Files**: browse your home folder (Enter opens a folder, Backspace goes up) with a text
      preview of the selected file.
-   - **Search**: type to find files, folders, apps and settings; Enter opens the result.
+   - **Search**: YouTube search. Type, Enter, pick a result, Enter opens a watch page (title,
+     channel, description, up-next list). **Playback is not built yet**, and the page is a
+     placeholder for you to change. Results are read from YouTube's public search page through
+     `silver-fetch` (our own small HTTPS client on BearSSL, checking certificates against the
+     bundled Mozilla roots). That scraping is unofficial, can break whenever YouTube changes its
+     page, and is against YouTube's terms for automated use. What you search for goes to YouTube.
+   - **Files** also searches: press `/`, type part of a name (letters may be spread out) or
+     switch with Tab to search inside text files; Enter shows the result in its folder.
    - **Apps**: a Terminal (a shell on the console; `exit` returns here), a live System Monitor
      (CPU graph, memory, uptime) and an About page.
    - **Settings**: network address, display size, Calm mode, About, Restart and Shut down

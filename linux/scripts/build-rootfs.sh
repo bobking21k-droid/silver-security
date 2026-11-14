@@ -7,6 +7,7 @@ mkdir -p "$ROOTFS"/{bin,sbin,usr/bin,usr/sbin,dev,proc,sys,run,tmp,var/lib,var/l
 cp -a "$TOP/rootfs-overlay/." "$ROOTFS/"
 find "$ROOTFS" -name .keep -delete
 cp "$WORK/stage/bin/busybox" "$ROOTFS/bin/busybox"
+mkdir -p "$ROOTFS/etc/ssl"; cp "$SOURCES/cacert.pem" "$ROOTFS/etc/ssl/cacert.pem"
 cp "$WORK/stage/sbin/"* "$ROOTFS/sbin/"     # init, dropbear, sfdisk, mke2fs, e2fsck, silver-efiboot
 ln -sf mke2fs "$ROOTFS/sbin/mkfs.ext4"; ln -sf e2fsck "$ROOTFS/sbin/fsck.ext4"
 ln -s sbin/init "$ROOTFS/init"   # the kernel runs /init from an initramfs

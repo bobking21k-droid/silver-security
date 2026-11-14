@@ -84,6 +84,11 @@ static void flip(void)
 static int key_waiting(void) { struct pollfd p = {tty_fd, POLLIN, 0}; return poll(&p, 1, 0) > 0; }
 #endif
 
+#define STB_IMAGE_IMPLEMENTATION
+#define STBI_ONLY_JPEG
+#define STBI_NO_STDIO
+#define STBI_NO_LINEAR
+#include "../common/stb_image.h"
 #include "home.h"
 
 static void restore_tty(void)
@@ -437,7 +442,8 @@ static void open_screen(Home *h, int s)
 {
 	h->screen = s; h->row = 0; h->top = 0; h->sub = 0; h->confirm = 0; h->fade = 0;
 	if (s == 4) { snprintf(cwd, sizeof cwd, "%s", homedir); h->depth = 0; fs_list(cwd); files_preview(h); }
-	if (s == 2) { h->query[0] = 0; do_search(h); }
+	if (s == 2) { h->focus = yt.nv ? 1 : 0; if (!yt.fetch[0]) snprintf(yt.fetch, sizeof yt.fetch, "/sbin/silver-fetch"); if (yt.state == Y_WATCH) yt.state = Y_RESULTS; }
+	h->fs = 0;
 	if (s == 3) h->sub = 0;
 }
 static void calm_toggle(Home *h)
@@ -486,30 +492,23 @@ static void handle_key(Home *h, int k)
 			else if (h->row == 4 || h->row == 5) { if (h->confirm == h->row) request(h->row == 4 ? 'R' : 'P'); else h->confirm = h->row; }
 		}
 		break;
-	case 2:                                                                     /* search */
-		if (k == K_ESC) { h->screen = 0; h->fade = 0; }
-		else if (k == K_UP && h->row > 0) h->row--;
-		else if (k == K_DOWN && h->row + 1 < h->nres) h->row++;
-		else if (k == K_BACK) { size_t n = strlen(h->query); if (n) { h->query[n - 1] = 0; do_search(h); } }
-		else if (k >= 32 && k < 127 && strlen(h->query) < 40) { size_t n = strlen(h->query); h->query[n] = (char)k; h->query[n + 1] = 0; h->row = 0; h->top = 0; do_search(h); }
-		else if (k == K_ENTER && h->nres) {
-			SItem *it = &sitems[h->res[h->row]];
-			if (it->kind == 0) {
-				int ai = !strcmp(it->name, "Terminal") ? 0 : !strcmp(it->name, "System Monitor") ? 1 : 2;
-				if (ai == 0) request('T'); else { open_screen(h, 3); h->sub = ai; }
-			} else if (it->kind == 1) {
-				int si = !strcmp(it->name, "Network") ? 0 : !strcmp(it->name, "Display") ? 1 : !strcmp(it->name, "Calm mode") ? 2 : !strcmp(it->name, "Restart") ? 4 : 5;
-				open_screen(h, 1); h->row = si;
-			} else {
-				char dir[256], nm[96]; snprintf(dir, sizeof dir, "%s", it->path);
-				snprintf(nm, sizeof nm, "%s", it->name);
-				if (it->kind == 2) { char *sl = strrchr(dir, '/'); if (sl == dir) dir[1] = 0; else if (sl) *sl = 0; }
-				open_screen(h, 4); snprintf(cwd, sizeof cwd, "%s", dir); fs_list(cwd);
-				if (it->kind == 2) for (int i = 0; i < nent; i++) if (!strcmp(ents[i].name, nm)) h->row = i;
-				files_preview(h);
-			}
+	case 2: {                                                                   /* search: YouTube */
+		Yt *y = &yt;
+		if (y->state == Y_WATCH) { if (k == K_ESC || k == K_BACK || k == K_LEFT) y->state = Y_RESULTS; break; }
+		if (k == K_ESC) { h->screen = 0; h->fade = 0; break; }
+		if (k == K_DOWN && h->focus == 0 && y->state == Y_RESULTS) { h->focus = 1; break; }
+		if (h->focus == 1) {
+			if (k == K_UP) { if (y->sel > 0) y->sel--; else h->focus = 0; break; }
+			if (k == K_DOWN) { if (y->sel + 1 < y->nv) y->sel++; break; }
+			if (k == K_ENTER) { y->watch = y->sel; y->state = Y_WATCH; break; }
 		}
+		size_t n = strlen(y->q);
+		if (k == K_BACK && n) { y->q[n - 1] = 0; h->focus = 0; }
+		else if (k == 21) { y->q[0] = 0; h->focus = 0; }
+		else if (k >= 32 && k < 127 && n + 1 < sizeof y->q) { y->q[n] = (char)k; y->q[n + 1] = 0; h->focus = 0; }
+		else if (k == K_ENTER && y->q[0]) { yt_search(y); h->focus = y->state == Y_RESULTS ? 1 : 0; }
 		break;
+	}
 	case 3:                                                                     /* apps */
 		if (h->sub) { if (k == K_ESC || k == K_BACK || k == K_LEFT) h->sub = 0; break; }
 		if (k == K_ESC || k == K_LEFT || k == K_BACK) { h->screen = 0; h->fade = 0; }
@@ -518,6 +517,29 @@ static void handle_key(Home *h, int k)
 		else if (k == K_ENTER) { if (h->row == 0) request('T'); else h->sub = h->row; }
 		break;
 	case 4:                                                                     /* files */
+		if (h->fs) {
+			Search *sr = &h->sr; size_t n = strlen(sr->q);
+			if (k == K_ESC) { h->fs = 0; h->row = 0; h->top = 0; files_preview(h); }
+			else if (k == 9) { h->fs_scope ^= 1; fs_refresh(h); }
+			else if (k == K_UP && h->row > 0) h->row--;
+			else if (k == K_DOWN && h->row + 1 < search_count(sr)) h->row++;
+			else if (k == K_BACK && n) { sr->q[n - 1] = 0; fs_refresh(h); }
+			else if (k == 21) { sr->q[0] = 0; fs_refresh(h); }
+			else if (k >= 32 && k < 127 && n < 40) { sr->q[n] = (char)k; sr->q[n + 1] = 0; fs_refresh(h); }
+			else if (k == K_ENTER && search_count(sr)) {
+				const SRes *r = search_item(sr, h->row);
+				if (r->node >= 0) {
+					const Node *nd = &sr->nodes[r->node];
+					char dir[256]; node_path(sr, nd->kind == N_DIR ? r->node : nd->parent, dir, sizeof dir);
+					snprintf(cwd, sizeof cwd, "%s", dir[0] ? dir : "/"); fs_list(cwd);
+					h->row = 0; h->top = 0;
+					if (nd->kind != N_DIR) for (int i = 0; i < nent; i++) if (!strcmp(ents[i].name, nd->name)) h->row = i;
+					h->fs = 0; files_preview(h);
+				}
+			}
+			break;
+		}
+		if (k == '/') { h->fs = 1; fs_prepare(h); h->sr.q[0] = 0; fs_refresh(h); break; }
 		if (k == K_ESC) { h->screen = 0; h->fade = 0; }
 		else if (k == K_UP && h->row > 0) { h->row--; files_preview(h); }
 		else if (k == K_DOWN && h->row + 1 < nent) { h->row++; files_preview(h); }
@@ -544,12 +566,14 @@ static void home_frame(Home *h, float t, float dt)
 {
 	for (int q = 0; q < 4; q++) h->blend[q] += (((h->screen == 0 && q == h->sel) ? 1.f : 0.f) - h->blend[q]) * sg_min(1, dt * 11);
 	h->fade = sg_min(1, h->fade + dt * 6);
+	yt_poll(&yt);
+	if (h->fs) search_tick(&h->sr, 0.004);
 	switch (h->screen) {
 	case 0: home_draw(h, 1, t, 99); break;
 	case 1: draw_settings(h, t); break;
 	case 2: draw_search(h, t); break;
 	case 3: if (h->sub == 1) sample_sys(h, t); draw_apps(h, t); break;
-	case 4: draw_files(h, t); break;
+	case 4: if (h->fs) draw_files_search(h, t); else draw_files(h, t); break;
 	}
 	if (h->screen && h->fade < 1) sg_rect(&fb, 0, 0, W, H, BLACK, 1 - h->fade);
 	else if (!h->screen && h->fade < 1) sg_rect(&fb, 0, 0, W, H, BLACK, 1 - h->fade);
@@ -560,15 +584,17 @@ static void home_frame(Home *h, float t, float dt)
 static const struct { float t; int k; } SCRIPT[] = {
 	{0.8f, K_RIGHT}, {1.5f, K_DOWN}, {2.4f, K_LEFT}, {3.0f, K_UP}, {3.7f, K_RIGHT}, {4.3f, K_DOWN},          /* look around, end on Files */
 	{5.0f, K_ENTER},                                                                                          /* Files */
-	{6.0f, K_ENTER}, {7.0f, K_DOWN}, {7.8f, K_DOWN}, {8.6f, K_DOWN}, {9.8f, K_BACK}, {10.6f, K_DOWN}, {11.2f, K_DOWN}, {11.8f, K_DOWN}, {12.4f, K_DOWN}, {12.9f, K_DOWN}, {13.5f, K_ESC},
-	{14.3f, K_UP}, {15.0f, K_ENTER},                                                                          /* Search */
-	{16.0f, 'n'}, {16.4f, 'o'}, {16.8f, 't'}, {18.2f, K_DOWN}, {19.0f, K_ESC},
-	{19.8f, K_LEFT}, {20.5f, K_ENTER},                                                                        /* Settings */
-	{21.8f, K_DOWN}, {22.4f, K_DOWN}, {23.0f, K_ENTER}, {24.0f, K_ENTER}, {24.8f, K_ESC},
-	{25.6f, K_DOWN}, {26.2f, K_ENTER},                                                                        /* Apps */
-	{27.0f, K_DOWN}, {27.6f, K_ENTER}, {32.0f, K_ESC}, {32.6f, K_ESC},
+	{6.0f, K_ENTER}, {7.0f, K_DOWN}, {7.8f, K_DOWN}, {8.6f, K_BACK}, {9.6f, K_DOWN}, {10.2f, K_DOWN},
+	{11.2f, '/'}, {12.0f, 'r'}, {12.4f, 'e'}, {12.8f, 'p'}, {14.0f, K_DOWN}, {15.0f, K_ESC}, {15.8f, K_ESC},  /* search inside Files */
+	{16.6f, K_UP}, {17.3f, K_ENTER},                                                                          /* Search = YouTube */
+	{18.2f, 'l'}, {18.5f, 'o'}, {18.8f, 'f'}, {19.1f, 'i'}, {20.0f, K_ENTER},
+	{22.2f, K_DOWN}, {23.0f, K_DOWN}, {23.8f, K_DOWN}, {24.8f, K_ENTER}, {28.0f, K_ESC}, {28.6f, K_ESC},       /* watch page */
+	{29.4f, K_LEFT}, {30.1f, K_ENTER},                                                                        /* Settings */
+	{31.4f, K_DOWN}, {32.0f, K_DOWN}, {32.6f, K_ENTER}, {33.6f, K_ENTER}, {34.4f, K_ESC},
+	{35.2f, K_DOWN}, {35.8f, K_ENTER},                                                                        /* Apps */
+	{36.6f, K_DOWN}, {37.2f, K_ENTER}, {41.5f, K_ESC}, {42.1f, K_ESC},
 };
-#define SCRIPT_END 34.0f
+#define SCRIPT_END 44.0f
 #endif
 
 static void home_loop(Home *h)

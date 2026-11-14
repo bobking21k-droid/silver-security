@@ -6,16 +6,18 @@ An SDF stores, for every texel, the distance to the glyph outline. The renderer
 (src/common/sgfx.h) turns that into smooth, anti-aliased text at any size, plus cheap
 glows and outlines, with no font library on the target.
 
-    mkfont.py <font file> <em px> <spread px> <out.sdf> [--wght N] [--messy] [--seed N]
+    mkfont.py <font file> <em px> <spread px> <out.sdf> [--wght N] [--messy] [--seed N] [--ranges 0020-007E,00A0-017F]
 
 --messy makes "Silver Scrawl": the thick base font is fattened and its outline is roughened
 with layered noise (a slow wobble, medium bumps, fine grit), dry-brush bites, random ink
 splatter, and every letter gets its own tilt, size and baseline. It is a modified derivative
 of the base font (see src/common/fonts/LICENSES.md).
 
-File format (little endian):
-    "SSDF"  u16 em  u16 spread  i16 ascent  i16 descent  i16 cap_height  u16 nglyphs
-    nglyphs x { u32 offset; u16 w, h; i16 xoff, yoff; u16 advance_x64 }   (ASCII 32..126)
+File format "SSD2" (little endian):
+    "SSD2"  u16 em  u16 spread  i16 ascent  i16 descent  i16 cap_height  u16 nranges
+    nranges x { u32 first_codepoint; u32 last_codepoint }
+    glyph records, one per codepoint of the ranges in order:
+        { u32 offset; u16 w, h; i16 xoff, yoff; u16 advance_x64 }
     u8 texels[]   (128 = on the outline, 255 = `spread` px inside, 0 = `spread` px outside)
 Metrics are in pixels at the baked em size; yoff is the cell's top relative to the baseline.
 
@@ -107,23 +109,31 @@ def load_font(path, size, wght):
     return f
 
 
-def bake(path, em, spread, out, wght=None, messy=False, seed=1):
+def parse_ranges(spec):
+    out = []
+    for part in spec.split(","):
+        a, b = part.split("-") if "-" in part else (part, part)
+        out.append((int(a, 16), int(b, 16)))
+    return out
+
+
+def bake(path, em, spread, out, wght=None, messy=False, seed=1, ranges=((0x20, 0x7E),)):
     font = load_font(path, em * S, wght)
     rng = np.random.default_rng(seed)
     ascent, descent = font.getmetrics()
     cap = -font.getbbox("H", anchor="ls")[1]
     R = spread * S
     glyphs, blobs, offset = [], [], 0
-    for code in range(32, 127):
+    for lo, hi in ranges:
+      for code in range(lo, hi + 1):
         ch = chr(code)
         adv = font.getlength(ch) / S + (0.032 * em if messy and ch != " " else 0)
         bb = font.getbbox(ch, anchor="ls")
-        if bb[2] <= bb[0] or bb[3] <= bb[1] or ch == " ":
+        if bb[2] <= bb[0] or bb[3] <= bb[1] or ch in (" ", "\u00a0"):
             glyphs.append((0, 0, 0, 0, 0, round(adv * 64)))
             continue
         if messy:
             mask, ox, oy = messy_mask(font, ch, em * S, rng)
-            # pad the hi-res mask out to the spread and snap it to the output grid
             gx0, gy0 = (ox // S) * S - R, (oy // S) * S - R
             gw, gh = -(-(ox + mask.shape[1] - gx0 + R) // S), -(-(oy + mask.shape[0] - gy0 + R) // S)
             canvas = np.zeros((gh * S, gw * S), bool)
@@ -142,7 +152,9 @@ def bake(path, em, spread, out, wght=None, messy=False, seed=1):
         glyphs.append((offset, gw, gh, gx0 // S, gy0 // S, round(adv * 64)))
         blobs.append(tex.tobytes()); offset += gw * gh
     with open(out, "wb") as f:
-        f.write(b"SSDF" + struct.pack("<HHhhhH", em, spread, ascent // S, descent // S, cap // S, len(glyphs)))
+        f.write(b"SSD2" + struct.pack("<HHhhhH", em, spread, ascent // S, descent // S, cap // S, len(ranges)))
+        for lo, hi in ranges:
+            f.write(struct.pack("<II", lo, hi))
         for g in glyphs:
             f.write(struct.pack("<IHHhhH", *g))
         f.write(b"".join(blobs))
@@ -151,12 +163,13 @@ def bake(path, em, spread, out, wght=None, messy=False, seed=1):
 
 if __name__ == "__main__":
     a = sys.argv[1:]
-    opts = {"wght": None, "messy": False, "seed": 1}
+    opts = {"wght": None, "messy": False, "seed": 1, "ranges": "0020-007E"}
     pos = []
     i = 0
     while i < len(a):
         if a[i] == "--wght": opts["wght"] = int(a[i + 1]); i += 2
         elif a[i] == "--seed": opts["seed"] = int(a[i + 1]); i += 2
+        elif a[i] == "--ranges": opts["ranges"] = a[i + 1]; i += 2
         elif a[i] == "--messy": opts["messy"] = True; i += 1
         else: pos.append(a[i]); i += 1
-    bake(pos[0], int(pos[1]), int(pos[2]), pos[3], opts["wght"], opts["messy"], opts["seed"])
+    bake(pos[0], int(pos[1]), int(pos[2]), pos[3], opts["wght"], opts["messy"], opts["seed"], parse_ranges(opts["ranges"]))
