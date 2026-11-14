@@ -95,7 +95,7 @@ vm.key("ret"); time.sleep(0.9); vm.shot("melt"); time.sleep(3.2); vm.shot("check
 print("== 3. SilverOS boots from disk: greeter intro, graphical login, admin password persisted")
 vm.expect("login:", 120)
 t0 = time.time()
-for at, name in [(1.6, "intro-1"), (3.0, "intro-2"), (3.7, "intro-3"), (4.1, "intro-4"), (4.7, "intro-5"), (6.6, "intro-6"), (8.5, "login-card")]:
+for at, name in [(1.2, "intro-1"), (3.2, "intro-2"), (4.9, "intro-3"), (5.6, "intro-4"), (6.4, "intro-5"), (7.4, "intro-6"), (9.5, "login-card")]:
     time.sleep(max(0, t0 + at - time.time())); vm.shot(name)
 time.sleep(max(0, t0 + 17 - time.time())); vm.shot("login-card")
 vm.key("ret"); time.sleep(2); vm.key("ret"); time.sleep(3); vm.shot("session")   # Enter = signed in, no password

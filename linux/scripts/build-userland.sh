@@ -71,7 +71,8 @@ cp "$e2/e2fsck/e2fsck" "$WORK/stage/sbin/e2fsck"
 $CC $HARDEN -static -Wall -Wextra -o "$WORK/stage/sbin/silver-efiboot" "$TOP/src/tools/silver-efiboot.c"
 
 # ---- silver-greeter: graphical login on the framebuffer ----
-$CC $HARDEN -static -Wall -Wextra -o "$WORK/stage/sbin/silver-greeter" "$TOP/src/greeter/silver-greeter.c" -lm
+$CC $HARDEN -O2 -fno-math-errno -static -Wall -Wextra -Wno-unused-function -DFONT_DIR="\"$TOP/src/common/fonts\"" \
+    -o "$WORK/stage/sbin/silver-greeter" "$TOP/src/greeter/silver-greeter.c" -lm
 
 # ---- silver-init: our own PID 1 ----
 $CC $HARDEN -static -Wall -Wextra -o "$WORK/stage/sbin/init" "$TOP/src/init/init.c"

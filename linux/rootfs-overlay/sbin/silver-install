@@ -175,11 +175,11 @@ cp "$MEDIA/boot/silver/silverboot.efi" "$MEDIA/boot/silver/grubx64.efi" "$ESP/EF
   echo
   echo "menuentry \"SilverOS\" --id silveros {"
   echo "    search --no-floppy --fs-uuid --set=root $FSUUID"
-  echo "    linux /boot/vmlinuz root=PARTUUID=$PARTUUID rootfstype=ext4 rootwait rw quiet loglevel=3 vt.global_cursor_default=0 console=tty1"
+  echo "    linux /boot/vmlinuz root=PARTUUID=$PARTUUID rootfstype=ext4 rootwait rw quiet loglevel=3 vt.global_cursor_default=0 fbcon=font:TER16x32 console=tty1"
   echo "}"
   echo "menuentry \"SilverOS (verbose boot)\" {"
   echo "    search --no-floppy --fs-uuid --set=root $FSUUID"
-  echo "    linux /boot/vmlinuz root=PARTUUID=$PARTUUID rootfstype=ext4 rootwait rw console=tty1"
+  echo "    linux /boot/vmlinuz root=PARTUUID=$PARTUUID rootfstype=ext4 rootwait rw fbcon=font:TER16x32 console=tty1"
   echo "}"
   if [ "$WINDOWS" = yes ]; then
   echo "menuentry \"Windows\" {"

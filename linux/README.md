@@ -10,21 +10,37 @@ and soon the desktop down to the pixel.
 ## Power-on experience
 
 1. **The chooser** (`src/silverboot`, our own UEFI program in C): the screen splits exactly in
-   half. On the left is SilverOS: a black-and-white world where a broken low-poly pencil hangs in
-   the air, and time crawls until you press a key or move the mouse. On the right is Windows,
-   in full colour: blue sky, clouds, a rolling green hill. A sliding sawtooth seam divides them,
-   and shards drift across it, flipping colour as they cross. Use ← → or the mouse, then press
-   Enter or click; `1` and `2` jump straight to SilverOS or Windows. It boots SilverOS after
-   8 s if you don't touch anything.
-2. **Pick SilverOS:** the chooser cuts straight to a full-screen classic Windows boot scene (blue
-   sky, green hill, four-pane mark). It flips upside-down in grey, then melts in glitching colour
-   streaks, flashes white, and the four-pane logo flickers between light and dark. Then a
-   black-and-white system check runs (CPU, GPU, RAM, STORAGE) with values read from the real hardware.
-3. **The greeter** (`src/greeter`): "SILVER OS" scribbles itself onto black, a pen appears and
-   snaps, silver ink leaks from the break and spreads until it becomes the background, and the
-   title slides into the bottom-right corner. Then a card with your name appears and
-   you press Enter: no password. The full intro plays once per boot; any key skips it.
-4. **Pick Windows:** the screen shatters and Windows Boot Manager starts as normal.
+   half along a torn seam. On the left is SilverOS: a bright white room where a broken, flat-shaded
+   3D pencil turns slowly in the air among its splinters, and time crawls until you press a key
+   or move the mouse. On the right is Windows, in full colour: sky, sun, clouds, rolling hills
+   and four glass panes. Shards of each world drift across the seam into the other. The side
+   you are not on steps back into grey. Use <- -> or the mouse, then press Enter or click;
+   `1` and `2` jump straight to SilverOS or Windows. It starts SilverOS after 8 s if untouched.
+2. **Pick SilverOS:** a full-screen classic Windows boot scene appears, flips upside-down in
+   grey, then melts: columns drip at their own speeds, blocks slip sideways, colour seeps in.
+   A white flash, the four-pane logo flickers between light and dark, and then a black-and-white
+   system check runs (CPU, GPU, RAM, STORAGE) with values read from the real hardware.
+3. **The greeter** (`src/greeter`): a marker scribbles the screen black, "Silver OS" is written
+   by hand, a chrome pen slides in under it and snaps, and liquid silver floods out from the
+   break until it is the background. The title settles bottom-right and the lock screen appears:
+   clock, date and a frosted-glass card. Press Enter: no password. The intro plays once per
+   boot; any key skips it.
+4. **Pick Windows:** the screen shatters like glass and Windows Boot Manager starts as normal.
+
+### How it is drawn
+
+Everything is software-rendered by one small header, `src/common/sgfx.h`, with no libraries:
+anti-aliased shapes from signed distances, text from signed-distance-field fonts (smooth at any
+size), dithered gradients, noise, blur, and a tiny 3D pipeline (project, flat-shade, depth-sort,
+toon outline). The boot chooser and the login screen share it, and so does the live-USB menu
+artwork. Screens above 2100 px wide are drawn at half size and shown doubled, to stay smooth.
+
+`scripts/render-demo.sh` renders videos of the whole experience on the build machine with the
+exact code that ships, so the look can be changed and reviewed without rebooting anything.
+
+Fonts: Inter (titles and labels) and JetBrains Mono (system check), both under the SIL Open
+Font License 1.1. They are baked into `src/common/fonts/*.sdf` by `src/art/mkfont.py` and
+committed, so building needs neither the font files nor that script's dependencies.
 
 ## What's in it
 
@@ -37,6 +53,7 @@ and soon the desktop down to the pixel.
 | Userland | BusyBox (shell + core utils; telnet/ftp/http daemons removed) | `scripts/build-userland.sh` |
 | Remote access | Dropbear SSH: key-only, no root, off unless a key exists | `rootfs-overlay/etc/rc.boot` |
 | Config & branding | users, sysctl hardening, issue/motd, os-release | `rootfs-overlay/`, `config.sh` |
+| Renderer | **sgfx**: anti-aliased 2D/3D software renderer + SDF fonts, one header | `src/common/` |
 | Boot chooser | **silverboot**: split-screen animated UEFI app, written from scratch | `src/silverboot/` |
 | Login | **silver-greeter**: framebuffer intro + "press Enter" sign-in (asks for a password only if the account has one) | `src/greeter/` |
 | Installer | **silver-install** (dual boot) + **silver-efiboot** (UEFI boot entries) | `rootfs-overlay/sbin/`, `src/tools/` |
@@ -50,7 +67,7 @@ On Ubuntu/Debian:
 
 ```sh
 sudo apt-get install build-essential rsync bison flex bc libelf-dev libssl-dev cpio xz-utils \
-     xorriso grub-pc-bin grub-efi-amd64-bin mtools qemu-system-x86 ovmf fdisk dosfstools
+     clang lld python3 xorriso grub-pc-bin grub-efi-amd64-bin mtools qemu-system-x86 ovmf fdisk dosfstools
 ./build.sh                 # all stages: fetch musl kernel userland rootfs image
 ./build.sh userland rootfs image   # or rebuild individual stages
 ```

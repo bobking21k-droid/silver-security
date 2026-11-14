@@ -5,9 +5,14 @@
 #                                  also used for the live USB menu)
 set -euo pipefail
 source "$(dirname "$0")/../config.sh"
-theme="$WORK/theme"
-rm -rf "$theme"
-python3 "$TOP/src/art/mkart.py" "$theme" "$OS_NAME" "$OS_VERSION" "$COLOR_BG" "$COLOR_ACCENT" "$COLOR_HILITE"
+FONTS="-DFONT_DIR=\"$TOP/src/common/fonts\""
+
+# Live-USB GRUB theme: drawn by mktheme (the same renderer and scenes as the chooser), packaged by mkart.py
+theme="$WORK/theme"; raw="$WORK/theme-raw"
+rm -rf "$theme" "$raw"; mkdir -p "$raw"
+cc -O2 -fno-math-errno "$FONTS" -o "$WORK/mktheme" "$TOP/src/art/mktheme.c" -lm
+"$WORK/mktheme" "$raw" "$OS_NAME" "$OS_VERSION"
+python3 "$TOP/src/art/mkart.py" "$raw" "$theme"
 
 # Embedded config: locate the real menu that silver-install writes on the ESP.
 stub="$WORK/grub-stub.cfg"
@@ -24,7 +29,7 @@ grub-mkstandalone -O x86_64-efi -o "$OUT/grubx64.efi" \
   "${args[@]}"
 # silverboot: our own UEFI boot chooser (split screen, animated), C -> PE32+ via clang/lld
 clang -target x86_64-unknown-windows -ffreestanding -fshort-wchar -mno-red-zone -fno-stack-protector \
-      -mno-stack-arg-probe -fno-math-errno -O2 -Wall -Wextra \
+      -mno-stack-arg-probe -fno-math-errno -O2 -Wall -Wextra -Wno-unused-function "$FONTS" \
       -c "$TOP/src/silverboot/silverboot.c" -o "$WORK/silverboot.o"
 lld-link -subsystem:efi_application -entry:efi_main -nodefaultlib -out:"$OUT/silverboot.efi" "$WORK/silverboot.o"
 ls -lh "$OUT/grubx64.efi" "$OUT/silverboot.efi"

@@ -1,6 +1,7 @@
 
-  Welcome to @OS_NAME@.
-  Networking: DHCP on all wired interfaces.  SSH: drop a key into ~/.ssh/authorized_keys.
-  Become root with `su`.  Shut down with `poweroff`.
-  Install next to Windows:  su -c silver-install
+  @OS_NAME@ @OS_VERSION@ (@OS_CODENAME@)
+
+    su                      become admin
+    su -c silver-install    install next to Windows
+    poweroff                shut down
 

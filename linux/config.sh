@@ -8,11 +8,6 @@ OS_CODENAME="Genesis"
 OS_HOSTNAME="silver"
 OS_TAGLINE="Built from nothing. Every line, every pixel."
 
-# Brand colours (0xRRGGBB) used by the desktop and boot menu.
-COLOR_BG=0x0f1720
-COLOR_ACCENT=0xc0c8d4
-COLOR_HILITE=0x4fa3ff
-
 # Upstream sources (pinned). Checksums are recorded in checksums.sha256.
 LINUX_VER="6.18.63"
 MUSL_VER="1.2.6"
