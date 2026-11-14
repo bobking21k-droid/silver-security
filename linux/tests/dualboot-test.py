@@ -3,7 +3,7 @@
 End-to-end dual-boot test in QEMU (UEFI with persistent NVRAM):
   1. boot the live ISO next to a fake Windows disk, do first-boot setup, run silver-install
   2. power on without the ISO -> the SilverOS chooser must appear (screenshot)
-  3. pick SilverOS -> installed system boots from disk, passwords persisted
+  3. pick SilverOS -> installed system boots from disk, admin password persisted
   4. power on again, pick Windows -> Windows Boot Manager stand-in starts (screenshot)
 
 Usage: tests/dualboot-test.py <iso> <disk.img> <ovmf_vars.fd> <outdir>
@@ -77,35 +77,32 @@ def strip(s): return re.sub(r"\x1b\[[0-9;=?]*[a-zA-Z]", "", s).replace("\r", "")
 print("== 1. live USB: first boot + silver-install")
 vm = VM(with_iso=True)
 vm.expect("Press Enter", 120); vm.send("")
-for _ in range(2):
-    vm.expect("New password:"); vm.send("Silver#Test1"); vm.expect("Retype"); vm.send("Silver#Test1")
-vm.expect("login:"); vm.send("silver"); vm.expect("Password:"); vm.send("Silver#Test1"); vm.expect(r"~\$ ")
-vm.send("su -c silver-install"); vm.expect("Password:"); vm.send("Silver#Test1")
+vm.expect("New password:"); vm.send("Admin#Test12"); vm.expect("Retype"); vm.send("Admin#Test12")
+vm.expect("login:"); vm.send("silver"); vm.expect(r"~\$ ")        # no password prompt
+vm.send("su -c silver-install"); vm.expect("Password:"); vm.send("Admin#Test12")
 plan = vm.expect("Type  install", 60); print(strip(plan))
 vm.send("install")
 done = vm.expect(r"Done\. Remove the USB stick|silver-install: .*", 300); print(strip(done))
 if "Done" not in done: vm.fail("installer failed")
-vm.expect(r"~\$ "); vm.send("su -c 'silver-efiboot list'"); vm.expect("Password:"); vm.send("Silver#Test1")
+vm.expect(r"~\$ "); vm.send("su -c 'silver-efiboot list'"); vm.expect("Password:"); vm.send("Admin#Test12")
 print(strip(vm.expect(r"~\$ ")))
-vm.send("su -c poweroff"); vm.expect("Password:"); vm.send("Silver#Test1"); vm.p.wait(60); print("   powered off cleanly")
+vm.send("su -c poweroff"); vm.expect("Password:"); vm.send("Admin#Test12"); vm.p.wait(60); print("   powered off cleanly")
 
 print("== 2. power on from disk: chooser must appear")
 vm = VM(with_iso=False)
 vm.expect("silverboot.efi", 60); time.sleep(4); vm.shot("chooser")
 vm.key("ret"); time.sleep(0.9); vm.shot("melt"); time.sleep(3.2); vm.shot("checks")
-print("== 3. SilverOS boots from disk: greeter intro, graphical login, passwords persisted")
+print("== 3. SilverOS boots from disk: greeter intro, graphical login, admin password persisted")
 vm.expect("login:", 120)
 t0 = time.time()
 for at, name in [(1.6, "intro-1"), (3.0, "intro-2"), (3.7, "intro-3"), (4.1, "intro-4"), (4.7, "intro-5"), (6.6, "intro-6"), (8.5, "login-card")]:
     time.sleep(max(0, t0 + at - time.time())); vm.shot(name)
-for k in "silver": vm.key(k)
-vm.key("ret")
-for k in ["shift-s", "i", "l", "v", "e", "r", "shift-3", "shift-t", "e", "s", "t", "1"]: vm.key(k)
-time.sleep(0.5); vm.shot("login-typed"); vm.key("ret"); time.sleep(3); vm.shot("session")
-vm.send("silver"); vm.expect("Password:"); vm.send("Silver#Test1"); vm.expect(r"~\$ ")
+time.sleep(max(0, t0 + 17 - time.time())); vm.shot("login-card")
+vm.key("ret"); time.sleep(2); vm.key("ret"); time.sleep(3); vm.shot("session")   # Enter = signed in, no password
+vm.send("silver"); vm.expect(r"~\$ ")                                   # text console: no password either
 for c in ["cat /etc/silver-installed", "mount | grep ' / '", "echo persist-check > ~/note.txt; sync"]:
     vm.send(c); print(strip(vm.expect(r"~\$ ")))
-vm.send("su -c reboot"); vm.expect("Password:"); vm.send("Silver#Test1")
+vm.send("su -c reboot"); vm.expect("Password:"); vm.send("Admin#Test12")
 print("== 4. reboot, choose Windows")
 vm.expect("silverboot.efi", 60); time.sleep(4); vm.key("right"); time.sleep(1); vm.shot("chooser-windows-selected"); vm.key("ret")
 vm.expect("test stand-in", 30); time.sleep(1); vm.shot("windows")

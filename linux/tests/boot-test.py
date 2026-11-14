@@ -21,10 +21,9 @@ def expect(pat, t=60):
     print("TIMEOUT waiting for", pat); print(buf.decode(errors="replace")[-1500:]); p.kill(); sys.exit(1)
 def send(s): p.stdin.write(s.encode()+b"\r"); p.stdin.flush(); time.sleep(0.5)
 expect("Press Enter"); send("");
-expect("Password for your user"); expect("New password:"); send("Silver#Test1"); expect("Retype"); send("Silver#Test1")
-expect("Password for 'root'"); expect("New password:"); send("Root#Test12"); expect("Retype"); send("Root#Test12")
+expect("New password:"); send("Root#Test12"); expect("Retype"); send("Root#Test12")
 expect("login:"); send("root"); expect("Login incorrect", 15); print("direct root login refused: OK")
-expect("login:"); send("silver"); expect("Password:"); send("Silver#Test1"); expect(r"~\$ ")
+expect("login:"); send("silver"); expect(r"~\$ ")      # no password prompt: sign-in is open
 time.sleep(1)
 for c in ["cat /etc/os-release | head -1","id","uname -r","sleep 3; ip -4 addr show eth0 | grep inet","cat /proc/sys/kernel/kptr_restrict /proc/sys/kernel/yama/ptrace_scope","ls /proc | grep -c '^[0-9]'","ls -l /dev/mem 2>&1","cat /sys/kernel/security/lockdown"]:
     send(c); print(expect(r"~\$ ", 15).decode(errors="replace").replace("\r",""))

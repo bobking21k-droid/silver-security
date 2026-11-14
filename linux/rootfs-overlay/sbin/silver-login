@@ -1,23 +1,28 @@
 #!/bin/sh
-# First boot: accounts are locked until the owner sets passwords here.
-# Setup runs on whichever console the owner presses Enter at first.
+# First boot (live USB or a fresh install): signing in as 'silver' needs no password.
+# Only the administrator account (root) gets one, used for `su` and for silver-install.
+# Setup runs on whichever console you press Enter at first; type "skip" to try SilverOS
+# without an admin password.
 tty=$1; shift
-if grep -q '^silver:!' /etc/shadow; then
+need_setup() { [ ! -e /run/firstboot-done ] && grep -q '^root:!' /etc/shadow; }
+if need_setup; then
   clear; cat /etc/issue
-  echo "  Press Enter to begin first boot setup."
-  # wake up when Enter is pressed here, or when another console finished setup
-  while grep -q '^silver:!' /etc/shadow && ! read -t 1 _; do :; done
-  if grep -q '^silver:!' /etc/shadow && mkdir /run/firstboot 2>/dev/null; then
-    clear; cat /etc/issue
-    echo "  First boot setup -- choose passwords."
-    echo; echo "  Password for your user 'silver':"; until passwd silver; do :; done
-    echo; echo "  Password for 'root' (used with su):"; until passwd root; do :; done
+  echo "  Press Enter to set the admin password (needed to install SilverOS),"
+  echo "  or type skip and press Enter to try SilverOS without it."
+  echo "  Signing in needs no password."
+  ans=
+  while need_setup && ! read -t 1 ans; do :; done
+  if need_setup && mkdir /run/firstboot 2>/dev/null; then
+    if [ "$ans" != skip ]; then
+      echo; echo "  Choose the admin (root) password:"; until passwd root; do :; done
+    fi
+    touch /run/firstboot-done
   else
     echo "  First boot setup is running on another console..."
-    while grep -q '^silver:!' /etc/shadow; do sleep 1; done
+    while need_setup; do sleep 1; done
   fi
 fi
-# tty1 with a framebuffer: the graphical SilverOS login; everything else: text getty
+# tty1 with a framebuffer: the graphical SilverOS sign-in; everything else: text getty
 if [ "$tty" = tty1 ] && [ -c /dev/fb0 ] && [ -x /sbin/silver-greeter ]; then
   exec /sbin/silver-greeter "$tty"
 fi

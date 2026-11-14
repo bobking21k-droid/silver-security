@@ -184,20 +184,46 @@ static float vnoise(float x, float y)
 }
 static float fbm(float x, float y) { float s = 0, a = .5f; for (int i = 0; i < 5; i++) { s += a * vnoise(x, y); x *= 2.03f; y *= 2.03f; a *= .5f; } return s; }
 
-/* silver marbled ink: domain-warped noise, quantised a little for a printed look */
+/* Noise is evaluated on a coarse grid and bilinearly upsampled: the marbling is smooth
+ * (1/4 resolution) and the ragged ink edge only needs 1/2. About 20x cheaper than per-pixel. */
+static void grid_build(float *out, int gw, int gh, int step, float freq, float (*fn)(float, float))
+{
+	for (int j = 0; j < gh; j++)
+		for (int i = 0; i < gw; i++)
+			out[j * gw + i] = fn(i * step * freq, j * step * freq);
+}
+static float ink_fn(float x, float y)
+{
+	float qx = fbm(x, y), qy = fbm(x + 5.2f, y + 1.3f);
+	return fbm(x + 3 * qx, y + 3 * qy);
+}
+static float edge_fn(float x, float y) { return fbm(x * 4, y * 4); }
+static float bilerp(const float *g, int gw, int step, int x, int y)
+{
+	int i = x / step, j = y / step;
+	float fx = (float)(x - i * step) / step, fy = (float)(y - j * step) / step;
+	const float *p = g + j * gw + i;
+	return (p[0] * (1 - fx) + p[1] * fx) * (1 - fy) + (p[gw] * (1 - fx) + p[gw + 1] * fx) * fy;
+}
+
+/* silver marbled ink: domain-warped noise with dark veins */
 static void build_ink(void)
 {
 	float sc = 3.0f / H;
+	int s4 = 4, gw4 = W / s4 + 2, gh4 = H / s4 + 2, s2 = 2, gw2 = W / s2 + 2, gh2 = H / s2 + 2;
+	float *g4 = malloc(sizeof(float) * gw4 * gh4), *g2 = malloc(sizeof(float) * gw2 * gh2);
+	grid_build(g4, gw4, gh4, s4, sc, ink_fn);
+	grid_build(g2, gw2, gh2, s2, sc, edge_fn);
 	for (int y = 0; y < H; y++)
 		for (int x = 0; x < W; x++) {
-			float qx = fbm(x * sc, y * sc), qy = fbm(x * sc + 5.2f, y * sc + 1.3f);
-			float n = fbm(x * sc + 3 * qx, y * sc + 3 * qy);
+			float n = bilerp(g4, gw4, s4, x, y);
 			float vein = fabsf(sinf(n * 18.0f));
 			int g = 150 + (int)(70 * n) - (int)(45 * powf(1 - vein, 6));
 			g = g < 40 ? 40 : g > 235 ? 235 : g;
 			ink_bg[y * W + x] = RGB(g, g, g + 4 > 255 ? 255 : g + 4);
-			edge[y * W + x] = (uint8_t)(fbm(x * sc * 4, y * sc * 4) * 255);
+			edge[y * W + x] = (uint8_t)clampf(bilerp(g2, gw2, s2, x, y) * 255, 0, 255);
 		}
+	free(g4); free(g2);
 }
 
 /* ---------------------------------------------------------------- the scribbled title */
@@ -323,12 +349,33 @@ static void intro(void)
 		/* --- background: black, with ink spreading from the break --- */
 		float r = maxr * smooth((t - 3.5f) / 1.9f);
 		if (r <= 0) memset(buf, 0, (size_t)W * H * 4);
-		else
-			for (int y = 0; y < H; y++)
-				for (int x = 0; x < W; x++) {
-					float d = hypotf(x - bx, (y - by) * 1.15f) + (edge[y * W + x] - 128) * 0.9f;
-					buf[y * W + x] = d < r ? ink_bg[y * W + x] : d < r + 6 ? RGB(20, 20, 22) : BLACK;
+		else {
+			/* the edge noise moves the boundary by at most +-115 px: beyond that band a pixel is
+			 * certainly ink (copy a row span) or certainly black (clear it) */
+			float rin = r - 118, rout = r + 124;
+			for (int y = 0; y < H; y++) {
+				float dy = (y - by) * 1.15f;
+				uint32_t *row = buf + y * W, *src = ink_bg + y * W;
+				float oo = rout * rout - dy * dy;
+				if (oo <= 0) { memset(row, 0, (size_t)W * 4); continue; }
+				float wo = sqrtf(oo);
+				int xo0 = (int)fmaxf(bx - wo, 0), xo1 = (int)fminf(bx + wo + 1, W), xi0 = xo0, xi1 = xo0;
+				float ii = rin * rin - dy * dy;
+				if (rin > 0 && ii > 0) {
+					float wi = sqrtf(ii);
+					xi0 = (int)fmaxf(bx - wi, xo0); xi1 = (int)fminf(bx + wi + 1, xo1);
+					if (xi1 < xi0) xi1 = xi0;
 				}
+				if (xi1 == xi0) xi0 = xi1 = (xo0 + xo1) / 2;
+				memset(row, 0, (size_t)xo0 * 4);
+				for (int x = xo0; x < xo1; x++) {
+					if (x == xi0 && xi1 > xi0) { memcpy(row + xi0, src + xi0, (size_t)(xi1 - xi0) * 4); x = xi1 - 1; continue; }
+					float d = hypotf(x - bx, dy) + (edge[y * W + x] - 128) * 0.9f;
+					row[x] = d < r ? src[x] : d < r + 6 ? RGB(20, 20, 22) : BLACK;
+				}
+				memset(row + xo1, 0, (size_t)(W - xo1) * 4);
+			}
+		}
 		/* --- title: scribbles in, later glides to the corner --- */
 		float move = smooth((t - 5.2f) / 0.9f);
 		float u = U + (u_end - U) * move;
@@ -362,6 +409,7 @@ static void intro(void)
 /* ---------------------------------------------------------------- login card */
 static char user[33], pass[129];
 static int field;                 /* 0 user, 1 password */
+static int nopass;                /* the account has an empty password: sign-in is just "press Enter" */
 static const char *status = "";
 
 static void card(float alpha, float shake)
@@ -394,6 +442,39 @@ static void card(float alpha, float shake)
 #ifdef RENDER
 #define crypt(a, b) ((char *)0)
 #endif
+/* An account is open when /etc/shadow has an empty password field for it (and it is not root). */
+static int account_open(const char *u)
+{
+	FILE *f = fopen("/etc/shadow", "r");
+	char line[512];
+	int open_ = 0;
+	if (!f) return 0;
+	size_t ul = strlen(u);
+	while (fgets(line, sizeof line, f))
+		if (!strncmp(line, u, ul) && line[ul] == ':') { open_ = line[ul + 1] == ':'; break; }
+	fclose(f);
+	struct passwd *pw = getpwnam(u);
+	return open_ && pw && pw->pw_uid != 0;
+}
+
+/* Sign-in card for a passwordless account: who you are, and "press Enter". */
+static void card_simple(float alpha)
+{
+	final_frame(fmaxf(3, H / 160.0f));
+	float px = fmaxf(2, H / 260.0f);
+	float cw = px * 6 * 30, ch = px * 50, x = (W - cw) / 2, y = (H - ch) / 2;
+	rect(x + px * 3, y + px * 3, cw, ch, BLACK, 0.35f * alpha);          /* hard shadow */
+	rect(x, y, cw, ch, RGB(12, 12, 14), 0.94f * alpha);
+	rect(x, y, cw, px, WHITE, alpha);
+	float ax = x + px * 16, ay = y + ch / 2;                              /* the ring-and-dot mark */
+	disc(ax, ay, px * 9, WHITE, alpha); disc(ax, ay, px * 6.2f, RGB(12, 12, 14), alpha);
+	disc(ax, ay, px * 2.2f, WHITE, alpha);
+	text(x + px * 32, y + px * 14, user, px * 1.8f, WHITE, alpha);
+	float blink = 0.55f + 0.45f * sinf((float)now() * 5);
+	text(x + px * 32, y + px * 32, "PRESS ENTER", px * 0.9f, RGB(200, 200, 206), alpha * blink);
+	flip();
+}
+
 static int check_password(const char *u, const char *p)
 {
 	FILE *f = fopen("/etc/shadow", "r");
@@ -422,6 +503,18 @@ static void start_session(void)
 	restore_tty();
 	execl("/bin/login", "login", "-f", user, (char *)NULL);
 	_exit(1);
+}
+
+static void simple_loop(void)
+{
+	double t0 = now();
+	for (;;) {
+		card_simple(clampf((float)(now() - t0) / 0.4f, 0, 1));
+		struct pollfd p = {tty_fd, POLLIN, 0};
+		if (poll(&p, 1, 40) <= 0) continue;
+		char c;
+		if (read(tty_fd, &c, 1) == 1 && (c == '\r' || c == '\n')) start_session();
+	}
 }
 
 static void login_loop(void)
@@ -475,17 +568,9 @@ int main(int argc, char **argv)
 	outpipe = popen(cmd, "w");
 	build_ink();
 	intro();
-	/* sign-in card: fade in, type the user name, then the password */
-	const char *u = "silver", *pw = "Silver#Test1";
-	for (int f = 0; f < 200; f++) {
-		float a = clampf(f / 30.0f / 0.4f, 0, 1);
-		int nu = f < 45 ? 0 : (f - 45) / 5, np = f < 100 ? 0 : (f - 100) / 4;
-		nu = nu > (int)strlen(u) ? (int)strlen(u) : nu; np = np > (int)strlen(pw) ? (int)strlen(pw) : np;
-		memset(user, 0, sizeof user); memset(pass, 0, sizeof pass);
-		memcpy(user, u, nu); memcpy(pass, pw, np);
-		field = f >= 80;
-		card(a, 0);
-	}
+	/* sign-in card: fade in, then hold */
+	snprintf(user, sizeof user, "silver");
+	for (int f = 0; f < 120; f++) card_simple(clampf(f / 30.0f / 0.4f, 0, 1));
 	pclose(outpipe);
 	return 0;
 }
@@ -505,6 +590,10 @@ int main(int argc, char **argv)
 	/* the full intro plays once per boot; later logins go straight to the card */
 	if (mkdir("/run/silver-greeter", 0700) == 0) intro();
 	tcflush(tty_fd, TCIFLUSH);
+	snprintf(user, sizeof user, "silver");
+	nopass = account_open(user);
+	if (nopass) simple_loop();
+	user[0] = 0;
 	login_loop();
 	return 0;
 }

@@ -20,8 +20,8 @@ and soon the desktop down to the pixel.
    check runs (CPU, GPU, RAM, STORAGE) with values read from the real hardware.
 3. **The greeter** (`src/greeter`): "SILVER OS" scribbles itself onto black, a pen appears and
    snaps, silver ink leaks from the break and spreads until it becomes the background, and the
-   title slides into the bottom-right corner. Then the sign-in card appears. The full intro
-   plays once per boot; any key skips it.
+   title slides into the bottom-right corner. Then a card with your name appears and
+   you press Enter: no password. The full intro plays once per boot; any key skips it.
 4. **Pick Windows:** the screen shatters and Windows Boot Manager starts as normal.
 
 ## What's in it
@@ -36,7 +36,7 @@ and soon the desktop down to the pixel.
 | Remote access | Dropbear SSH: key-only, no root, off unless a key exists | `rootfs-overlay/etc/rc.boot` |
 | Config & branding | users, sysctl hardening, issue/motd, os-release | `rootfs-overlay/`, `config.sh` |
 | Boot chooser | **silverboot**: split-screen animated UEFI app, written from scratch | `src/silverboot/` |
-| Login | **silver-greeter**: framebuffer intro + sign-in, checks `/etc/shadow` | `src/greeter/` |
+| Login | **silver-greeter**: framebuffer intro + "press Enter" sign-in (asks for a password only if the account has one) | `src/greeter/` |
 | Installer | **silver-install** (dual boot) + **silver-efiboot** (UEFI boot entries) | `rootfs-overlay/sbin/`, `src/tools/` |
 | Disk tools | sfdisk (util-linux), mkfs.ext4/e2fsck (e2fsprogs), static | `scripts/build-userland.sh` |
 
@@ -68,12 +68,13 @@ disk (`tests/make-fake-windows-disk.sh`): install, chooser, melt, system check, 
 intro, graphical login, then a reboot into "Windows". It saves screenshots of each step.
 
 Verified in QEMU on both BIOS and UEFI: it boots to the login prompt, runs first-boot
-password setup, refuses direct root login, gets DHCP networking, and `su` works. Kernel
+admin-password setup, signs in without a password, refuses direct root login, gets DHCP
+networking, and `su` works. Kernel
 lockdown reports `[integrity]`. Runtime sysctls and `hidepid` are applied, and `/dev/mem`
 is absent. Size: 26 MB ISO, 0.8 MB root filesystem.
 
-Note: the live USB keeps everything in RAM, so the passwords you set are lost at
-reboot. The Phase 2 install makes them persistent.
+Note: the live USB keeps everything in RAM, so the admin password you set is lost at
+reboot. The install makes it persistent.
 
 ## Put it on a USB stick
 
@@ -82,8 +83,8 @@ sudo dd if=work/out/silveros-0.1.0-x86_64.iso of=/dev/sdX bs=4M status=progress 
 ```
 
 Then boot the PC from USB. You may need to turn off Secure Boot, because this image isn't
-signed yet. On the first boot, press Enter on any console (screen or serial) to set passwords for
-`silver` and `root`.
+signed yet. On the first boot, press Enter on any console (screen or serial) to choose an admin (`root`)
+password, or type `skip` to look around without one. Signing in as `silver` needs no password.
 
 ## Install next to Windows (dual boot)
 
@@ -134,8 +135,13 @@ text menu: SilverOS, SilverOS (verbose boot), Windows, Firmware setup.
   freelist hardening, panic on oops.
 - Runtime: kptr/dmesg restricted, ptrace restricted (Yama 2), unprivileged BPF off,
   SysRq off, protected links/fifos, network anti-spoofing / no redirects.
-- Accounts start locked. Root can't log in directly (empty `securetty`, refused by the greeter),
-  so you use `su`. Passwords are stored as SHA-512 crypt hashes, and wrong logins are slowed down.
+- **No sign-in password.** The `silver` account has an empty password, so the greeter just asks you
+  to press Enter, and the text consoles (tty2, serial) let `silver` in without one. That is a
+  convenience trade: anyone at the keyboard gets the `silver` user (not root). Remote access is
+  unaffected: SSH never accepts passwords. To turn the password back on, run `passwd` as
+  `silver`; the greeter then asks for it.
+- Root stays locked until you set the admin password, can't log in directly (empty `securetty`,
+  refused by the greeter), and is reached with `su`. Passwords are SHA-512 crypt hashes.
 - No plaintext network services. SSH accepts keys only and runs only when
   `authorized_keys` exists.
 - `/proc` is mounted with `hidepid=2`.
