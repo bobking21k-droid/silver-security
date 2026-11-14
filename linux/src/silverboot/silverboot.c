@@ -477,48 +477,143 @@ static void shatter(void)
 	}
 }
 
-/* Choosing SilverOS: the colourful Windows half melts -- columns drip and smear,
- * slices glitch sideways with split colour channels -- and spreads across the screen. */
-static void melt(void)
+/* ================================================================ pick SilverOS: Windows boots, melts, SilverOS takes over
+ * 1. the classic Windows boot scene fills the screen   2. it flips upside-down and goes grey
+ * 3. it melts: streaks drip and smear in glitching colour, darkening   4. white flash, then the
+ * four-pane mark flickers between light and dark   5. black: the hardware check (checks()). */
+static float since(uint64_t s) { return (float)(rdtsc() - s) / tsc_per_sec; }
+
+static void panes(float cx, float cy, float s, uint32_t a, uint32_t b, uint32_t c, uint32_t d)
+{
+	float g = s * 0.06f, w = (s - g) / 2;
+	rect(cx - s / 2, cy - s / 2, w, w, a, 1); rect(cx + g / 2, cy - s / 2, w, w, b, 1);
+	rect(cx - s / 2, cy + g / 2, w, w, c, 1); rect(cx + g / 2, cy + g / 2, w, w, d, 1);
+}
+
+static void classic_scene(float t)
+{
+	cx0 = 0; cx1 = W;
+	for (int j = 0; j < H; j++)
+		rect(0, (float)j, (float)W, 1, mix(RGB(24, 84, 214), RGB(146, 200, 246), fminf_(1, (float)j / (H * 0.64f))), 1);
+	for (int k = 0; k < 3; k++) {                                     /* a few soft clouds */
+		float cxk = W * (0.2f + 0.3f * k) + t * 6, cyk = H * (0.13f + 0.06f * (k % 2)), r = H * 0.03f;
+		cxk -= (float)(int)(cxk / (W * 1.1f)) * W * 1.1f;
+		for (int b = 0; b < 5; b++)
+			ellipse(cxk + (b - 2) * r * 0.9f, cyk + (b % 2) * r * 0.25f, r * 1.3f, r * 0.75f, WHITE, 0.6f);
+	}
+	for (int x = 0; x < W; x++) {                                     /* the hill */
+		float top = hill_y((float)x, (float)W, t);
+		for (int y = (int)top; y < H; y++) {
+			float d = (y - top) / (H - top + 1);
+			uint32_t c = mix(RGB(124, 208, 72), RGB(30, 112, 28), fminf_(1, d * 1.5f));
+			if (y - top < 3) c = mix(RGB(176, 234, 124), c, (y - top) / 3);
+			fb[y * W + x] = c;
+		}
+	}
+	float s = H * 0.15f, cx = W / 2.0f, cy = H * 0.34f;               /* four-pane mark + wordmark */
+	panes(cx, cy, s, RGB(244, 96, 52), RGB(124, 200, 60), RGB(40, 140, 240), RGB(255, 200, 40));
+	float px = fmaxf_(2, H / 150.0f);
+	text_c(cx + px * .5f, cy + s * 0.62f + px * .5f, "WINDOWS", px, RGB(10, 40, 100), 0.45f);
+	text_c(cx, cy + s * 0.62f, "WINDOWS", px, WHITE, 1);
+}
+
+static void flip_gray(void)
+{
+	memcpy(snap, fb, (size_t)W * H * 4);
+	for (int y = 0; y < H; y++)
+		for (int x = 0; x < W; x++) {
+			uint32_t c = snap[(H - 1 - y) * W + x];
+			uint32_t g = (((c >> 16) & 255) * 30 + ((c >> 8) & 255) * 59 + (c & 255) * 11) / 100;
+			fb[y * W + x] = mix(RGB(g, g, g), BLACK, (float)y / H * 0.35f);
+		}
+}
+
+static void melt(float dur)
 {
 	memcpy(snap, fb, (size_t)W * H * 4);
 	static float delay[4096], speed[4096];
+	static const uint32_t tint[6] = { RGB(255, 60, 40), RGB(40, 200, 220), RGB(250, 220, 40), RGB(60, 80, 255), RGB(240, 240, 240), RGB(120, 230, 80) };
 	int cols = W < 4096 ? W : 4096;
 	for (int x = 0; x < cols; x++) {
-		float from_right = (float)(W - x) / W;          /* Windows side goes first */
-		delay[x] = from_right * 0.9f + frand() * 0.15f;
-		speed[x] = H * (1.2f + frand() * 1.6f);
+		delay[x] = frand() * 0.7f;
+		speed[x] = H * (0.9f + frand() * 2.4f);
 	}
 	cx0 = 0; cx1 = W;
 	uint64_t start = rdtsc();
-	for (float t = 0; t < 2.0f; t = (float)(rdtsc() - start) / tsc_per_sec) {
+	for (float t = 0; t < dur; t = since(start)) {
+		float u = t / dur, amt = clampf(u * 2.6f, 0, 0.92f);
+		int step = (int)(t * 14);
 		for (int x = 0; x < cols; x++) {
 			float dt = t - delay[x];
 			int off = dt > 0 ? (int)(dt * dt * speed[x]) : 0;
+			uint32_t tn = tint[((x >> 2) + step * 7 + (x >> 5)) % 6];
 			for (int y = 0; y < H; y++) {
 				int sy = y - off;
-				/* above the dripping column: a smear of its top colour, fading to black */
-				uint32_t c = sy >= 0 ? snap[sy * W + x] : mix(snap[x], BLACK, (float)(-sy) / (H * 0.6f));
+				uint32_t c;
+				if (sy >= 0) { c = snap[sy * W + x]; if (((x * 2654435761u) >> 28) < 3) c = mix(c, tn, amt * 0.7f); }   /* tinted columns */
+				else c = mix(mix(snap[x], tn, amt), BLACK, fminf_(1, (float)(-sy) / (H * 0.9f)));   /* colourful smear */
 				fb[y * W + x] = c;
 			}
 		}
-		/* glitch slices: shifted rows with the red channel pulled one way */
-		for (int g = 0; g < 10; g++) {
-			int y0 = (int)(frand() * H), hh = 2 + (int)(frand() * H * 0.03f), sh = (int)((frand() - .5f) * W * 0.12f);
+		for (int g = 0; g < 14; g++) {         /* glitch slices: rows shifted sideways, channels split */
+			int y0 = (int)(frand() * H), hh = 2 + (int)(frand() * H * 0.035f), sh = (int)((frand() - .5f) * W * 0.16f);
+			int inv = frand() < 0.3f;
 			for (int y = y0; y < y0 + hh && y < H; y++) {
-				uint32_t *row = fb + y * W;
+				uint32_t *row = fb + y * W, tmp;
 				for (int x = 0; x < W; x++) {
-					int sx = x - sh, rx = x - sh - 8;
-					uint32_t c = (sx >= 0 && sx < W) ? snap[y * W + sx] : 0;
-					uint32_t r = (rx >= 0 && rx < W) ? snap[y * W + rx] : 0;
-					row[x] = (c & 0x00ffff) | (r & 0xff0000);
+					int sx = x - sh, rx = x - sh - 10;
+					tmp = (sx >= 0 && sx < W) ? fb[y * W + sx] : 0;
+					uint32_t r = (rx >= 0 && rx < W) ? fb[y * W + rx] : 0;
+					row[x] = (tmp & 0x00ffff) | (r & 0xff0000);
+					if (inv) row[x] ^= 0xffffff;      /* white/black contrast bars */
 				}
 			}
 		}
-		if (t > 1.3f) rect(0, 0, W, H, BLACK, (t - 1.3f) / 0.7f);
+		if (u > 0.72f) rect(0, 0, W, H, BLACK, (u - 0.72f) / 0.28f * 0.85f);   /* sinks into the dark at the end */
 		blit();
 		BS->Stall(8000);
 	}
+}
+
+static void logo_flicker(void)
+{
+	static const struct { float dur; int inv; int logo; } seq[] = {
+		{0.22f, 0, 0}, {0.55f, 0, 1}, {0.28f, 1, 1}, {0.4f, 0, 1}, {0.2f, 1, 1}, {0.6f, 0, 1} };
+	cx0 = 0; cx1 = W;
+	float s = H * 0.34f;
+	for (unsigned i = 0; i < sizeof seq / sizeof seq[0]; i++) {
+		uint32_t bg = seq[i].inv ? RGB(8, 8, 12) : RGB(250, 250, 244), fg = seq[i].inv ? RGB(246, 246, 246) : RGB(60, 62, 70);
+		uint64_t start = rdtsc();
+		while (since(start) < seq[i].dur) {
+			for (int k = 0; k < W * H; k++) fb[k] = bg;
+			if (seq[i].logo) {
+				float j = (frand() < 0.15f) ? (frand() - .5f) * 8 : 0;      /* a little flicker */
+				panes(W / 2.0f + j, H / 2.0f, s, fg, fg, fg, fg);
+			}
+			blit();
+			BS->Stall(8000);
+		}
+	}
+	memcpy(snap, fb, (size_t)W * H * 4);                                  /* and fade into black */
+	uint64_t start = rdtsc();
+	for (float t = 0; t < 0.5f; t = since(start)) {
+		for (int k = 0; k < W * H; k++) fb[k] = mix(snap[k], BLACK, t / 0.5f);
+		blit();
+		BS->Stall(8000);
+	}
+}
+
+static void windows_to_silver(void)
+{
+	uint64_t start = rdtsc();
+	float t;
+	while ((t = since(start)) < 3.0f) { classic_scene(t); blit(); BS->Stall(8000); }   /* 1. classic boot scene */
+	classic_scene(t);
+	flip_gray(); blit();                                                              /* 2. flips, goes grey */
+	BS->Stall(520000);
+	classic_scene(t);                                                                 /* 3. melts, in colour */
+	melt(3.8f);
+	logo_flicker();                                                                   /* 4. white, logo flicker */
 }
 
 /* ---- the black-and-white system check ---- */
@@ -668,7 +763,7 @@ static void launch(CHAR16 *path, int silver)
 	EFI_HANDLE dev = find_volume(path), img;
 	void *dp = dev ? file_path(dev, path) : 0;
 	if (!dp) { errmsg = "COULD NOT FIND THE BOOT FILE"; return; }
-	if (silver) { melt(); checks(1); }
+	if (silver) { windows_to_silver(); checks(1); }
 	else shatter();
 	if (BS->LoadImage(0, Self, dp, 0, 0, &img) != EFI_SUCCESS) { errmsg = "COULD NOT LOAD THE BOOT FILE"; return; }
 	BS->StartImage(img, 0, 0);

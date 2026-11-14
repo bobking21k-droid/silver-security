@@ -16,8 +16,10 @@ and soon the desktop down to the pixel.
    and shards drift across it, flipping colour as they cross. Use ← → or the mouse, then press
    Enter or click; `1` and `2` jump straight to SilverOS or Windows. It boots SilverOS after
    8 s if you don't touch anything.
-2. **Pick SilverOS:** Windows melts away in glitchy colour drips. Then a black-and-white system
-   check runs (CPU, GPU, RAM, STORAGE) with values read from the real hardware.
+2. **Pick SilverOS:** the chooser cuts straight to a full-screen classic Windows boot scene (blue
+   sky, green hill, four-pane mark). It flips upside-down in grey, then melts in glitching colour
+   streaks, flashes white, and the four-pane logo flickers between light and dark. Then a
+   black-and-white system check runs (CPU, GPU, RAM, STORAGE) with values read from the real hardware.
 3. **The greeter** (`src/greeter`): "SILVER OS" scribbles itself onto black, a pen appears and
    snaps, silver ink leaks from the break and spreads until it becomes the background, and the
    title slides into the bottom-right corner. Then a card with your name appears and
