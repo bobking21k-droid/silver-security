@@ -26,14 +26,27 @@ reference, not its content.)
    sideways and flip to negative. A white flash, the four-pane logo flickers (with one red cut),
    and then the system check runs (CPU, GPU, RAM, STORAGE) with values read from the real
    hardware, each confirmed by a beating red dot.
-3. **The greeter** (`src/greeter`): a red dot beats in the dark. "SILVER OS" slams in letter by
-   letter. A chrome pen rises up the middle, strains and snaps, and from the break red spurts
-   out in heartbeat pulses (lub-dub, lub-dub) like a cut heart. Every pulse thumps the screen and
-   surges the red outward until it is the background. A red flash, and the title settles
-   bottom-right over the lock screen: clock, date and a hard-edged card. Press Enter: no
-   password. The intro plays once per boot; any key skips it. Add `silver.calm` to the kernel
-   command line to turn off its shake and flashes.
-4. **Pick Windows:** the screen shatters like glass and Windows Boot Manager starts as normal.
+3. **The greeter** (`src/greeter`): a red dot beats in the dark. A chrome pen rises up the
+   middle, strains and snaps, and the screen **cracks**: fractures race out from the break,
+   and two jagged ones split the glass into four panes. "SILVER OS" slams in where they cross,
+   and the panes light up as **Settings, Search, Apps and Files**. The intro plays once per
+   boot; any key skips it. Add `silver.calm` to the kernel command line (or turn on Calm mode
+   in Settings) to turn off its shake and flashes.
+4. **The home screen** (`src/greeter/home.h`): arrow keys choose a pane (the chosen one turns
+   to white glass), Enter opens it, Esc comes back. Every section works:
+   - **Files**: browse your home folder (Enter opens a folder, Backspace goes up) with a text
+     preview of the selected file.
+   - **Search**: type to find files, folders, apps and settings; Enter opens the result.
+   - **Apps**: a Terminal (a shell on the console; `exit` returns here), a live System Monitor
+     (CPU graph, memory, uptime) and an About page.
+   - **Settings**: network address, display size, Calm mode, About, Restart and Shut down
+     (Enter twice to confirm).
+
+   Signing in is passwordless by default; an account with a password gets a card over the
+   cracked glass first. The home screen runs as the signed-in user, not root: the greeter forks,
+   the child drops privileges, and the privileged parent only does what the child asks through
+   a pipe (open the terminal, restart, shut down).
+5. **Pick Windows:** the screen shatters like glass and Windows Boot Manager starts as normal.
 
 Both the chooser and the intro contain flashing lights; they say so on screen.
 
@@ -183,8 +196,8 @@ text menu: SilverOS, SilverOS (verbose boot), Windows, Firmware setup.
 1. **Groundwork** ✅: toolchain, kernel, init, userland, bootable USB.
 2. **Dual boot with Windows** ✅: installer, own boot chooser, graphical login, persistent install.
 3. **Firewall**: build nftables (libmnl + libnftnl) from source, default-deny inbound.
-4. **Silver Desktop**: our own framebuffer/DRM compositor in C. We draw the window
-   manager, font rendering, cursor and widgets ourselves, pixel by pixel.
+4. **Silver Desktop**: windows. The home screen and its sections exist; next is a window
+   manager and compositor so several apps can run at once.
 5. **Self-hosting toolchain**: build GCC/binutils for the target so SilverOS can rebuild
    itself, and drop the dependency on the host compiler.
 6. **Secure Boot**: sign the bootloader and kernel with your own keys.

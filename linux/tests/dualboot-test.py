@@ -92,15 +92,20 @@ print("== 2. power on from disk: chooser must appear")
 vm = VM(with_iso=False)
 vm.expect("silverboot.efi", 60); time.sleep(4); vm.shot("chooser")
 vm.key("ret"); time.sleep(0.9); vm.shot("melt"); time.sleep(3.2); vm.shot("checks")
-print("== 3. SilverOS boots from disk: greeter intro, graphical login, admin password persisted")
+print("== 3. SilverOS boots from disk: crack intro, four-pane home, sections, terminal as the user")
 vm.expect("login:", 120)
 t0 = time.time()
-for at, name in [(0.8, "intro-1"), (2.0, "intro-2"), (3.3, "intro-3"), (4.2, "intro-4"), (5.2, "intro-5"), (6.4, "intro-6"), (9.0, "login-card")]:
+for at, name in [(2.0, "intro-1"), (6.0, "intro-2"), (9.0, "intro-3"), (12.0, "intro-4"), (15.0, "intro-5"), (22.0, "home")]:
     time.sleep(max(0, t0 + at - time.time())); vm.shot(name)
-time.sleep(max(0, t0 + 17 - time.time())); vm.shot("login-card")
-vm.key("ret"); time.sleep(2); vm.key("ret"); time.sleep(3); vm.shot("session")   # Enter = signed in, no password
-vm.send("silver"); vm.expect(r"~\$ ")                                   # text console: no password either
-for c in ["cat /etc/silver-installed", "mount | grep ' / '", "echo persist-check > ~/note.txt; sync"]:
+vm.key("right"); time.sleep(1); vm.key("down"); time.sleep(1.5); vm.shot("home-files-selected")
+vm.key("ret"); time.sleep(2.5); vm.shot("files")
+vm.key("down"); time.sleep(1.5); vm.shot("files-2"); vm.key("esc"); time.sleep(1.5)
+vm.key("up"); time.sleep(0.8); vm.key("ret"); time.sleep(2); vm.key("s"); time.sleep(1); vm.key("y"); time.sleep(1.5); vm.shot("search")
+vm.key("esc"); time.sleep(1.5); vm.key("left"); time.sleep(0.8); vm.key("ret"); time.sleep(2.5); vm.shot("settings")
+vm.key("esc"); time.sleep(1.5); vm.key("down"); time.sleep(0.8); vm.key("ret"); time.sleep(2.5); vm.shot("apps")
+vm.key("ret"); time.sleep(5); vm.shot("terminal")                                  # Terminal: a shell on tty1, as the user
+vm.send("silver"); vm.expect(r"~\$ ")                                              # text console: no password either
+for c in ["cat /etc/silver-installed", "mount | grep ' / '", "echo persist-check > ~/note.txt; sync", "ps | grep -c '[s]ilver-greeter' || true", "id -un"]:
     vm.send(c); print(strip(vm.expect(r"~\$ ")))
 vm.send("su -c reboot"); vm.expect("Password:"); vm.send("Admin#Test12")
 print("== 4. reboot, choose Windows")

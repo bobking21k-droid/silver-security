@@ -1,35 +1,44 @@
 /*
- * silver-greeter -- the SilverOS login screen, drawn straight onto /dev/fb0 with sgfx.
+ * silver-greeter -- the SilverOS sign-in and home screen, drawn straight onto /dev/fb0 with sgfx.
  *
- * Intro (once per boot, ~6.5 s, any key skips):
- *   black -> a red dot beats like a heart -> "SILVER OS" slams in, letter by letter ->
- *   a chrome pen rises up the middle, strains, and SNAPS -> from the break, red spurts out in
- *   heartbeat pulses (lub-dub, lub-dub), each pulse surging the red across the screen until it
- *   is the background -> a red flash, and the title settles bottom-right.
- * Then the lock screen: clock, date and a hard-edged sign-in card.
+ * Intro (once per boot, ~4 s, any key skips):
+ *   black -> a red dot beats -> a chrome pen rises up the middle, strains and SNAPS ->
+ *   the screen CRACKS: fractures race out from the break, and two jagged ones split the glass
+ *   into four panes -> "SILVER OS" slams in where they cross -> the panes light up as
+ *   SETTINGS, SEARCH, APPS and FILES.
  *
- * Sign-in: an account with an empty password just needs Enter. Otherwise the password is
- * checked against /etc/shadow with crypt(3). Root may not sign in here (use su). On success
- * the session starts with `login -f <user>` on this tty. Without a usable framebuffer we
- * fall back to getty.
+ * Home: arrow keys choose a pane, Enter opens it, Esc comes back (see home.h). Each section
+ * works: browse and preview files, search files/apps/settings, a terminal and a live system
+ * monitor, network and display info, calm mode, restart and shut down.
  *
- * Add `silver.calm` to the kernel command line to turn off the shake and flashes.
+ * Accounts and privileges: an account with an empty password needs no sign-in. Otherwise a
+ * password card checks /etc/shadow with crypt(3). Root may not sign in here (use su). The
+ * interface itself runs as the signed-in user: this process forks, the child drops root and
+ * draws the home screen, and the privileged parent only does what the child asks through a
+ * pipe: open the terminal (login -f), restart, or shut down. Without a usable framebuffer
+ * we fall back to getty.
+ *
+ * Add `silver.calm` to the kernel command line (or turn on Calm mode in Settings) to turn
+ * off the shake and flashes.
  *
  * Usage (from silver-login, as root, stdin = the tty):  silver-greeter tty1
- * Build with -DRENDER for an offline renderer:  silver-greeter-render out.mp4 [w h [password]]
+ * Build with -DRENDER for an offline demo renderer:  silver-greeter-render out.mp4 [w h [password]]
  */
 #define _GNU_SOURCE
 #include <fcntl.h>
+#include <grp.h>
 #include <linux/fb.h>
 #include <linux/kd.h>
 #include <poll.h>
 #include <pwd.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
+#include <sys/wait.h>
 #include <termios.h>
 #include <time.h>
 #include <unistd.h>
@@ -44,19 +53,18 @@
 #define BLACK RGB(0, 0, 0)
 #define INK RGB(10, 10, 12)
 #define BLOOD RGB(232, 16, 24)
-#define HOT RGB(255, 62, 46)
 
 static Font FD, FT, FC;                       /* Silver Scrawl, Inter, Michroma */
 static int W, H, scale = 1, fb_w, fb_h, stride, calm;
 static float U;                               /* 1% of the screen height */
-static uint32_t *fbmem, *ink_bg, *canvas;
-static uint8_t *edge;                         /* ragged-edge noise for the red's advancing front */
+static uint32_t *fbmem, *canvas;
 static Surf fb;
-static int tty_fd = 0;
+static int tty_fd = 0, req_fd = -1;
 static struct termios saved_tio;
 static const char *tty_name = "tty1";
+static char user[33] = "silver", pass[129];
 
-/* ---------------------------------------------------------------- time and output */
+/* ---------------------------------------------------------------- time, output, input */
 #ifdef RENDER
 static double fake_t;
 static FILE *outpipe;
@@ -76,6 +84,8 @@ static void flip(void)
 static int key_waiting(void) { struct pollfd p = {tty_fd, POLLIN, 0}; return poll(&p, 1, 0) > 0; }
 #endif
 
+#include "home.h"
+
 static void restore_tty(void)
 {
 	ioctl(tty_fd, KDSETMODE, KD_TEXT);
@@ -88,8 +98,9 @@ static int buffers(void)
 {
 	U = H / 100.0f;
 	fb = sg_surf(malloc((size_t)W * H * 4), W, H);
-	ink_bg = malloc((size_t)W * H * 4); canvas = malloc((size_t)W * H * 4); edge = malloc((size_t)W * H);
-	return fb.px && ink_bg && canvas && edge && !sg_font_load(&FD, font_scrawl) && !sg_font_load(&FT, font_text) && !sg_font_load(&FC, font_caption) ? 0 : -1;
+	canvas = malloc((size_t)W * H * 4);
+	qmap = malloc((size_t)W * H); bg_dark = malloc((size_t)W * H * 4); bg_light = malloc((size_t)W * H * 4); bg_sec = malloc((size_t)W * H * 4);
+	return fb.px && canvas && qmap && bg_dark && bg_light && bg_sec && !sg_font_load(&FD, font_scrawl) && !sg_font_load(&FT, font_text) && !sg_font_load(&FC, font_caption) ? 0 : -1;
 }
 static int fb_open(void)
 {
@@ -106,70 +117,52 @@ static int fb_open(void)
 	return fbmem == MAP_FAILED ? -1 : buffers();
 }
 
-/* ================================================================ the red */
-static float bilerp(const float *g, int gw, int step, int x, int y)
+#ifndef RENDER
+/* One key: letters, Enter (K_ENTER), Backspace (K_BACK), arrows (K_UP...), a lone Esc (K_ESC). */
+static int read_key(int wait_ms)
 {
-	int i = x / step, j = y / step;
-	float fx = (float)(x - i * step) / step, fy = (float)(y - j * step) / step;
-	const float *p = g + j * gw + i;
-	return (p[0] * (1 - fx) + p[1] * fx) * (1 - fy) + (p[gw] * (1 - fx) + p[gw + 1] * fx) * fy;
-}
-static float step_at(float v, float th) { return sg_smooth((v - th) / 0.04f + 0.5f); }
-
-/* The background is a height field of slow, swirling liquid, lit from the upper left, then
- * posterized into hard bands: black, dark red, red, hot red and a pale glint. */
-static void build_ink(void)
-{
-	const int st = 4, gw = W / st + 3, gh = H / st + 3;
-	float *hgt = malloc(sizeof(float) * gw * gh), *eg = malloc(sizeof(float) * gw * gh);
-	float sc = 1.15f / H;
-	for (int j = 0; j < gh; j++)
-		for (int i = 0; i < gw; i++) {
-			float x = i * st * sc, y = j * st * sc;
-			float qx = sg_fbm(x, y, 3), qy = sg_fbm(x + 5.2f, y + 1.3f, 3);
-			float rx = sg_fbm(x + 3.0f * qx + 1.7f, y + 3.0f * qy + 9.2f, 3), ry = sg_fbm(x + 3.0f * qx + 8.3f, y + 3.0f * qy + 2.8f, 3);
-			hgt[j * gw + i] = sg_fbm(x + 2.4f * rx, y + 2.4f * ry, 3);
-			eg[j * gw + i] = sg_fbm(x * 10, y * 10, 4);
+	struct pollfd p = {tty_fd, POLLIN, 0};
+	if (poll(&p, 1, wait_ms) <= 0) return -1;
+	unsigned char c;
+	if (read(tty_fd, &c, 1) != 1) return -1;
+	if (c == 27) {
+		if (poll(&p, 1, 40) <= 0) return K_ESC;
+		unsigned char c2;
+		if (read(tty_fd, &c2, 1) != 1) return K_ESC;
+		if (c2 == '[' || c2 == 'O') {
+			unsigned char c3;
+			if (read(tty_fd, &c3, 1) != 1) return -1;
+			if (c3 == 'A') return K_UP;
+			if (c3 == 'B') return K_DOWN;
+			if (c3 == 'C') return K_RIGHT;
+			if (c3 == 'D') return K_LEFT;
+			while (c3 >= '0' && c3 <= '9' && poll(&p, 1, 20) > 0) { if (read(tty_fd, &c3, 1) != 1) break; if (c3 == '~') break; }
+			return -1;
 		}
-	V3 L = v3_norm(v3(-0.45f, -0.62f, 0.64f)), Hv = v3_norm(v3(-0.45f, -0.62f, 1.64f));
-	for (int y = 0; y < H; y++)
-		for (int x = 0; x < W; x++) {
-			float h0 = bilerp(hgt, gw, st, x, y), hx = bilerp(hgt, gw, st, x + st, y) - h0, hy = bilerp(hgt, gw, st, x, y + st) - h0;
-			V3 n = v3_norm(v3(-hx * 46, -hy * 46, 1));
-			float diff = v3_dot(n, L), spec = v3_dot(n, Hv);
-			spec = spec > 0 ? spec : 0; spec *= spec; spec *= spec; spec *= spec; spec *= spec;      /* ^16 */
-			float v = 0.30f + 0.50f * diff + 0.50f * spec + 0.20f * (h0 - 0.5f);
-			float dx = (x - W * .5f) / W, dy = (y - H * .5f) / H;
-			v -= 0.34f * (dx * dx + dy * dy) * 4;                                                      /* dark corners */
-			uint32_t c = BLACK;
-			c = sg_mix(c, RGB(74, 3, 8), step_at(v, 0.24f));
-			c = sg_mix(c, RGB(168, 8, 16), step_at(v, 0.44f));
-			c = sg_mix(c, HOT, step_at(v, 0.70f));
-			c = sg_mix(c, RGB(255, 214, 196), step_at(v, 0.96f));
-			int g = (int)(((sg_hash(x, y) >> 9) & 7) - 3);                                             /* film grain */
-			int r = (int)((c >> 16) & 255) + g, gg = (int)((c >> 8) & 255) + g / 2, b = (int)(c & 255) + g / 2;
-			ink_bg[y * W + x] = RGB(r < 0 ? 0 : r > 255 ? 255 : r, gg < 0 ? 0 : gg > 255 ? 255 : gg, b < 0 ? 0 : b > 255 ? 255 : b);
-			edge[y * W + x] = (uint8_t)sg_clamp(bilerp(eg, gw, st, x, y) * 255, 0, 255);
-		}
-	free(hgt); free(eg);
+		return K_ESC;
+	}
+	if (c == '\r' || c == '\n') return K_ENTER;
+	if (c == 8 || c == 127) return K_BACK;
+	return c;
 }
+#endif
 
 /* ================================================================ the title */
 static const char *TITLE = "SILVER OS";
 static float title_w(float size) { return sg_text_w(&FD, TITLE, size, 0); }
 
 /* Draw the title with its baseline at `by`, centred on cx. `t` is seconds since the first letter
- * began to slam in (a large t draws it settled). Each letter drops in oversized, with a red echo. */
+ * began to slam in. Each letter drops in oversized, with a red echo. */
 static void title(float cx, float by, float size, float t, float alpha)
 {
 	float left = cx - title_w(size) / 2;
 	char pre[16];
 	for (int i = 0; TITLE[i]; i++) {
-		float k = (t - i * 0.115f) / 0.17f;
+		float k = (t - i * 0.075f) / 0.15f;
 		if (k <= 0) continue;
 		memcpy(pre, TITLE, (size_t)i); pre[i] = 0;
 		char one[2] = {TITLE[i], 0};
-		float x = left + sg_text_w(&FD, pre, size, 0) + (i ? 0 : 0), wch = sg_text_w(&FD, one, size, 0);
+		float x = left + sg_text_w(&FD, pre, size, 0), wch = sg_text_w(&FD, one, size, 0);
 		float sc = k >= 1 ? 1 : 1 + 0.55f * (1 - sg_ease_out(k)), a = sg_sat(k * 5) * alpha;
 		float sz = size * sc, xd = x + wch / 2 - sg_text_w(&FD, one, sz, 0) / 2, yd = by + 0.36f * size * (sc - 1);
 		if (k < 1.3f && !calm) sg_text(&fb, &FD, xd - U * 0.9f, yd, one, sz, BLOOD, a * sg_sat(1.3f - k), 0);     /* red echo */
@@ -195,91 +188,34 @@ static void tube(V2 o, float c, float s, float x0, float x1, float t0, float t1,
 	}
 }
 
-/* Standing pen, cap up, nib down. (cx, cy) is the break point. snap: 0 whole .. 1 broken.
- * recoil: extra separation, driven by the heartbeat. */
-static void pen(float cx, float cy, float L, float snap, float recoil, float a)
+/* Standing pen, cap up, nib down. (cx, cy) is the break point. snap: 0 whole .. 1 broken. */
+static void pen(float cx, float cy, float L, float snap, float a)
 {
-	float k = sg_ease_out(snap), ang = 0.36f * k, th = L * 0.040f, half = L / 2;
-	float gap = L * (0.012f + 0.020f * recoil) * k + L * 0.004f * k;
+	float k = sg_ease_out(snap), ang = 0.34f * k, th = L * 0.040f, half = L / 2, gap = L * 0.02f * k;
 	const uint32_t d = RGB(58, 60, 68), l = RGB(252, 252, 255), gd = RGB(18, 18, 22), gl = RGB(120, 122, 132);
-	/* cap half (up) */
-	float t1 = 1.5707963f + ang;
+	float t1 = 1.5707963f + ang;                                                                     /* cap half (up) */
 	V2 o = {cx + gap * 0.3f, cy - gap}; float c = sg_cos(t1), s = sg_sin(t1);
 	tube(o, c, s, -half * 0.985f, 0, th, th, d, l, a);
-	tube(o, c, s, -half, -half * 0.985f, th * 0.72f, th, d, l, a);                                  /* rounded end */
-	tube(o, c, s, -half * 0.62f, -half * 0.585f, th * 1.08f, th * 1.08f, gd, gl, a);                 /* band */
+	tube(o, c, s, -half, -half * 0.985f, th * 0.72f, th, d, l, a);
+	tube(o, c, s, -half * 0.62f, -half * 0.585f, th * 1.08f, th * 1.08f, gd, gl, a);
 	{ V2 q[4] = {rot(o, c, s, -half * 0.94f, -th * 1.55f), rot(o, c, s, -half * 0.36f, -th * 1.55f), rot(o, c, s, -half * 0.36f, -th * 1.2f), rot(o, c, s, -half * 0.94f, -th * 1.2f)};
-	  sg_poly(&fb, q, 4, RGB(214, 216, 224), a, 0);                                                 /* clip */
+	  sg_poly(&fb, q, 4, RGB(214, 216, 224), a, 0);
 	  V2 r[4] = {rot(o, c, s, -half * 0.94f, -th * 1.55f), rot(o, c, s, -half * 0.88f, -th * 1.55f), rot(o, c, s, -half * 0.88f, -th * 0.9f), rot(o, c, s, -half * 0.94f, -th * 0.9f)};
 	  sg_poly(&fb, r, 4, RGB(214, 216, 224), a, 0); }
-	for (int j = 0; j < 5 && snap > 0; j++) {                                                      /* torn metal at the break */
+	for (int j = 0; j < 5 && snap > 0; j++) {                                                        /* torn metal at the break */
 		float v = -1 + 0.4f * j;
 		sg_tri(&fb, rot(o, c, s, 0, v * th), rot(o, c, s, th * (0.35f + 0.5f * ((j * 7) % 3) * 0.5f), (v + 0.2f) * th), rot(o, c, s, 0, (v + 0.4f) * th), sg_mix(d, l, 0.3f + 0.15f * j), a);
 	}
-	/* nib half (down) */
-	t1 = 1.5707963f - ang;
+	t1 = 1.5707963f - ang;                                                                           /* nib half (down) */
 	o = (V2){cx - gap * 0.3f, cy + gap}; c = sg_cos(t1); s = sg_sin(t1);
 	tube(o, c, s, 0, half * 0.70f, th, th, d, l, a);
-	tube(o, c, s, half * 0.70f, half * 0.735f, th * 1.08f, th * 1.08f, gd, gl, a);                   /* grip ring */
-	tube(o, c, s, half * 0.735f, half * 0.93f, th, th * 0.30f, d, l, a);                             /* taper */
-	tube(o, c, s, half * 0.93f, half, th * 0.30f, th * 0.03f, gd, gl, a);                            /* tip */
+	tube(o, c, s, half * 0.70f, half * 0.735f, th * 1.08f, th * 1.08f, gd, gl, a);
+	tube(o, c, s, half * 0.735f, half * 0.93f, th, th * 0.30f, d, l, a);
+	tube(o, c, s, half * 0.93f, half, th * 0.30f, th * 0.03f, gd, gl, a);
 	for (int j = 0; j < 5 && snap > 0; j++) {
 		float v = -1 + 0.4f * j;
 		sg_tri(&fb, rot(o, c, s, 0, v * th), rot(o, c, s, -th * (0.35f + 0.5f * ((j * 5 + 1) % 3) * 0.5f), (v + 0.2f) * th), rot(o, c, s, 0, (v + 0.4f) * th), sg_mix(d, l, 0.35f + 0.12f * j), a);
 	}
-}
-
-/* ================================================================ the heart */
-#define HB 0.62f                      /* seconds between beats */
-#define NBEAT 4
-
-/* One jet: a stream of liquid thrown from (ox, oy) at angle `ang` and speed `v`, bending under
- * gravity. Only the part between its tail (where the pulse stopped feeding it) and its head
- * (the front, tau seconds after launch) exists, so each beat sends a surge of liquid out. */
-static void jet(float ox, float oy, float ang, float v, float tau, float flow, float w0, float life)
-{
-	const float g = H * 1.9f, ca = sg_cos(ang), sa = sg_sin(ang);
-	float tt = sg_max(0, tau - flow);
-	enum { N = 20 };
-	V2 pt[N + 1]; float wd[N + 1];
-	for (int i = 0; i <= N; i++) {
-		float u = tt + (tau - tt) * i / N, f = (float)i / N;
-		pt[i] = (V2){ox + ca * v * u, oy + sa * v * u + 0.5f * g * u * u};
-		wd[i] = w0 * (0.20f + 0.80f * f * f * (3 - 2 * f)) * (1 - 0.28f * u);                     /* thin tail, fat head */
-	}
-	for (int i = 1; i <= N; i++) sg_line(&fb, pt[i - 1], pt[i], wd[i] + U * 0.6f, BLACK, 0.5f * life);   /* dark rim, so it reads on red */
-	for (int i = 1; i <= N; i++) sg_line(&fb, pt[i - 1], pt[i], wd[i], sg_mix(BLOOD, HOT, (float)i / N), life);
-	for (int i = 1; i <= N; i++) sg_line(&fb, pt[i - 1], pt[i], wd[i] * 0.30f, RGB(255, 200, 180), 0.5f * life * (float)i / N);   /* wet highlight */
-	sg_disc(&fb, pt[N].x, pt[N].y, wd[N] * 0.62f + U * 0.5f, BLACK, 0.5f * life);                 /* the leading drop */
-	sg_disc(&fb, pt[N].x, pt[N].y, wd[N] * 0.62f, HOT, life);
-}
-
-/* Spurts from (ox, oy), like a heart that has been cut: each beat (lub) throws a fan of jets
- * up and out, the second thump (dub) a smaller one. t is seconds since the first lub. */
-static void spurt(float t, float ox, float oy)
-{
-	for (int k = 0; k < NBEAT; k++)
-		for (int d = 0; d < 2; d++) {
-			float tau = t - k * HB - d * 0.21f, str = d ? 0.5f : 1.0f;
-			if (tau < 0 || tau > 1.1f) continue;
-			int n = d ? 5 : 9;
-			float life = sg_sat((1.1f - tau) * 4) * sg_sat(tau * 25);
-			for (int i = 0; i < n; i++) {
-				uint32_t h = sg_hash(k * 7 + d, i * 13 + 5);
-				float u1 = ((h & 255) / 255.f - .5f) * 0.5f, u2 = ((h >> 8) & 255) / 255.f, u3 = ((h >> 16) & 255) / 255.f;
-				float ang = -SG_PI * (0.08f + 0.84f * (i + 0.5f + u1) / n);                         /* an even fan across the top */
-				float v = H * (0.62f + 0.52f * u2) * (0.65f + 0.35f * str);
-				jet(ox, oy, ang, v, tau, 0.40f * (0.7f + 0.3f * str), U * (2.5f + 2.3f * u3) * (0.55f + 0.45f * str), life);
-			}
-			for (int i = 0; i < 22 * (d ? 1 : 2); i++) {                                            /* a fine mist around the break */
-				uint32_t h = sg_hash(k * 11 + d + 90, i * 17 + 3);
-				float u1 = (h & 255) / 255.f, u2 = ((h >> 8) & 255) / 255.f;
-				float ang = -SG_PI * (0.02f + 0.96f * u1), v = H * (0.25f + 0.85f * u2), g = H * 1.9f;
-				V2 p = {ox + sg_cos(ang) * v * tau, oy + sg_sin(ang) * v * tau + 0.5f * g * tau * tau};
-				sg_disc(&fb, p.x, p.y, U * (0.25f + 0.35f * u2), BLACK, 0.4f * life);
-				sg_disc(&fb, p.x, p.y, U * (0.18f + 0.30f * u2), HOT, life);
-			}
-		}
 }
 
 /* ================================================================ intro */
@@ -293,143 +229,68 @@ static void shake_frame(float dx, float dy)
 	}
 }
 
-static float tsize;                /* title size */
-static float corner_size(void) { return sg_max(18.0f, U * 4.6f); }
-static void corner_title(float alpha)
+static void home_init(Home *h)
 {
-	float sz = corner_size(), cx = W - title_w(sz) / 2 - U * 4.5f, by = H - U * 5.2f;
-	sg_text(&fb, &FD, cx - title_w(sz) / 2 - U * 0.25f, by, TITLE, sz, BLOOD, alpha * 0.9f, 0);
-	sg_text(&fb, &FD, cx - title_w(sz) / 2 + sz * 0.03f, by + sz * 0.03f, TITLE, sz, BLACK, alpha * 0.6f, 0);
-	sg_text(&fb, &FD, cx - title_w(sz) / 2, by, TITLE, sz, WHITE, alpha, 0);
+	memset(h, 0, sizeof *h);
+	h->blend[0] = 1;
+	h->calm_on = calm;
 }
 
-/* spread the red to radius r around (ink_x, ink_y) over whatever is in the frame */
-static float ink_x, ink_y;
-static void flood(float r)
-{
-	float rin = r - 118, rout = r + 124;        /* the ragged edge moves the front by at most ~115 px */
-	for (int y = 0; y < H; y++) {
-		float dy = (y - ink_y) * 1.15f, oo = rout * rout - dy * dy;
-		if (oo <= 0) continue;
-		float wo = sg_sqrt(oo);
-		int xo0 = (int)sg_max(ink_x - wo, 0), xo1 = (int)sg_min(ink_x + wo + 1, W), xi0 = xo0, xi1 = xo0;
-		float ii = rin * rin - dy * dy;
-		if (rin > 0 && ii > 0) {
-			float wi = sg_sqrt(ii);
-			xi0 = (int)sg_max(ink_x - wi, xo0); xi1 = (int)sg_min(ink_x + wi + 1, xo1);
-			if (xi1 < xi0) xi1 = xi0;
-		}
-		uint32_t *row = fb.px + y * W, *src = ink_bg + y * W;
-		for (int x = xo0; x < xo1; x++) {
-			if (x == xi0 && xi1 > xi0) { memcpy(row + xi0, src + xi0, (size_t)(xi1 - xi0) * 4); x = xi1 - 1; continue; }
-			float dx = x - ink_x, d = sg_sqrt(dx * dx + dy * dy) + (edge[y * W + x] - 128) * 0.9f, in = r - d;
-			if (in > 0) row[x] = in < 7 ? sg_mix(src[x], HOT, 0.8f * (1 - in / 7)) : src[x];          /* a wet, bright rim at the front */
-			else if (in > -6) row[x] = sg_mix(row[x], BLACK, 0.7f * (1 + in / 6));
-		}
-	}
-}
+#define T_DOT 0.30f
+#define T_PEN 0.70f
+#define T_SNAP 1.85f
+#define T_TITLE 2.15f
+#define T_OPEN 3.00f
+#define T_END 3.80f
 
-#define T_DOT 0.35f
-#define T_TITLE 1.15f
-#define T_PEN 2.55f
-#define T_SNAP 3.55f
-#define T_FLASH 5.95f
-#define T_END 6.55f
-
-static void intro(void)
+static void intro(Home *h)
 {
-	float PL = sg_min(H * 0.60f, W * 0.62f), py = H * 0.615f, px = W / 2.0f;     /* the break point */
-	tsize = sg_min(U * 14.5f, W * 0.84f / (title_w(1.0f)));
-	float by = H * 0.205f + tsize * 0.40f;
-	float maxr = sg_sqrt((float)W * W / 4 + (float)H * H) + 160;
-	ink_x = px; ink_y = py;
-	static struct { float vx, vy, spin, size; } chip[14];
-	for (int i = 0; i < 14; i++) chip[i] = (typeof(chip[0])){(sg_frand() - .5f) * 2.2f, -0.4f - sg_frand() * 1.5f, (sg_frand() - .5f) * 14, 0.25f + sg_frand() * 0.75f};
+	float PL = sg_min(H * 0.44f, W * 0.5f), cx = W / 2.0f, cy = H / 2.0f;
+	float tsz = sg_min(U * 15.0f, W * 0.82f / title_w(1.0f));
+	static struct { float vx, vy, spin, size; } chip[18];
+	for (int i = 0; i < 18; i++) chip[i] = (typeof(chip[0])){(sg_frand() - .5f) * 2.6f, -0.5f - sg_frand() * 1.6f, (sg_frand() - .5f) * 14, 0.25f + sg_frand() * 0.9f};
 	double t0 = now();
 	for (;;) {
-		float t = (float)(now() - t0);
+		float t = (float)(now() - t0), ct = t - T_SNAP;
 		if (t > T_END || key_waiting()) break;
 		sg_clear(&fb, BLACK);
+		float open = sg_sat((t - T_OPEN) / 0.75f);
+		home_draw(h, open, t, ct);                            /* the glass (once open) and the cracks, growing from the break */
 
-		/* the red, surging with each beat once the pen has snapped */
-		float p = 0;
-		if (t > T_SNAP) {
-			for (int k = 0; k < NBEAT; k++) p += sg_smooth((t - (T_SNAP + 0.05f + k * HB)) / 0.20f);
-			p /= NBEAT;
+		float hb = sg_heart(t - T_DOT, 0.82f);                /* the dot, beating in the dark, then lying under the pen */
+		if (t > T_DOT && t < T_SNAP) {
+			float grow = sg_smooth((t - T_DOT) / 0.3f);
+			sg_glow(&fb, cx, cy, U * (6 + 5 * hb), BLOOD, 0.55f * grow * (0.5f + 0.5f * hb));
+			sg_disc(&fb, cx, cy, U * (0.9f + 0.9f * hb) * grow, BLOOD, grow);
 		}
-		float st = t - (T_SNAP + 0.05f);                         /* time since the first lub */
-		if (p > 0) flood(maxr * p);
-
-		/* the dot, beating in the dark, then lying under the pen */
-		float hb = sg_heart(t - T_DOT, 0.82f);
-		if (t > T_DOT && t < T_SNAP + 0.05f) {
-			float grow = sg_smooth((t - T_DOT) / 0.3f), r = U * (0.9f + 0.9f * hb) * grow;
-			sg_glow(&fb, px, py, U * (6 + 5 * hb), BLOOD, 0.55f * grow * (0.5f + 0.5f * hb));
-			sg_disc(&fb, px, py, r, BLOOD, grow);
-		}
-
-		/* the pen: rises up the middle, strains, snaps */
-		if (t > T_PEN) {
-			float in = sg_ease_out((t - T_PEN) / 0.55f), snap = (t - T_SNAP) / 0.12f;
+		if (t > T_PEN && ct < 1.4f) {                         /* the pen rises, strains, snaps, and falls away */
+			float in = sg_ease_out((t - T_PEN) / 0.55f), snap = ct / 0.10f;
 			float strain = (t > T_SNAP - 0.5f && t < T_SNAP) ? (t - T_SNAP + 0.5f) / 0.5f : 0;
-			float shk = calm ? 0 : sg_sin(t * 110) * U * 0.30f * strain;                      /* it trembles before it goes */
-			float fall = t > T_SNAP + 0.9f ? sg_smooth((t - T_SNAP - 0.9f) / 1.0f) : 0;
-			float rec = sg_heart(t - (T_SNAP + 0.05f), HB);                                   /* each beat shoves the halves apart */
-			float ox = px + shk, oy = py + (1 - in) * H * 0.62f + fall * fall * H * 0.5f;
-			pen(ox, oy, PL, snap > 0 ? sg_sat(snap) : 0, t > T_SNAP ? rec : 0, (1 - fall) * sg_sat(in * 4));
-			if (t > T_SNAP) {
-				float dt = t - T_SNAP;
-				for (int i = 0; i < 14; i++) {                                              /* chips of metal */
-					float x = px + chip[i].vx * dt * H * 0.5f, y = py + chip[i].vy * dt * H * 0.35f + dt * dt * H * 0.9f, sz = chip[i].size * U * 1.5f, a = chip[i].spin * dt;
+			float shk = calm ? 0 : sg_sin(t * 110) * U * 0.30f * strain;
+			float fall = ct > 0.35f ? sg_smooth((ct - 0.35f) / 1.0f) : 0;
+			pen(cx + shk, cy + (1 - in) * H * 0.62f + fall * fall * H * 0.7f, PL, snap > 0 ? sg_sat(snap) : 0, (1 - fall) * sg_sat(in * 4));
+			if (ct > 0)
+				for (int i = 0; i < 18; i++) {                  /* chips of glass and metal */
+					float x = cx + chip[i].vx * ct * H * 0.5f, y = cy + chip[i].vy * ct * H * 0.35f + ct * ct * H * 0.9f, sz = chip[i].size * U * 1.4f, a = chip[i].spin * ct;
 					V2 o = {x, y}; float c = sg_cos(a), s = sg_sin(a);
-					sg_tri(&fb, rot(o, c, s, -sz, -sz * 0.5f), rot(o, c, s, sz * 1.1f, -sz * 0.2f), rot(o, c, s, -sz * 0.2f, sz), RGB(226, 228, 236), sg_sat(1.6f - dt * 1.6f));
+					sg_tri(&fb, rot(o, c, s, -sz, -sz * 0.5f), rot(o, c, s, sz * 1.1f, -sz * 0.2f), rot(o, c, s, -sz * 0.2f, sz), RGB(226, 228, 236), sg_sat(1.5f - ct * 1.4f));
 				}
-			}
 		}
-		if (st > 0) {
-			sg_glow(&fb, px, py, U * 9, HOT, 0.65f * sg_heart(st, HB));                    /* the break glows with each beat */
-			spurt(st, px, py);
+		if (ct > 0 && ct < 0.35f) sg_glow(&fb, cx, cy, U * 22 * sg_sat(ct * 6), WHITE, 0.8f * (1 - ct / 0.35f));   /* the impact */
+		if (t > T_TITLE) title(cx, cy + 0.36f * tsz, tsz, t - T_TITLE, 1 - sg_sat((t - T_OPEN) / 0.5f));
+		if (!calm && ct > 0) {                                  /* a thump on the snap, a white flash for one beat */
+			float th = sg_sat(1 - ct / 0.45f);
+			shake_frame(sg_sin(t * 97) * U * 1.3f * th * th, sg_cos(t * 83) * U * 1.3f * th * th);
+			if (ct < 0.08f) sg_rect(&fb, 0, 0, W, H, WHITE, 0.85f * (1 - ct / 0.08f));
 		}
-
-		/* the title: slams in, later carried to the corner */
-		float mv = sg_ease_io((t - (T_FLASH - 0.7f)) / 0.9f);
-		float csz = corner_size(), cx = W - title_w(csz) / 2 - U * 4.5f, cby = H - U * 5.2f;
-		float sz = tsize + (csz - tsize) * mv;
-		title(W / 2.0f + (cx - W / 2.0f) * mv, by + (cby - by) * mv, sz, t - T_TITLE, 1);
-
-		if (t < T_TITLE + 1.2f)                                                            /* the notice, like a game's disclaimer */
-			sg_text_c(&fb, &FC, W / 2.0f, H - U * 3.4f, "CONTAINS FLASHING LIGHTS  /  ANY KEY SKIPS", U * 0.9f, WHITE, 0.55f * sg_sat((T_TITLE + 1.2f - t) * 3) * sg_sat((t - 0.15f) * 4), 0.26f);
-
-		/* a thump on every lub, a white flash on the snap, a red flash at the end */
-		if (!calm) {
-			float thump = st > 0 ? sg_heart(st, HB) : 0;
-			shake_frame(sg_sin(t * 97) * U * 0.9f * thump, sg_cos(t * 83) * U * 0.9f * thump);
-			if (t > T_SNAP && t < T_SNAP + 0.09f) sg_rect(&fb, 0, 0, W, H, WHITE, 0.85f * (1 - (t - T_SNAP) / 0.09f));
-		}
-		if (t > T_FLASH) sg_rect(&fb, 0, 0, W, H, BLOOD, (calm ? 0.5f : 0.8f) * sg_sat(1 - (t - T_FLASH) / 0.6f));
+		if (t < T_TITLE) sg_text_c(&fb, &FC, W / 2.0f, H - U * 3.4f, "CONTAINS FLASHING LIGHTS  /  ANY KEY SKIPS", U * 0.9f, WHITE, 0.55f * sg_sat((T_PEN + 0.9f - t) * 3) * sg_sat((t - 0.15f) * 4), 0.26f);
 		flip();
 	}
 }
 
-/* ================================================================ lock screen */
-static char user[33], pass[129];
-static int field = 1;             /* 0 user name, 1 password */
+/* ================================================================ sign-in card (accounts with a password) */
 static const char *status = "";
-static int cw, ch, cx0, cy0;
-
-static void card_geom(int simple)
-{
-	cw = (int)(U * 66); ch = (int)(U * (simple ? 18.5f : 28));
-	cx0 = (W - cw) / 2; cy0 = (int)(H * 0.60f);
-}
-
-static void red_text(float x, float y, const char *str, float size, float alpha, int centered)
-{
-	if (centered) x -= sg_text_w(&FD, str, size, 0) / 2;
-	sg_text(&fb, &FD, x + size * 0.035f, y + size * 0.035f, str, size, BLACK, alpha * 0.6f, 0);
-	sg_text(&fb, &FD, x - size * 0.03f, y, str, size, BLOOD, alpha * 0.9f, 0);
-	sg_text(&fb, &FD, x, y, str, size, WHITE, alpha, 0);
-}
+static int field = 1;             /* 0 user name, 1 password */
 
 static void clock_text(char *hm, char *date)
 {
@@ -446,57 +307,45 @@ static void clock_text(char *hm, char *date)
 #endif
 }
 
-/* alpha: fade-in of the UI; shake: sideways offset of the card; out: fade to black on the way in */
-static void lock_frame(int simple, float alpha, float shake, float out)
+static void red_text(float x, float y, const char *str, float size, float alpha, int centered)
 {
-	memcpy(fb.px, ink_bg, (size_t)W * H * 4);
-	corner_title(alpha);
+	if (centered) x -= sg_text_w(&FD, str, size, 0) / 2;
+	sg_text(&fb, &FD, x + size * 0.035f, y + size * 0.035f, str, size, BLACK, alpha * 0.6f, 0);
+	sg_text(&fb, &FD, x - size * 0.03f, y, str, size, BLOOD, alpha * 0.9f, 0);
+	sg_text(&fb, &FD, x, y, str, size, WHITE, alpha, 0);
+}
+
+/* the cracked glass, with a password card over it */
+static void lock_frame(float alpha, float shake)
+{
+	memcpy(fb.px, bg_dark, (size_t)W * H * 4);
+	for (int i = 0; i < nck; i++) crack_draw(&fb, &ck[i], 99, 0.8f);
 	char hm[8], date[48];
 	clock_text(hm, date);
-	float t = (float)now(), beat = sg_heart(t, 0.9f), rise = (1 - sg_ease_out(alpha)) * U * 2;
-	red_text(W / 2.0f, H * 0.315f + rise, hm, U * 19.5f, alpha, 1);
-	sg_text_c(&fb, &FC, W / 2.0f + U * 0.1f, H * 0.315f + U * 6.6f + rise + 1, date, U * 1.55f, BLACK, alpha * 0.6f, 0.26f);
-	sg_text_c(&fb, &FC, W / 2.0f, H * 0.315f + U * 6.6f + rise, date, U * 1.55f, WHITE, alpha, 0.26f);
-
-	float x = cx0 + shake, y = cy0, pb = U * 0.55f;
-	sg_rect(&fb, x + U * 0.9f, y + U * 0.9f, cw, ch, BLACK, 0.5f * alpha);                       /* hard shadow */
+	float t = (float)now(), beat = sg_heart(t, 0.9f);
+	red_text(W / 2.0f, H * 0.285f, hm, U * 19.5f, alpha, 1);
+	sg_text_c(&fb, &FC, W / 2.0f, H * 0.285f + U * 6.6f, date, U * 1.55f, WHITE, alpha, 0.26f);
+	float cw = U * 66, ch = U * 28, x = (W - cw) / 2 + shake, y = H * 0.50f, pb = U * 0.55f;
+	sg_rect(&fb, x + U * 0.9f, y + U * 0.9f, cw, ch, BLACK, 0.5f * alpha);
 	sg_rect(&fb, x, y, cw, ch, INK, 0.96f * alpha);
-	sg_rect(&fb, x, y, cw, pb, BLOOD, alpha);                                                     /* red bar */
-	sg_rect(&fb, x, y + ch - sg_max(1, U * 0.12f), cw, sg_max(1, U * 0.12f), WHITE, 0.25f * alpha);
-	if (simple) {
-		float ar = U * 5.0f, cy = y + ch / 2.0f + pb / 2;
-		sg_glow(&fb, x + U * 10.0f, cy, ar * 2.4f, BLOOD, 0.35f * alpha * beat);
-		sg_disc(&fb, x + U * 10.0f, cy, ar, BLOOD, alpha);                                       /* the mark: a beating red dot in a ring */
-		sg_ring(&fb, x + U * 10.0f, cy, ar * 1.32f, sg_max(1.4f, U * 0.18f), WHITE, alpha);
-		sg_disc(&fb, x + U * 10.0f, cy, ar * 0.30f, BLACK, alpha);
-		red_text(x + U * 18.5f, cy - U * 0.2f, "silver", U * 6.0f, alpha, 0);
-		sg_text(&fb, &FC, x + U * 18.8f, cy + U * 4.2f, "NO PASSWORD NEEDED", U * 1.05f, RGB(150, 150, 156), alpha, 0.24f);
-		float lw = sg_text_w(&FC, "ENTER", U * 1.25f, 0.2f) + U * 5.2f, lh = U * 5.0f, bx = x + cw - lw - U * 6.0f;
-		sg_glow(&fb, bx + lw / 2, cy, lw * 0.9f, BLOOD, 0.28f * alpha * beat);
-		sg_rrect(&fb, bx, cy - lh / 2, lw, lh, lh / 2, 0, BLOOD, alpha);
-		sg_text(&fb, &FC, bx + U * 2.6f, cy + U * 0.5f, "ENTER", U * 1.25f, WHITE, alpha, 0.2f);
-	} else {
-		float top = y + U * 8.2f;
-		sg_disc(&fb, x + U * 7.6f, top, U * 3.4f, BLOOD, alpha);
-		sg_ring(&fb, x + U * 7.6f, top, U * 4.5f, sg_max(1.4f, U * 0.18f), WHITE, alpha);
-		float nx = sg_text(&fb, &FD, x + U * 14.0f, top + U * 2.0f, user[0] ? user : "user", U * 5.2f, user[0] ? WHITE : RGB(110, 110, 116), alpha, 0);
-		if (field == 0 && ((long)(now() * 2) & 1)) sg_rect(&fb, nx + U * 0.5f, top - U * 2.6f, sg_max(2, U * 0.4f), U * 5.2f, WHITE, alpha);
-		float fx = x + U * 5.0f, fy = top + U * 7.4f, fw = cw - U * 10.0f, fh = U * 6.6f;
-		sg_rect(&fb, fx, fy, fw, fh, BLACK, 0.6f * alpha);
-		sg_rrect(&fb, fx, fy, fw, fh, U * 0.3f, sg_max(1.4f, U * 0.2f), field == 1 ? WHITE : RGB(110, 110, 116), alpha * (field == 1 ? 1 : 0.5f));
-		size_t n = strlen(pass);
-		if (!n) sg_text(&fb, &FC, fx + U * 2.4f, fy + fh / 2 + U * 0.4f, "PASSWORD", U * 1.15f, RGB(120, 120, 126), alpha, 0.24f);
-		for (size_t k = 0; k < n && k < 36; k++) sg_disc(&fb, fx + U * 3.4f + k * U * 1.9f, fy + fh / 2, U * 0.62f, BLOOD, alpha);
-		if (field == 1 && ((long)(now() * 2) & 1)) sg_rect(&fb, fx + U * 2.6f + (n > 36 ? 36 : n) * U * 1.9f, fy + U * 1.5f, sg_max(2, U * 0.35f), fh - U * 3.0f, WHITE, alpha);
-		sg_text(&fb, &FC, fx, fy + fh + U * 3.6f, status[0] ? status : "ENTER TO SIGN IN  /  TAB TO CHANGE USER", U * 0.98f,
-			status[0] ? HOT : RGB(170, 170, 176), alpha, 0.22f);
-	}
-	sg_text_c(&fb, &FC, W / 2.0f, H - U * 3.4f, "-- PRESS ANY BUTTON TO CONTINUE --", U * 0.85f, RGB(190, 190, 196), 0.55f * alpha * (0.6f + 0.4f * sg_heart(t, 1.8f)), 0.3f);
-	if (out > 0) sg_rect(&fb, 0, 0, W, H, BLACK, out);
+	sg_rect(&fb, x, y, cw, pb, BLOOD, alpha);
+	float top = y + U * 8.2f;
+	sg_glow(&fb, x + U * 7.6f, top, U * 8, BLOOD, 0.3f * alpha * beat);
+	sg_disc(&fb, x + U * 7.6f, top, U * 3.4f, BLOOD, alpha);
+	sg_ring(&fb, x + U * 7.6f, top, U * 4.5f, sg_max(1.4f, U * 0.18f), WHITE, alpha);
+	float nx = sg_text(&fb, &FD, x + U * 14.0f, top + U * 2.0f, user[0] ? user : "user", U * 5.2f, user[0] ? WHITE : RGB(110, 110, 116), alpha, 0);
+	if (field == 0 && ((long)(now() * 2) & 1)) sg_rect(&fb, nx + U * 0.5f, top - U * 2.6f, sg_max(2, U * 0.4f), U * 5.2f, WHITE, alpha);
+	float fx = x + U * 5.0f, fy = top + U * 7.4f, fw = cw - U * 10.0f, fh = U * 6.6f;
+	sg_rect(&fb, fx, fy, fw, fh, BLACK, 0.6f * alpha);
+	sg_rrect(&fb, fx, fy, fw, fh, U * 0.3f, sg_max(1.4f, U * 0.2f), field == 1 ? WHITE : RGB(110, 110, 116), alpha * (field == 1 ? 1 : 0.5f));
+	size_t n = strlen(pass);
+	if (!n) sg_text(&fb, &FC, fx + U * 2.4f, fy + fh / 2 + U * 0.4f, "PASSWORD", U * 1.15f, RGB(120, 120, 126), alpha, 0.24f);
+	for (size_t k = 0; k < n && k < 36; k++) sg_disc(&fb, fx + U * 3.4f + k * U * 1.9f, fy + fh / 2, U * 0.62f, BLOOD, alpha);
+	if (field == 1 && ((long)(now() * 2) & 1)) sg_rect(&fb, fx + U * 2.6f + (n > 36 ? 36 : n) * U * 1.9f, fy + U * 1.5f, sg_max(2, U * 0.35f), fh - U * 3.0f, WHITE, alpha);
+	sg_text(&fb, &FC, fx, fy + fh + U * 3.6f, status[0] ? status : "ENTER TO SIGN IN  /  TAB TO CHANGE USER", U * 0.98f, status[0] ? RGB(255, 80, 70) : RGB(170, 170, 176), alpha, 0.22f);
 	flip();
 }
 
-/* ================================================================ accounts */
 #ifdef RENDER
 #define crypt(a, b) ((char *)0)
 #endif
@@ -509,9 +358,9 @@ static int shadow_field(const char *u, char *out, size_t n)
 	size_t ul = strlen(u);
 	while (fgets(line, sizeof line, f))
 		if (!strncmp(line, u, ul) && line[ul] == ':') {
-			char *h = line + ul + 1, *e = strchr(h, ':');
+			char *hh = line + ul + 1, *e = strchr(hh, ':');
 			if (e) *e = 0;
-			snprintf(out, n, "%s", h);
+			snprintf(out, n, "%s", hh);
 			found = 1;
 			break;
 		}
@@ -521,64 +370,264 @@ static int shadow_field(const char *u, char *out, size_t n)
 }
 static int account_open(const char *u)          /* empty password, and not root */
 {
-	char h[256];
+	char hh[256];
 	struct passwd *pw = getpwnam(u);
-	return pw && pw->pw_uid != 0 && shadow_field(u, h, sizeof h) && h[0] == 0;
+	return pw && pw->pw_uid != 0 && shadow_field(u, hh, sizeof hh) && hh[0] == 0;
 }
 static int check_password(const char *u, const char *p)
 {
-	char h[256];
-	if (!shadow_field(u, h, sizeof h) || !h[0] || h[0] == '!' || h[0] == '*') return 0;
-	const char *c = crypt(p, h);
-	int ok = c && !strcmp(c, h);
-	memset(h, 0, sizeof h);
+	char hh[256];
+	if (!shadow_field(u, hh, sizeof hh) || !hh[0] || hh[0] == '!' || hh[0] == '*') return 0;
+	const char *c = crypt(p, hh);
+	int ok = c && !strcmp(c, hh);
+	memset(hh, 0, sizeof hh);
 	return ok;
 }
 
-static void start_session(int simple)
-{
-	memset(pass, 0, sizeof pass);
-	for (int f = 1; f <= 8; f++) { lock_frame(simple, 1, 0, f / 8.f); usleep(16000); }   /* fade out */
-	restore_tty();
-	execl("/bin/login", "login", "-f", user, (char *)NULL);
-	_exit(1);
-}
-
+#ifndef RENDER
 static void lock_loop(void)
 {
-	snprintf(user, sizeof user, "silver");
-	int simple = account_open(user);
-	card_geom(simple);
 	double t0 = now();
 	for (;;) {
 		float a = sg_sat((float)(now() - t0) / 0.5f);
-		lock_frame(simple, a, 0, 0);
-		struct pollfd p = {tty_fd, POLLIN, 0};
-		if (poll(&p, 1, a < 1 ? 16 : 60) <= 0) continue;
-		char c;
-		if (read(tty_fd, &c, 1) != 1) continue;
-		if (c == '\033') { char junk[8]; usleep(2000); if (read(tty_fd, junk, sizeof junk) < 0) { /* drop arrows etc. */ } continue; }
-		if (simple) { if (c == '\r' || c == '\n') start_session(1); continue; }
+		lock_frame(a, 0);
+		int c = read_key(a < 1 ? 16 : 60);
+		if (c < 0) continue;
 		char *dst = field ? pass : user;
 		size_t cap = field ? sizeof pass - 1 : sizeof user - 1, n = strlen(dst);
 		if (c == '\t') { field ^= 1; continue; }
-		if (c == 127 || c == 8) { if (n) dst[n - 1] = 0; continue; }
+		if (c == K_BACK) { if (n) dst[n - 1] = 0; continue; }
 		if (c == 21) { dst[0] = 0; continue; }
-		if (c == '\r' || c == '\n') {
-			if (field == 0) { field = 1; if (account_open(user)) { simple = 1; card_geom(1); } continue; }
+		if (c == K_ENTER) {
+			if (field == 0) { field = 1; if (account_open(user)) return; continue; }
 			struct passwd *pw = getpwnam(user);
 			if (pw && pw->pw_uid == 0) status = "ROOT CANNOT SIGN IN HERE - USE SU";
-			else if (pw && check_password(user, pass)) start_session(0);
+			else if (pw && check_password(user, pass)) { memset(pass, 0, sizeof pass); return; }
 			else status = "WRONG USER NAME OR PASSWORD";
 			memset(pass, 0, sizeof pass);
-			for (int k = 0; k < 14; k++) { lock_frame(0, 1, sg_sin(k * 1.9f) * (14 - k) * U * 0.22f, 0); usleep(16000); }
+			for (int k = 0; k < 14; k++) { lock_frame(1, sg_sin(k * 1.9f) * (14 - k) * U * 0.22f); usleep(16000); }
 			sleep(1);                                               /* slow down guessing */
 			tcflush(tty_fd, TCIFLUSH);
 			continue;
 		}
-		if (c >= 32 && c < 127 && n < cap) { dst[n] = c; dst[n + 1] = 0; status = ""; }
+		if (c >= 32 && c < 127 && n < cap) { dst[n] = (char)c; dst[n + 1] = 0; status = ""; }
 	}
 }
+#endif
+
+/* ================================================================ home: input handling */
+static void request(char c)
+{
+#ifndef RENDER
+	if (req_fd >= 0) { if (write(req_fd, &c, 1) < 0) { /* parent gone */ } }
+#else
+	(void)c;
+#endif
+}
+
+static void files_preview(Home *h)
+{
+	pv_n = 0; pv_binary = 0;
+	if (h->row < nent && !ents[h->row].dir) {
+		char p[512]; snprintf(p, sizeof p, "%s/%s", cwd, ents[h->row].name);
+		fs_preview(p, ents[h->row].size);
+	}
+}
+static void open_screen(Home *h, int s)
+{
+	h->screen = s; h->row = 0; h->top = 0; h->sub = 0; h->confirm = 0; h->fade = 0;
+	if (s == 4) { snprintf(cwd, sizeof cwd, "%s", homedir); h->depth = 0; fs_list(cwd); files_preview(h); }
+	if (s == 2) { h->query[0] = 0; do_search(h); }
+	if (s == 3) h->sub = 0;
+}
+static void calm_toggle(Home *h)
+{
+	h->calm_on ^= 1;
+#ifndef RENDER
+	char p[256];
+	snprintf(p, sizeof p, "%s/.config", homedir); mkdir(p, 0755);
+	snprintf(p, sizeof p, "%s/.config/silver", homedir); mkdir(p, 0755);
+	snprintf(p, sizeof p, "%s/.config/silver/calm", homedir);
+	if (h->calm_on) { int fd = open(p, O_WRONLY | O_CREAT, 0644); if (fd >= 0) close(fd); } else unlink(p);
+#endif
+	calm = h->calm_on;
+}
+static void files_up(Home *h)
+{
+#ifdef RENDER
+	if (!strcmp(cwd, homedir)) return;
+#endif
+	if (!strcmp(cwd, "/")) return;
+	char prev[96]; char *sl = strrchr(cwd, '/');
+	snprintf(prev, sizeof prev, "%s", sl ? sl + 1 : "");
+	if (sl == cwd) cwd[1] = 0; else if (sl) *sl = 0;
+	fs_list(cwd);
+	h->row = 0;
+	for (int i = 0; i < nent; i++) if (!strcmp(ents[i].name, prev)) h->row = i;
+	h->top = 0; files_preview(h);
+}
+
+static void handle_key(Home *h, int k)
+{
+	switch (h->screen) {
+	case 0:
+		if (k == K_LEFT) h->sel &= ~1;
+		else if (k == K_RIGHT) h->sel |= 1;
+		else if (k == K_UP) h->sel &= ~2;
+		else if (k == K_DOWN) h->sel |= 2;
+		else if (k == K_ENTER) open_screen(h, h->sel + 1);
+		break;
+	case 1:                                                                     /* settings */
+		if (k == K_ESC || k == K_LEFT || k == K_BACK) { h->screen = 0; h->fade = 0; }
+		else if (k == K_UP && h->row > 0) { h->row--; h->confirm = 0; }
+		else if (k == K_DOWN && h->row < 5) { h->row++; h->confirm = 0; }
+		else if (k == K_ENTER) {
+			if (h->row == 2) calm_toggle(h);
+			else if (h->row == 4 || h->row == 5) { if (h->confirm == h->row) request(h->row == 4 ? 'R' : 'P'); else h->confirm = h->row; }
+		}
+		break;
+	case 2:                                                                     /* search */
+		if (k == K_ESC) { h->screen = 0; h->fade = 0; }
+		else if (k == K_UP && h->row > 0) h->row--;
+		else if (k == K_DOWN && h->row + 1 < h->nres) h->row++;
+		else if (k == K_BACK) { size_t n = strlen(h->query); if (n) { h->query[n - 1] = 0; do_search(h); } }
+		else if (k >= 32 && k < 127 && strlen(h->query) < 40) { size_t n = strlen(h->query); h->query[n] = (char)k; h->query[n + 1] = 0; h->row = 0; h->top = 0; do_search(h); }
+		else if (k == K_ENTER && h->nres) {
+			SItem *it = &sitems[h->res[h->row]];
+			if (it->kind == 0) {
+				int ai = !strcmp(it->name, "Terminal") ? 0 : !strcmp(it->name, "System Monitor") ? 1 : 2;
+				if (ai == 0) request('T'); else { open_screen(h, 3); h->sub = ai; }
+			} else if (it->kind == 1) {
+				int si = !strcmp(it->name, "Network") ? 0 : !strcmp(it->name, "Display") ? 1 : !strcmp(it->name, "Calm mode") ? 2 : !strcmp(it->name, "Restart") ? 4 : 5;
+				open_screen(h, 1); h->row = si;
+			} else {
+				char dir[256], nm[96]; snprintf(dir, sizeof dir, "%s", it->path);
+				snprintf(nm, sizeof nm, "%s", it->name);
+				if (it->kind == 2) { char *sl = strrchr(dir, '/'); if (sl == dir) dir[1] = 0; else if (sl) *sl = 0; }
+				open_screen(h, 4); snprintf(cwd, sizeof cwd, "%s", dir); fs_list(cwd);
+				if (it->kind == 2) for (int i = 0; i < nent; i++) if (!strcmp(ents[i].name, nm)) h->row = i;
+				files_preview(h);
+			}
+		}
+		break;
+	case 3:                                                                     /* apps */
+		if (h->sub) { if (k == K_ESC || k == K_BACK || k == K_LEFT) h->sub = 0; break; }
+		if (k == K_ESC || k == K_LEFT || k == K_BACK) { h->screen = 0; h->fade = 0; }
+		else if (k == K_UP && h->row > 0) h->row--;
+		else if (k == K_DOWN && h->row < 2) h->row++;
+		else if (k == K_ENTER) { if (h->row == 0) request('T'); else h->sub = h->row; }
+		break;
+	case 4:                                                                     /* files */
+		if (k == K_ESC) { h->screen = 0; h->fade = 0; }
+		else if (k == K_UP && h->row > 0) { h->row--; files_preview(h); }
+		else if (k == K_DOWN && h->row + 1 < nent) { h->row++; files_preview(h); }
+		else if (k == K_BACK || k == K_LEFT) files_up(h);
+		else if ((k == K_ENTER || k == K_RIGHT) && nent && ents[h->row].dir) {
+			size_t n = strlen(cwd);
+			snprintf(cwd + n, sizeof cwd - n, "%s%s", n > 1 ? "/" : "", ents[h->row].name);
+			fs_list(cwd); h->row = 0; h->top = 0; files_preview(h);
+		}
+		break;
+	}
+}
+
+static void sample_sys(Home *h, float t)
+{
+	if (t - h->last_sample < 0.5f) return;
+	h->last_sample = t;
+	sys_read(&h->sys, t);
+	if (h->hn < 90) h->cpu_hist[h->hn++] = h->sys.cpu;
+	else { memmove(h->cpu_hist, h->cpu_hist + 1, sizeof(float) * 89); h->cpu_hist[89] = h->sys.cpu; }
+}
+
+static void home_frame(Home *h, float t, float dt)
+{
+	for (int q = 0; q < 4; q++) h->blend[q] += (((h->screen == 0 && q == h->sel) ? 1.f : 0.f) - h->blend[q]) * sg_min(1, dt * 11);
+	h->fade = sg_min(1, h->fade + dt * 6);
+	switch (h->screen) {
+	case 0: home_draw(h, 1, t, 99); break;
+	case 1: draw_settings(h, t); break;
+	case 2: draw_search(h, t); break;
+	case 3: if (h->sub == 1) sample_sys(h, t); draw_apps(h, t); break;
+	case 4: draw_files(h, t); break;
+	}
+	if (h->screen && h->fade < 1) sg_rect(&fb, 0, 0, W, H, BLACK, 1 - h->fade);
+	else if (!h->screen && h->fade < 1) sg_rect(&fb, 0, 0, W, H, BLACK, 1 - h->fade);
+}
+
+#ifdef RENDER
+/* the demo's keystrokes, by seconds after the home screen opens */
+static const struct { float t; int k; } SCRIPT[] = {
+	{0.8f, K_RIGHT}, {1.5f, K_DOWN}, {2.4f, K_LEFT}, {3.0f, K_UP}, {3.7f, K_RIGHT}, {4.3f, K_DOWN},          /* look around, end on Files */
+	{5.0f, K_ENTER},                                                                                          /* Files */
+	{6.0f, K_ENTER}, {7.0f, K_DOWN}, {7.8f, K_DOWN}, {8.6f, K_DOWN}, {9.8f, K_BACK}, {10.6f, K_DOWN}, {11.2f, K_DOWN}, {11.8f, K_DOWN}, {12.4f, K_DOWN}, {12.9f, K_DOWN}, {13.5f, K_ESC},
+	{14.3f, K_UP}, {15.0f, K_ENTER},                                                                          /* Search */
+	{16.0f, 'n'}, {16.4f, 'o'}, {16.8f, 't'}, {18.2f, K_DOWN}, {19.0f, K_ESC},
+	{19.8f, K_LEFT}, {20.5f, K_ENTER},                                                                        /* Settings */
+	{21.8f, K_DOWN}, {22.4f, K_DOWN}, {23.0f, K_ENTER}, {24.0f, K_ENTER}, {24.8f, K_ESC},
+	{25.6f, K_DOWN}, {26.2f, K_ENTER},                                                                        /* Apps */
+	{27.0f, K_DOWN}, {27.6f, K_ENTER}, {32.0f, K_ESC}, {32.6f, K_ESC},
+};
+#define SCRIPT_END 34.0f
+#endif
+
+static void home_loop(Home *h)
+{
+	double t0 = now(), last = t0;
+#ifdef RENDER
+	unsigned si = 0;
+#endif
+	for (;;) {
+		double tn = now();
+		float t = (float)(tn - t0), dt = (float)(tn - last);
+		last = tn;
+#ifdef RENDER
+		while (si < sizeof SCRIPT / sizeof SCRIPT[0] && SCRIPT[si].t <= t) handle_key(h, SCRIPT[si++].k);
+		if (t > SCRIPT_END) return;
+#else
+		int k;
+		while ((k = read_key(0)) != -1) handle_key(h, k);
+#endif
+		home_frame(h, t, dt > 0.2f ? 0.2f : dt);
+		flip();
+#ifndef RENDER
+		if (!key_waiting()) usleep(24000);
+#endif
+	}
+}
+
+/* ================================================================ session */
+#ifndef RENDER
+static void run_session(void)
+{
+	struct passwd *pw = getpwnam(user);
+	int pfd[2];
+	if (!pw || pipe(pfd) < 0) { restore_tty(); execl("/bin/login", "login", "-f", user, (char *)NULL); _exit(1); }
+	pid_t pid = fork();
+	if (pid == 0) {                                   /* the interface runs as the user, never as root */
+		close(pfd[0]); req_fd = pfd[1];
+		snprintf(homedir, sizeof homedir, "%s", pw->pw_dir);
+		if (setgroups(0, NULL) || setgid(pw->pw_gid) || setuid(pw->pw_uid)) _exit(1);
+		if (chdir(homedir)) { /* fine */ }
+		Home h; home_init(&h);
+		home_loop(&h);
+		_exit(0);
+	}
+	close(pfd[1]);
+	char c = 'T';
+	for (;;) {                                        /* the privileged side only does what the user's side asks */
+		ssize_t n = read(pfd[0], &c, 1);
+		if (n <= 0) { c = 'T'; break; }
+		if (c == 'T') break;
+		if (c == 'R') { kill(1, SIGTERM); for (;;) pause(); }
+		if (c == 'P') { kill(1, SIGUSR2); for (;;) pause(); }
+	}
+	kill(pid, SIGKILL); waitpid(pid, NULL, 0);
+	restore_tty();
+	execl("/bin/login", "login", "-f", user, (char *)NULL);
+	_exit(1);
+}
+#endif
 
 #ifdef RENDER
 int main(int argc, char **argv)
@@ -589,14 +638,14 @@ int main(int argc, char **argv)
 	snprintf(cmd, sizeof cmd, "ffmpeg -v error -y -f rawvideo -pix_fmt bgr0 -s %dx%d -r 30 -i - -c:v libx264 -crf 16 -preset medium -pix_fmt yuv420p '%s'",
 		 W, H, argc > 1 ? argv[1] : "greeter.mp4");
 	outpipe = popen(cmd, "w");
-	build_ink();
-	intro();
-	snprintf(user, sizeof user, "silver");
-	int simple = !(argc > 4);
-	card_geom(simple);
-	if (!simple) strcpy(pass, "12345678");
-	for (int f = 0; f < 110; f++) lock_frame(simple, sg_sat(f / 15.f), 0, 0);
-	for (int f = 1; f <= 8; f++) lock_frame(simple, 1, 0, f / 8.f);
+	gen_cracks(); bake_home();
+	Home h; home_init(&h);
+	if (argc > 4) {                                   /* the password card, over the cracked glass */
+		strcpy(pass, "12345678");
+		for (int f = 0; f < 70; f++) lock_frame(sg_sat(f / 15.f), 0);
+	}
+	intro(&h);
+	home_loop(&h);
 	pclose(outpipe);
 	return 0;
 }
@@ -610,6 +659,12 @@ int main(int argc, char **argv)
 		FILE *f = fopen("/proc/cmdline", "r");
 		if (f) { if (fgets(cmd, sizeof cmd, f)) { /* read */ } fclose(f); }
 		calm = strstr(cmd, "silver.calm") != NULL;
+		struct passwd *pw = getpwnam(user);
+		if (pw) {
+			snprintf(homedir, sizeof homedir, "%s", pw->pw_dir);
+			char p[256]; snprintf(p, sizeof p, "%s/.config/silver/calm", homedir);
+			if (access(p, F_OK) == 0) calm = 1;
+		}
 	}
 	tcgetattr(tty_fd, &saved_tio);
 	struct termios raw = saved_tio;
@@ -619,11 +674,11 @@ int main(int argc, char **argv)
 	tcsetattr(tty_fd, TCSANOW, &raw);
 	ioctl(tty_fd, KDSETMODE, KD_GRAPHICS);            /* stop the text console drawing over us */
 	sg_clear(&fb, BLACK); flip();
-	build_ink();
-	/* the full intro plays once per boot; later sign-ins go straight to the lock screen */
-	if (mkdir("/run/silver-greeter", 0700) == 0) intro();
+	gen_cracks(); bake_home();
+	if (mkdir("/run/silver-greeter", 0700) == 0) { Home h; home_init(&h); intro(&h); }     /* the full intro plays once per boot */
 	tcflush(tty_fd, TCIFLUSH);
-	lock_loop();
+	if (!account_open(user)) lock_loop();
+	run_session();
 	return 0;
 }
 #endif
