@@ -1,0 +1,5 @@
+root:x:0:
+tty:x:5:
+wheel:x:10:silver
+silver:x:1000:
+nogroup:x:65534:

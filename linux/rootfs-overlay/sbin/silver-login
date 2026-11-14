@@ -1,0 +1,10 @@
+#!/bin/sh
+# First boot: accounts are locked until the owner sets passwords here.
+tty=$1
+if grep -q '^silver:!' /etc/shadow; then
+  clear; cat /etc/issue
+  echo "  First boot setup -- choose passwords."
+  echo; echo "  Password for your user 'silver':"; until passwd silver; do :; done
+  echo; echo "  Password for 'root' (used with su):"; until passwd root; do :; done
+fi
+exec /sbin/getty 38400 "$tty"
