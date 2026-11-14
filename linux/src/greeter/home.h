@@ -3,7 +3,7 @@
  *
  *      +-----------+-----------+
  *      | SETTINGS  |  SEARCH   |      The glass is split by two jagged fractures that cross
- *      +-----------+-----------+      in the middle, where the SILVER OS plaque sits.
+ *      +-----------+-----------+      in the middle, where the impact chipped it.
  *      |   APPS    |   FILES   |      Arrow keys choose a pane, Enter opens it, Esc comes back.
  *      +-----------+-----------+
  *
@@ -40,11 +40,19 @@ static float sg_atan2f_approx(float y, float x)
 #define K_BACK 127
 
 /* ================================================================ the cracks */
-typedef struct { V2 p[24]; float cum[24]; int n; float t0, speed, w; } Crack;
-#define MAXCRACK 90
+/* A crack is a polyline that grows from its first point at `speed` px/s, starting `t0` seconds
+ * after the impact. Its width tapers from w0 to w1 along its length. */
+#define CKPTS 64
+typedef struct { V2 p[CKPTS]; float cum[CKPTS]; int n; float t0, speed, w0, w1; } Crack;
+#define MAXCRACK 170
 static Crack ck[MAXCRACK];
 static int nck, nmain;                  /* the first `nmain` cracks are the four arms of the cross */
 static float vtab[33], htab[33];        /* the two main fractures: x offset per y sample, y offset per x sample */
+#define NGLINT 28
+static V2 glint[NGLINT];                /* points along the cracks that catch the light */
+static int nglint;
+#define NCHIP 14
+static V2 chipp[NCHIP][3];              /* little flakes knocked out around the impact */
 
 static float vx_at(float y) { float f = sg_clamp(y / H, 0, 1) * 32, i = sg_floor(f); int k = (int)i > 31 ? 31 : (int)i; return W / 2.0f + vtab[k] + (vtab[k + 1] - vtab[k]) * (f - k); }
 static float hy_at(float x) { float f = sg_clamp(x / W, 0, 1) * 32, i = sg_floor(f); int k = (int)i > 31 ? 31 : (int)i; return H / 2.0f + htab[k] + (htab[k + 1] - htab[k]) * (f - k); }
@@ -54,10 +62,30 @@ static void ck_close(Crack *c)
 	c->cum[0] = 0;
 	for (int i = 1; i < c->n; i++) { float dx = c->p[i].x - c->p[i - 1].x, dy = c->p[i].y - c->p[i - 1].y; c->cum[i] = c->cum[i - 1] + sg_sqrt(dx * dx + dy * dy); }
 }
-static Crack *ck_new(float t0, float speed, float w)
+static Crack *ck_new(float t0, float speed, float w0, float w1)
 {
 	if (nck >= MAXCRACK) return &ck[MAXCRACK - 1];
-	Crack *c = &ck[nck++]; c->n = 0; c->t0 = t0; c->speed = speed; c->w = w; return c;
+	Crack *c = &ck[nck++]; c->n = 0; c->t0 = t0; c->speed = speed; c->w0 = w0; c->w1 = w1; return c;
+}
+/* make a crack jagged: split every segment and push the new point sideways (twice over) */
+static void ck_roughen(Crack *c, float amt)
+{
+	for (int pass = 0; pass < 2; pass++) {
+		if (c->n * 2 - 1 > CKPTS) break;
+		V2 q[CKPTS]; int m = 0;
+		for (int i = 0; i < c->n; i++) {
+			q[m++] = c->p[i];
+			if (i + 1 < c->n) {
+				V2 a = c->p[i], b = c->p[i + 1];
+				float dx = b.x - a.x, dy = b.y - a.y, l = sg_sqrt(dx * dx + dy * dy) + 1e-6f, j = (sg_frand() - .5f) * 2 * amt * l;
+				float f = 0.35f + 0.3f * sg_frand();
+				q[m++] = (V2){a.x + dx * f - dy / l * j, a.y + dy * f + dx / l * j};
+			}
+		}
+		memcpy(c->p, q, sizeof(V2) * (size_t)m); c->n = m;
+		amt *= 0.6f;
+	}
+	ck_close(c);
 }
 
 static void walk(float *tab, float step, float lim)
@@ -73,80 +101,126 @@ static void walk(float *tab, float step, float lim)
 
 static void gen_cracks(void)
 {
-	nck = 0;
+	nck = 0; nglint = 0;
 	float cx = W / 2.0f, cy = H / 2.0f;
 	walk(vtab, W * 0.020f, W * 0.040f);
 	walk(htab, H * 0.030f, H * 0.055f);
 	for (int arm = 0; arm < 4; arm++) {                        /* the cross: up, down, left, right from the centre */
-		Crack *c = ck_new(0.0f, H * 1.7f, U * 0.30f);
+		Crack *c = ck_new(0.0f, H * 1.7f, U * 0.34f, U * 0.22f);
 		int dir = (arm & 1) ? 1 : -1;
-		for (int i = 16; i >= 0 && i <= 32 && c->n < 24; i += dir * 1) {
+		for (int i = 16; i >= 0 && i <= 32 && c->n < CKPTS; i += dir) {
 			if (arm < 2) c->p[c->n++] = (V2){W / 2.0f + vtab[i], i * (float)H / 32};
 			else c->p[c->n++] = (V2){i * (float)W / 32, H / 2.0f + htab[i]};
 			if (c->n >= 17) break;
 		}
-		ck_close(c);
+		ck_close(c);                                           /* not roughened: the panes follow these exactly */
 	}
 	nmain = nck;
-	const int NR = 11;
-	for (int k = 0; k < NR; k++) {                               /* radial cracks with branches */
-		float th = (k + sg_frand() * 0.6f) * 2 * SG_PI / NR + 0.25f;
-		if (sg_abs(sg_cos(th)) < 0.10f || sg_abs(sg_sin(th)) < 0.10f) th += 0.22f;
-		float len = H * (0.17f + 0.33f * sg_frand() * sg_frand() + 0.06f);
-		Crack *c = ck_new(0.02f + sg_frand() * 0.07f, H * (1.1f + 0.7f * sg_frand()), U * 0.20f);
-		V2 p = {cx, cy}; float a = th;
+	enum { NR = 13 };
+	float th[NR], rl[NR];
+	for (int k = 0; k < NR; k++) {                               /* radial cracks, tapering, with branches */
+		th[k] = (k + sg_frand() * 0.55f) * 2 * SG_PI / NR + 0.2f;
+		if (sg_abs(sg_cos(th[k])) < 0.10f || sg_abs(sg_sin(th[k])) < 0.10f) th[k] += 0.2f;
+		float len = H * (0.20f + 0.34f * sg_frand() * sg_frand() + 0.05f);
+		rl[k] = len;
+		Crack *c = ck_new(0.02f + sg_frand() * 0.06f, H * (1.1f + 0.7f * sg_frand()), U * 0.26f, U * 0.04f);
+		V2 p = {cx, cy}; float a = th[k];
 		c->p[c->n++] = p;
 		for (int i = 1; i <= 8; i++) {
-			a += (sg_frand() - .5f) * 0.36f;
+			a += (sg_frand() - .5f) * 0.30f;
 			float st = len / 8 * (0.8f + 0.4f * sg_frand());
 			p.x += sg_cos(a) * st; p.y += sg_sin(a) * st; c->p[c->n++] = p;
-			if (p.x < -20 || p.x > W + 20 || p.y < -20 || p.y > H + 20) break;
 		}
-		ck_close(c);
+		ck_roughen(c, 0.10f);
+		if (nglint < NGLINT) glint[nglint++] = c->p[c->n / 3 + (int)(sg_frand() * c->n / 3)];
 		Crack parent = *c;
 		for (int j = 0; j < 2; j++) {                              /* branches */
-			if (parent.n < 5) break;
-			int v = 2 + (int)(sg_frand() * (parent.n - 3));
-			float ba = sg_atan2f_approx(parent.p[v].y - parent.p[v - 1].y, parent.p[v].x - parent.p[v - 1].x) + (j ? -1 : 1) * (0.45f + 0.5f * sg_frand());
-			Crack *b = ck_new(parent.t0 + parent.cum[v] / parent.speed, parent.speed, U * 0.12f);
+			if (parent.n < 9) break;
+			int v = 4 + (int)(sg_frand() * (parent.n - 6));
+			float ba = sg_atan2f_approx(parent.p[v].y - parent.p[v - 1].y, parent.p[v].x - parent.p[v - 1].x) + (j ? -1 : 1) * (0.40f + 0.5f * sg_frand());
+			float wf = 1 - parent.cum[v] / parent.cum[parent.n - 1];
+			Crack *b = ck_new(parent.t0 + parent.cum[v] / parent.speed, parent.speed, U * 0.16f * wf + U * 0.04f, U * 0.03f);
 			V2 q = parent.p[v]; b->p[b->n++] = q;
-			float bl = H * (0.05f + 0.07f * sg_frand());
-			for (int i = 1; i <= 3; i++) { ba += (sg_frand() - .5f) * 0.4f; q.x += sg_cos(ba) * bl / 3; q.y += sg_sin(ba) * bl / 3; b->p[b->n++] = q; }
-			ck_close(b);
+			float bl = H * (0.05f + 0.09f * sg_frand());
+			for (int i = 1; i <= 4; i++) { ba += (sg_frand() - .5f) * 0.4f; q.x += sg_cos(ba) * bl / 4; q.y += sg_sin(ba) * bl / 4; b->p[b->n++] = q; }
+			ck_roughen(b, 0.12f);
 		}
 	}
-	const float RR[3] = {0.075f, 0.165f, 0.29f};
-	for (int r = 0; r < 3; r++) {                                /* rings, like a spider web around the impact */
-		float rad = H * RR[r];
-		Crack *c = ck_new(0.06f + rad / (H * 1.5f), 0, U * 0.12f);
-		int nv = 16;
-		for (int i = 0; i <= nv; i++) {
-			float a = (i % nv) * 2 * SG_PI / nv + (i == nv ? 0 : (sg_frand() - .5f) * 0.12f), rr = rad * (0.86f + 0.28f * sg_frand());
-			if (i == nv) { c->p[c->n++] = c->p[0]; break; }
-			c->p[c->n++] = (V2){cx + sg_cos(a) * rr, cy + sg_sin(a) * rr * 0.94f};
+	/* a spider web: short bowed chords between neighbouring radials, at a few distances */
+	const float RR[4] = {0.055f, 0.12f, 0.20f, 0.30f};
+	for (int r = 0; r < 4; r++)
+		for (int k = 0; k < NR; k++) {
+			int k2 = (k + 1) % NR;
+			float rad = H * RR[r] * (0.88f + 0.24f * sg_frand());
+			if (rad > rl[k] * 0.95f || rad > rl[k2] * 0.95f || sg_frand() < 0.22f + r * 0.08f) continue;
+			float a0 = th[k], a1 = th[k2] + (k2 == 0 ? 2 * SG_PI : 0), am = (a0 + a1) / 2;
+			Crack *c = ck_new(0.05f + rad / (H * 1.4f), 0, U * 0.13f * (1 - r * 0.15f), U * 0.08f);
+			c->p[c->n++] = (V2){cx + sg_cos(a0) * rad, cy + sg_sin(a0) * rad};
+			c->p[c->n++] = (V2){cx + sg_cos(am) * rad * 0.90f, cy + sg_sin(am) * rad * 0.90f};
+			c->p[c->n++] = (V2){cx + sg_cos(a1) * rad, cy + sg_sin(a1) * rad};
+			ck_roughen(c, 0.14f);
+			c->speed = c->cum[c->n - 1] / 0.16f;
 		}
-		ck_close(c);
-		c->speed = c->cum[c->n - 1] / 0.30f;
+	/* hairlines crowding the impact */
+	for (int k = 0; k < 26 && nck < MAXCRACK; k++) {
+		float a = sg_frand() * 2 * SG_PI, r0 = U * (0.5f + 2.5f * sg_frand()), l = U * (1.0f + 4.5f * sg_frand());
+		Crack *c = ck_new(0.01f + sg_frand() * 0.05f, H * 0.8f, U * 0.08f, U * 0.02f);
+		c->p[c->n++] = (V2){cx + sg_cos(a) * r0, cy + sg_sin(a) * r0};
+		a += (sg_frand() - .5f) * 1.2f;
+		c->p[c->n++] = (V2){c->p[0].x + sg_cos(a) * l, c->p[0].y + sg_sin(a) * l};
+		ck_roughen(c, 0.2f);
+	}
+	for (int k = 0; k < NCHIP; k++) {                             /* flakes chipped out of the centre */
+		float a = k * 2 * SG_PI / NCHIP + sg_frand() * 0.4f, r = U * (0.6f + 1.8f * sg_frand()), sz = U * (0.5f + 1.1f * sg_frand());
+		V2 o = {cx + sg_cos(a) * r, cy + sg_sin(a) * r};
+		for (int v = 0; v < 3; v++) { float b = a + v * 2.1f + sg_frand() * 0.6f; chipp[k][v] = (V2){o.x + sg_cos(b) * sz, o.y + sg_sin(b) * sz * 0.8f}; }
 	}
 }
 
-/* Draw a crack grown to time t (seconds since the impact): a dark gap, then a bright edge. */
+/* Draw a crack grown to time t (seconds since the impact): a soft dark gap, a pale second face
+ * offset to one side (the fracture plane catching light), then the bright edge. Tapers. */
 static void crack_draw(Surf *s, const Crack *c, float t, float alpha)
 {
 	float L = c->speed * (t - c->t0);
+	if (c->speed == 0) L = t >= c->t0 ? 1e9f : 0;
 	if (L <= 0 || c->n < 2) return;
-	if (L > c->cum[c->n - 1]) L = c->cum[c->n - 1];
-	for (int pass = 0; pass < 2; pass++)
+	float total = c->cum[c->n - 1];
+	if (L > total) L = total;
+	for (int pass = 0; pass < 3; pass++)
 		for (int i = 1; i < c->n && c->cum[i - 1] < L; i++) {
 			V2 a = c->p[i - 1], b = c->p[i];
 			float f = sg_min(1, (L - c->cum[i - 1]) / (c->cum[i] - c->cum[i - 1] + 1e-6f));
 			V2 e = {a.x + (b.x - a.x) * f, a.y + (b.y - a.y) * f};
-			if (pass == 0) sg_line(s, a, e, c->w * 2.6f + 1.5f, BLACK, 0.8f * alpha);
-			else {
-				sg_line(s, a, e, sg_max(1.1f, c->w * 0.8f), WHITE, alpha);
-				sg_line(s, (V2){a.x + 1.2f, a.y + 1.2f}, (V2){e.x + 1.2f, e.y + 1.2f}, 1.0f, RGB(150, 150, 160), 0.45f * alpha);   /* glass edge */
-			}
+			float w = c->w0 + (c->w1 - c->w0) * (c->cum[i - 1] / (total + 1e-6f));
+			if (pass == 0) sg_line(s, a, e, w * 3.4f + 1.2f, BLACK, 0.55f * alpha);
+			else if (pass == 1) { float o = sg_max(1.0f, w * 1.1f); sg_line(s, (V2){a.x + o, a.y + o}, (V2){e.x + o, e.y + o}, sg_max(0.8f, w * 0.9f), RGB(170, 172, 182), 0.40f * alpha); }
+			else sg_line(s, a, e, sg_max(0.9f, w * 0.85f), WHITE, alpha);
 		}
+}
+
+/* the crushed spot where it was hit, and light glinting along the cracks */
+static void impact_draw(Surf *s, float t, float alpha)
+{
+	if (t <= 0 || alpha <= 0) return;
+	float cx = W / 2.0f, cy = H / 2.0f, k = sg_sat(t / 0.15f) * alpha;
+	sg_glow(s, cx, cy, U * 5, WHITE, 0.10f * k);
+	for (int i = 0; i < NCHIP; i++) {
+		sg_tri(s, chipp[i][0], chipp[i][1], chipp[i][2], RGB(214, 216, 224), 0.55f * k);
+		sg_line(s, chipp[i][0], chipp[i][1], sg_max(1, U * 0.08f), WHITE, 0.8f * k);
+	}
+	sg_disc(s, cx, cy, U * 0.7f, BLACK, 0.8f * k);
+	sg_ring(s, cx, cy, U * 0.9f, sg_max(1, U * 0.12f), WHITE, 0.7f * k);
+}
+static void glints_draw(Surf *s, float t, float alpha)
+{
+	for (int i = 0; i < nglint; i++) {
+		float ph = sg_fract(t * 0.23f + i * 0.37f), g = ph < 0.12f ? sg_sin(ph / 0.12f * SG_PI) : 0;
+		if (g <= 0.01f) continue;
+		V2 p = glint[i];
+		sg_glow(s, p.x, p.y, U * 2.4f, WHITE, 0.35f * g * alpha);
+		sg_line(s, (V2){p.x - U * 1.8f * g, p.y}, (V2){p.x + U * 1.8f * g, p.y}, sg_max(1, U * 0.08f), WHITE, 0.8f * g * alpha);
+		sg_line(s, (V2){p.x, p.y - U * 1.2f * g}, (V2){p.x, p.y + U * 1.2f * g}, sg_max(1, U * 0.08f), WHITE, 0.6f * g * alpha);
+	}
 }
 
 /* ================================================================ the glass */
@@ -189,6 +263,7 @@ static void bake_home(void)
 	for (int y = 0; y < H; y++) for (int x = 0; x < W; x++) bg_sec[y * W + x] = glass_px(x, y, 0);
 	Surf s2 = sg_surf(bg_sec, W, H);
 	for (int i = nmain; i < nck; i++) crack_draw(&s2, &ck[i], 99, 0.16f);       /* faint hairlines, so sections stay cracked glass */
+	impact_draw(&s2, 99, 0.16f);
 }
 
 /* ================================================================ icons */
@@ -641,18 +716,6 @@ static void tile_content(int q, float a, float blend, float beat)
 	}
 }
 
-static void plaque(float a, float beat)
-{
-	float cx = W / 2.0f, cy = H / 2.0f, sz = U * 3.4f, tw = sg_text_w(&FD, "SILVER OS", sz, 0), w = tw + U * 11.5f, h = U * 8.4f;
-	sg_rect(&fb, cx - w / 2 + U * 0.5f, cy - h / 2 + U * 0.5f, w, h, BLACK, 0.5f * a);
-	sg_rect(&fb, cx - w / 2, cy - h / 2, w, h, INK, 0.97f * a);
-	sg_rect(&fb, cx - w / 2, cy - h / 2, w, sg_max(2, U * 0.4f), RED, a);
-	sg_disc(&fb, cx - w / 2 + U * 3.6f, cy + U * 0.3f, U * (0.7f + 0.45f * beat), RED, a);
-	sg_glow(&fb, cx - w / 2 + U * 3.6f, cy + U * 0.3f, U * 4.2f, RED, 0.5f * a * beat);
-	sg_text(&fb, &FD, cx - w / 2 + U * 6.6f + sz * 0.03f, cy + sz * 0.38f + sz * 0.03f, "SILVER OS", sz, BLACK, a * 0.6f, 0);
-	sg_text(&fb, &FD, cx - w / 2 + U * 6.6f, cy + sz * 0.38f, "SILVER OS", sz, WHITE, a, 0);
-}
-
 /* open: 0 = glass not yet shown .. 1 = fully open */
 static void home_draw(const Home *h, float open, float t, float cracks_t)
 {
@@ -666,7 +729,8 @@ static void home_draw(const Home *h, float open, float t, float cracks_t)
 	for (int i = 0; i < nck; i++) crack_draw(&fb, &ck[i], cracks_t, i < nmain ? 1.0f : 1 - 0.72f * a);
 	float ca = sg_sat((open - 0.35f) / 0.5f);
 	if (ca > 0) for (int q = 0; q < 4; q++) tile_content(q, ca, h->blend[q], beat);
-	plaque(a, beat);
+	impact_draw(&fb, cracks_t, 1);
+	glints_draw(&fb, t, sg_sat(cracks_t * 2));
 	if (ca > 0.5f) {
 		cap_text(U * 6.0f, H - U * 3.4f, "ARROWS  SELECT      ENTER  OPEN", U * 1.05f, RGB(200, 200, 206), 0.8f * ca, 0);
 	}

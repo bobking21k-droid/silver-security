@@ -2,10 +2,10 @@
  * silver-greeter -- the SilverOS sign-in and home screen, drawn straight onto /dev/fb0 with sgfx.
  *
  * Intro (once per boot, ~4 s, any key skips):
- *   black -> a red dot beats -> a chrome pen rises up the middle, strains and SNAPS ->
- *   the screen CRACKS: fractures race out from the break, and two jagged ones split the glass
- *   into four panes -> "SILVER OS" slams in where they cross -> the panes light up as
- *   SETTINGS, SEARCH, APPS and FILES.
+ *   black, a cold light and dust -> a red dot beats -> a white hexagonal pencil rises up the
+ *   middle, bows and SNAPS (time slows for a beat, splinters fly) -> the screen CRACKS:
+ *   fractures race out from the break, and two jagged ones split the glass into four panes ->
+ *   the panes light up as SETTINGS, SEARCH, APPS and FILES.
  *
  * Home: arrow keys choose a pane, Enter opens it, Esc comes back (see home.h). Each section
  * works: browse and preview files, search files/apps/settings, a terminal and a live system
@@ -152,75 +152,124 @@ static int read_key(int wait_ms)
 }
 #endif
 
-/* ================================================================ the title */
-static const char *TITLE = "SILVER OS";
-static float title_w(float size) { return sg_text_w(&FD, TITLE, size, 0); }
-
-/* Draw the title with its baseline at `by`, centred on cx. `t` is seconds since the first letter
- * began to slam in. Each letter drops in oversized, with a red echo. */
-static void title(float cx, float by, float size, float t, float alpha)
-{
-	float left = cx - title_w(size) / 2;
-	char pre[16];
-	for (int i = 0; TITLE[i]; i++) {
-		float k = (t - i * 0.075f) / 0.15f;
-		if (k <= 0) continue;
-		memcpy(pre, TITLE, (size_t)i); pre[i] = 0;
-		char one[2] = {TITLE[i], 0};
-		float x = left + sg_text_w(&FD, pre, size, 0), wch = sg_text_w(&FD, one, size, 0);
-		float sc = k >= 1 ? 1 : 1 + 0.55f * (1 - sg_ease_out(k)), a = sg_sat(k * 5) * alpha;
-		float sz = size * sc, xd = x + wch / 2 - sg_text_w(&FD, one, sz, 0) / 2, yd = by + 0.36f * size * (sc - 1);
-		if (k < 1.3f && !calm) sg_text(&fb, &FD, xd - U * 0.9f, yd, one, sz, BLOOD, a * sg_sat(1.3f - k), 0);     /* red echo */
-		sg_text(&fb, &FD, xd + size * 0.025f, yd + size * 0.025f, one, sz, BLACK, a * 0.55f, 0);                  /* drop shadow */
-		sg_text(&fb, &FD, xd, yd, one, sz, WHITE, a, 0);
-	}
-}
-
-/* ================================================================ the pen (vertical) */
+/* ================================================================ the pencil */
 static V2 rot(V2 o, float c, float s, float x, float y) { return (V2){o.x + x * c - y * s, o.y + x * s + y * c}; }
 
-/* a tube from x0 to x1 along the local x axis (half-thickness t0 -> t1), shaded like polished metal */
-static void tube(V2 o, float c, float s, float x0, float x1, float t0, float t1, uint32_t dark, uint32_t light, float a)
+/* The pencil lies along a local x axis from -0.5 (eraser) to +0.5 (point), in units of its
+ * length; local y is across it. It is a hexagonal pencil, so three faces show: lit, middle and
+ * shaded. Parts: eraser, crimped metal ferrule, white lacquered body, sharpened wood, graphite. */
+enum { P_ERASER, P_FERRULE, P_BODY, P_WOOD, P_LEAD, P_N };
+static const float PX[P_N + 1] = {-0.50f, -0.445f, -0.365f, 0.30f, 0.445f, 0.50f};
+static const uint32_t PCOL[P_N][3] = {
+	{RGB(92, 92, 98), RGB(52, 52, 58), RGB(22, 22, 26)},                 /* eraser: black rubber */
+	{RGB(240, 240, 246), RGB(168, 170, 180), RGB(78, 80, 90)},             /* ferrule */
+	{RGB(252, 252, 254), RGB(214, 214, 220), RGB(118, 118, 128)},          /* lacquer */
+	{RGB(232, 222, 206), RGB(198, 186, 168), RGB(126, 116, 102)},          /* wood */
+	{RGB(110, 112, 122), RGB(56, 58, 66), RGB(22, 22, 26)},                /* graphite */
+};
+static float pencil_hw(float x)                               /* half width at x */
 {
-	enum { N = 9 };
-	for (int j = 0; j < N; j++) {
-		float v0 = -1 + 2.f * j / N, v1 = -1 + 2.f * (j + 1) / N, v = (v0 + v1) / 2;
-		float hl = 1 - (v + 0.42f) * (v + 0.42f) / 0.10f; hl = hl > 0 ? hl : 0;                    /* highlight line */
-		float rim = 1 - (v - 0.62f) * (v - 0.62f) / 0.05f; rim = rim > 0 ? rim * 0.35f : 0;         /* reflected floor */
-		float sh = sg_sat(0.30f + 0.38f * (1 - v * v) + 0.75f * hl + rim - 0.22f * sg_sat(v));
-		V2 q[4] = {rot(o, c, s, x0, v0 * t0), rot(o, c, s, x1, v0 * t1), rot(o, c, s, x1, v1 * t1), rot(o, c, s, x0, v1 * t0)};
-		sg_poly(&fb, q, 4, sg_mix(dark, light, sh), a, 0.5f);
+	const float B = 0.045f;
+	if (x < PX[1]) return B * 0.93f;
+	if (x < PX[2]) return B * 1.04f;
+	if (x < PX[3]) return B;
+	if (x < PX[4]) return B + (0.013f - B) * (x - PX[3]) / (PX[4] - PX[3]);
+	return 0.013f * (1 - (x - PX[4]) / (PX[5] - PX[4]));
+}
+
+/* draw the part of the pencil between local xa and xb (units of L) at origin o, angle (c, s) */
+static void pencil_span(V2 o, float c, float s, float L, float xa, float xb, float a)
+{
+	static const float FV[4] = {-1.0f, -0.36f, 0.36f, 1.0f};               /* the three faces across the width */
+	for (int pass = 0; pass < 2; pass++)
+		for (int p = 0; p < P_N; p++) {
+			float x0 = sg_max(xa, PX[p]), x1 = sg_min(xb, PX[p + 1]);
+			if (x1 <= x0) continue;
+			int steps = (p == P_WOOD || p == P_LEAD) ? 4 : 1;
+			for (int k = 0; k < steps; k++) {
+				float u0 = x0 + (x1 - x0) * k / steps, u1 = x0 + (x1 - x0) * (k + 1) / steps;
+				float h0 = pencil_hw(u0) * L, h1 = pencil_hw(u1 - 1e-4f) * L;
+				if (pass == 0) {                                               /* a dark outline under everything */
+					V2 q[4] = {rot(o, c, s, u0 * L, -h0), rot(o, c, s, u1 * L, -h1), rot(o, c, s, u1 * L, h1), rot(o, c, s, u0 * L, h0)};
+					sg_poly(&fb, q, 4, RGB(6, 6, 8), a, U * 0.22f);
+					continue;
+				}
+				for (int f = 0; f < 3; f++) {
+					V2 q[4] = {rot(o, c, s, u0 * L, FV[f] * h0), rot(o, c, s, u1 * L, FV[f] * h1), rot(o, c, s, u1 * L, FV[f + 1] * h1), rot(o, c, s, u0 * L, FV[f + 1] * h0)};
+					sg_poly(&fb, q, 4, PCOL[p][f], a, 0.5f);
+				}
+			}
+			if (pass == 0) continue;
+			if (p == P_FERRULE)                                                   /* crimped rings */
+				for (int r = 0; r < 5; r++) {
+					float rx = PX[1] + (PX[2] - PX[1]) * (0.15f + 0.17f * r);
+					if (rx < xa || rx > xb) continue;
+					float h = pencil_hw(rx) * L, d = L * 0.0045f;
+					V2 q[4] = {rot(o, c, s, rx * L - d, -h), rot(o, c, s, rx * L + d, -h), rot(o, c, s, rx * L + d, h), rot(o, c, s, rx * L - d, h)};
+					sg_poly(&fb, q, 4, BLACK, 0.35f * a, 0.5f);
+				}
+			if (p == P_BODY) {                                                    /* a long highlight down the lit face, a black band by the ferrule */
+				float h = pencil_hw(0) * L, ha = sg_max(xa, PX[2] + 0.02f), hb = sg_min(xb, PX[3] - 0.04f);
+				if (hb > ha) {
+					V2 q[4] = {rot(o, c, s, ha * L, -h * 0.80f), rot(o, c, s, hb * L, -h * 0.80f), rot(o, c, s, hb * L, -h * 0.66f), rot(o, c, s, ha * L, -h * 0.66f)};
+					sg_poly(&fb, q, 4, WHITE, 0.9f * a, 0.5f);
+				}
+				float b0 = PX[2] + 0.012f, b1 = PX[2] + 0.032f;
+				if (b0 >= xa && b1 <= xb) {
+					V2 q[4] = {rot(o, c, s, b0 * L, -h), rot(o, c, s, b1 * L, -h), rot(o, c, s, b1 * L, h), rot(o, c, s, b0 * L, h)};
+					sg_poly(&fb, q, 4, RGB(14, 14, 16), a, 0.5f);
+				}
+			}
+			if (p == P_WOOD && PX[3] >= xa)                                       /* scalloped lacquer where it was sharpened */
+				for (int f = 0; f < 3; f++) {
+					float h = pencil_hw(PX[3]) * L, v0 = (-1 + f * 0.666f) * h, v1 = v0 + 0.666f * h;
+					V2 q[3] = {rot(o, c, s, PX[3] * L, v0), rot(o, c, s, PX[3] * L, v1), rot(o, c, s, (PX[3] + 0.035f - 0.01f * f) * L, (v0 + v1) / 2)};
+					sg_poly(&fb, q, 3, PCOL[P_BODY][f], a, 0.5f);
+				}
+		}
+	if (xa <= PX[0]) {                                                            /* the eraser's rounded end: a low dome, not a ball */
+		float h = pencil_hw(PX[0]) * L;
+		for (int f = 0; f < 3; f++) {
+			static const float FV[4] = {-1.0f, -0.36f, 0.36f, 1.0f};
+			V2 q[4] = {rot(o, c, s, PX[0] * L, FV[f] * h), rot(o, c, s, PX[0] * L, FV[f + 1] * h),
+				   rot(o, c, s, PX[0] * L - h * 0.45f * (1 - sg_abs(FV[f + 1]) * 0.7f), FV[f + 1] * h * 0.8f), rot(o, c, s, PX[0] * L - h * 0.45f * (1 - sg_abs(FV[f]) * 0.7f), FV[f] * h * 0.8f)};
+			sg_poly(&fb, q, 4, PCOL[P_ERASER][f], a, 0.5f);
+		}
 	}
 }
 
-/* Standing pen, cap up, nib down. (cx, cy) is the break point. snap: 0 whole .. 1 broken. */
-static void pen(float cx, float cy, float L, float snap, float a)
+/* the splintered end at the break (local x = 0), pointing toward `dir` (+1 or -1) */
+static void pencil_break(V2 o, float c, float s, float L, int dir, unsigned seed, float a)
 {
-	float k = sg_ease_out(snap), ang = 0.34f * k, th = L * 0.040f, half = L / 2, gap = L * 0.02f * k;
-	const uint32_t d = RGB(58, 60, 68), l = RGB(252, 252, 255), gd = RGB(18, 18, 22), gl = RGB(120, 122, 132);
-	float t1 = 1.5707963f + ang;                                                                     /* cap half (up) */
-	V2 o = {cx + gap * 0.3f, cy - gap}; float c = sg_cos(t1), s = sg_sin(t1);
-	tube(o, c, s, -half * 0.985f, 0, th, th, d, l, a);
-	tube(o, c, s, -half, -half * 0.985f, th * 0.72f, th, d, l, a);
-	tube(o, c, s, -half * 0.62f, -half * 0.585f, th * 1.08f, th * 1.08f, gd, gl, a);
-	{ V2 q[4] = {rot(o, c, s, -half * 0.94f, -th * 1.55f), rot(o, c, s, -half * 0.36f, -th * 1.55f), rot(o, c, s, -half * 0.36f, -th * 1.2f), rot(o, c, s, -half * 0.94f, -th * 1.2f)};
-	  sg_poly(&fb, q, 4, RGB(214, 216, 224), a, 0);
-	  V2 r[4] = {rot(o, c, s, -half * 0.94f, -th * 1.55f), rot(o, c, s, -half * 0.88f, -th * 1.55f), rot(o, c, s, -half * 0.88f, -th * 0.9f), rot(o, c, s, -half * 0.94f, -th * 0.9f)};
-	  sg_poly(&fb, r, 4, RGB(214, 216, 224), a, 0); }
-	for (int j = 0; j < 5 && snap > 0; j++) {                                                        /* torn metal at the break */
-		float v = -1 + 0.4f * j;
-		sg_tri(&fb, rot(o, c, s, 0, v * th), rot(o, c, s, th * (0.35f + 0.5f * ((j * 7) % 3) * 0.5f), (v + 0.2f) * th), rot(o, c, s, 0, (v + 0.4f) * th), sg_mix(d, l, 0.3f + 0.15f * j), a);
+	float h = pencil_hw(0) * L;
+	for (int k = 0; k < 7; k++) {
+		float v0 = -1 + k * (2.0f / 7), v1 = v0 + 2.0f / 7, r = (float)((seed * 2654435761u + (unsigned)k * 40503u) >> 20 & 1023) / 1023.0f;
+		float len = L * (0.012f + 0.045f * r * r) * dir, vm = (v0 + v1) / 2 + (r - 0.5f) * 0.2f;
+		uint32_t col = (k == 0 || k == 6) ? PCOL[P_BODY][k == 0 ? 0 : 2] : PCOL[P_WOOD][k < 3 ? 0 : k < 5 ? 1 : 2];
+		V2 q[3] = {rot(o, c, s, 0, v0 * h), rot(o, c, s, 0, v1 * h), rot(o, c, s, len, vm * h)};
+		sg_poly(&fb, q, 3, col, a, 0.5f);
 	}
-	t1 = 1.5707963f - ang;                                                                           /* nib half (down) */
-	o = (V2){cx - gap * 0.3f, cy + gap}; c = sg_cos(t1); s = sg_sin(t1);
-	tube(o, c, s, 0, half * 0.70f, th, th, d, l, a);
-	tube(o, c, s, half * 0.70f, half * 0.735f, th * 1.08f, th * 1.08f, gd, gl, a);
-	tube(o, c, s, half * 0.735f, half * 0.93f, th, th * 0.30f, d, l, a);
-	tube(o, c, s, half * 0.93f, half, th * 0.30f, th * 0.03f, gd, gl, a);
-	for (int j = 0; j < 5 && snap > 0; j++) {
-		float v = -1 + 0.4f * j;
-		sg_tri(&fb, rot(o, c, s, 0, v * th), rot(o, c, s, -th * (0.35f + 0.5f * ((j * 5 + 1) % 3) * 0.5f), (v + 0.2f) * th), rot(o, c, s, 0, (v + 0.4f) * th), sg_mix(d, l, 0.35f + 0.12f * j), a);
+	V2 g = rot(o, c, s, dir * L * 0.004f, 0);                                     /* the graphite core, snapped */
+	sg_disc(&fb, g.x, g.y, h * 0.30f, PCOL[P_LEAD][2], a);
+}
+
+/* The pencil standing upright, eraser up, point down, centred on (cx, cy). snap 0 = whole; above 0 the two halves are drawn apart, turned by the angles given. */
+static void pencil(float cx, float cy, float L, float snap, float ang_top, float ang_bot, V2 off_top, V2 off_bot, float bend, float a)
+{
+	const float up = 1.5707963f;                                                     /* local +x points down the screen */
+	if (snap <= 0) {
+		if (bend == 0) { pencil_span((V2){cx, cy}, sg_cos(up), sg_sin(up), L, -0.5f, 0.5f, a); return; }
+		float t1 = up - bend, t2 = up + bend;                                        /* straining: bowing at the middle */
+		pencil_span((V2){cx, cy}, sg_cos(t2), sg_sin(t2), L, -0.5f, 0.001f, a);
+		pencil_span((V2){cx, cy}, sg_cos(t1), sg_sin(t1), L, -0.001f, 0.5f, a);
+		return;
 	}
+	float t1 = up + ang_top, t2 = up + ang_bot;
+	V2 ot = {cx + off_top.x, cy + off_top.y}, ob = {cx + off_bot.x, cy + off_bot.y};
+	pencil_span(ot, sg_cos(t1), sg_sin(t1), L, -0.5f, 0, a);
+	pencil_break(ot, sg_cos(t1), sg_sin(t1), L, 1, 7, a);
+	pencil_span(ob, sg_cos(t2), sg_sin(t2), L, 0, 0.5f, a);
+	pencil_break(ob, sg_cos(t2), sg_sin(t2), L, -1, 3, a);
 }
 
 /* ================================================================ intro */
@@ -241,54 +290,79 @@ static void home_init(Home *h)
 	h->calm_on = calm;
 }
 
-#define T_DOT 0.30f
-#define T_PEN 0.70f
-#define T_SNAP 1.85f
-#define T_TITLE 2.15f
-#define T_OPEN 3.00f
-#define T_END 3.80f
+#define T_DOT 0.25f
+#define T_PEN 0.55f
+#define T_SNAP 1.95f
+#define T_OPEN 3.10f
+#define T_END 3.95f
+
+/* after the snap, time runs slow for a moment (the SUPERHOT beat), then catches up */
+static float slowmo(float ct) { return ct < 0 ? ct : ct < 0.55f ? ct * 0.30f : 0.165f + (ct - 0.55f) * 1.25f; }
 
 static void intro(Home *h)
 {
-	float PL = sg_min(H * 0.44f, W * 0.5f), cx = W / 2.0f, cy = H / 2.0f;
-	float tsz = sg_min(U * 15.0f, W * 0.82f / title_w(1.0f));
-	static struct { float vx, vy, spin, size; } chip[18];
-	for (int i = 0; i < 18; i++) chip[i] = (typeof(chip[0])){(sg_frand() - .5f) * 2.6f, -0.5f - sg_frand() * 1.6f, (sg_frand() - .5f) * 14, 0.25f + sg_frand() * 0.9f};
+	float PL = sg_min(H * 0.62f, W * 0.6f), cx = W / 2.0f, cy = H / 2.0f;
+	enum { NS = 34 };
+	static struct { float vx, vy, spin, size, kind; } sp[NS];
+	for (int i = 0; i < NS; i++) sp[i] = (typeof(sp[0])){(sg_frand() - .5f) * 2.4f, -0.4f - sg_frand() * 1.4f, (sg_frand() - .5f) * 16, 0.3f + sg_frand() * 0.9f, sg_frand()};
 	double t0 = now();
 	for (;;) {
-		float t = (float)(now() - t0), ct = t - T_SNAP;
+		float t = (float)(now() - t0), ct = t - T_SNAP, st = slowmo(ct);
 		if (t > T_END || key_waiting()) break;
 		sg_clear(&fb, BLACK);
 		float open = sg_sat((t - T_OPEN) / 0.75f);
+		/* a cold light from above, and dust hanging in it, before the glass appears */
+		float lit = sg_sat((t - 0.1f) / 0.6f) * (1 - open);
+		if (lit > 0) {
+			sg_glow(&fb, cx, cy - H * 0.1f, H * 0.62f, RGB(40, 40, 46), lit);
+			sg_glow(&fb, cx, cy, H * 0.30f, RGB(28, 28, 32), lit);
+			for (int i = 0; i < 40; i++) {
+				float x = sg_fract(i * 0.6180339f + t * 0.010f * (1 + i % 3)) * W, y = sg_fract(i * 0.4142135f - t * 0.018f) * H;
+				float d = sg_abs(x - cx) / (W * 0.4f);
+				sg_disc(&fb, x, y, U * (0.08f + 0.06f * (i % 3)), WHITE, 0.30f * lit * sg_sat(1 - d));
+			}
+		}
 		home_draw(h, open, t, ct);                            /* the glass (once open) and the cracks, growing from the break */
 
-		float hb = sg_heart(t - T_DOT, 0.82f);                /* the dot, beating in the dark, then lying under the pen */
+		float hb = sg_heart(t - T_DOT, 0.82f);                /* a red dot beating in the dark, where the pencil will break */
 		if (t > T_DOT && t < T_SNAP) {
 			float grow = sg_smooth((t - T_DOT) / 0.3f);
-			sg_glow(&fb, cx, cy, U * (6 + 5 * hb), BLOOD, 0.55f * grow * (0.5f + 0.5f * hb));
-			sg_disc(&fb, cx, cy, U * (0.9f + 0.9f * hb) * grow, BLOOD, grow);
+			sg_glow(&fb, cx, cy, U * (6 + 5 * hb), BLOOD, 0.45f * grow * (0.5f + 0.5f * hb));
+			sg_disc(&fb, cx, cy, U * (0.7f + 0.7f * hb) * grow, BLOOD, grow);
 		}
-		if (t > T_PEN && ct < 1.4f) {                         /* the pen rises, strains, snaps, and falls away */
-			float in = sg_ease_out((t - T_PEN) / 0.55f), snap = ct / 0.10f;
-			float strain = (t > T_SNAP - 0.5f && t < T_SNAP) ? (t - T_SNAP + 0.5f) / 0.5f : 0;
-			float shk = calm ? 0 : sg_sin(t * 110) * U * 0.30f * strain;
-			float fall = ct > 0.35f ? sg_smooth((ct - 0.35f) / 1.0f) : 0;
-			pen(cx + shk, cy + (1 - in) * H * 0.62f + fall * fall * H * 0.7f, PL, snap > 0 ? sg_sat(snap) : 0, (1 - fall) * sg_sat(in * 4));
+		if (t > T_PEN && st < 1.3f) {
+			float in = sg_ease_out(sg_sat((t - T_PEN) / 0.7f));
+			float strain = (t > T_SNAP - 0.6f && t < T_SNAP) ? (t - T_SNAP + 0.6f) / 0.6f : 0;
+			float shk = calm ? 0 : sg_sin(t * 120) * U * 0.25f * strain * strain;
+			float y0 = cy + (1 - in) * H * 0.85f;
+			float fade = sg_sat(1.3f - st * 1.1f) * sg_sat(in * 3);
+			if (ct <= 0) pencil(cx + shk, y0, PL, 0, 0, 0, (V2){0, 0}, (V2){0, 0}, 0.05f * strain * strain, fade);
+			else {
+				float k = st;                                   /* the halves fly apart, turning, then drop */
+				V2 ot = {-k * H * 0.22f, -k * H * 0.10f + k * k * H * 0.9f}, ob = {k * H * 0.20f, k * H * 0.08f + k * k * H * 0.9f};
+				pencil(cx, cy, PL, 1, -k * 2.4f - 0.08f, k * 2.0f + 0.06f, ot, ob, 0, fade);
+			}
 			if (ct > 0)
-				for (int i = 0; i < 18; i++) {                  /* chips of glass and metal */
-					float x = cx + chip[i].vx * ct * H * 0.5f, y = cy + chip[i].vy * ct * H * 0.35f + ct * ct * H * 0.9f, sz = chip[i].size * U * 1.4f, a = chip[i].spin * ct;
-					V2 o = {x, y}; float c = sg_cos(a), s = sg_sin(a);
-					sg_tri(&fb, rot(o, c, s, -sz, -sz * 0.5f), rot(o, c, s, sz * 1.1f, -sz * 0.2f), rot(o, c, s, -sz * 0.2f, sz), RGB(226, 228, 236), sg_sat(1.5f - ct * 1.4f));
+				for (int i = 0; i < NS; i++) {                  /* splinters of wood and lacquer, flecks of graphite */
+					float x = cx + sp[i].vx * st * H * 0.9f, y = cy + sp[i].vy * st * H * 0.7f + st * st * H * 1.4f, sz = sp[i].size * U * 1.3f, an = sp[i].spin * st;
+					V2 o = {x, y}; float c = sg_cos(an), s = sg_sin(an), al = sg_sat(1.4f - st * 1.3f);
+					if (sp[i].kind < 0.55f) sg_tri(&fb, rot(o, c, s, -sz * 1.4f, -sz * 0.12f), rot(o, c, s, sz * 1.4f, 0), rot(o, c, s, -sz * 1.4f, sz * 0.12f), PCOL[P_WOOD][(int)(sp[i].kind * 5) % 3], al);
+					else if (sp[i].kind < 0.8f) sg_tri(&fb, rot(o, c, s, -sz * 0.6f, -sz * 0.3f), rot(o, c, s, sz * 0.7f, -sz * 0.1f), rot(o, c, s, -sz * 0.1f, sz * 0.5f), PCOL[P_BODY][(int)(sp[i].kind * 7) % 3], al);
+					else sg_disc(&fb, x, y, sz * 0.22f, PCOL[P_LEAD][1], al);
 				}
 		}
-		if (ct > 0 && ct < 0.35f) sg_glow(&fb, cx, cy, U * 22 * sg_sat(ct * 6), WHITE, 0.8f * (1 - ct / 0.35f));   /* the impact */
-		if (t > T_TITLE) title(cx, cy + 0.36f * tsz, tsz, t - T_TITLE, 1 - sg_sat((t - T_OPEN) / 0.5f));
+		if (ct > 0 && ct < 0.6f) {                              /* the impact: a flash and a shock ring */
+			float k = ct / 0.6f;
+			sg_glow(&fb, cx, cy, U * 24 * sg_sat(ct * 8), WHITE, 0.7f * (1 - k));
+			sg_ring(&fb, cx, cy, H * 0.6f * sg_ease_out(k), sg_max(1, U * 0.5f * (1 - k)), WHITE, 0.5f * (1 - k));
+			sg_ring(&fb, cx, cy, H * 0.45f * sg_ease_out(k), sg_max(1, U * 0.25f * (1 - k)), BLOOD, 0.4f * (1 - k));
+		}
 		if (!calm && ct > 0) {                                  /* a thump on the snap, a white flash for one beat */
 			float th = sg_sat(1 - ct / 0.45f);
-			shake_frame(sg_sin(t * 97) * U * 1.3f * th * th, sg_cos(t * 83) * U * 1.3f * th * th);
-			if (ct < 0.08f) sg_rect(&fb, 0, 0, W, H, WHITE, 0.85f * (1 - ct / 0.08f));
+			shake_frame(sg_sin(t * 97) * U * 1.2f * th * th, sg_cos(t * 83) * U * 1.2f * th * th);
+			if (ct < 0.07f) sg_rect(&fb, 0, 0, W, H, WHITE, 0.8f * (1 - ct / 0.07f));
 		}
-		if (t < T_TITLE) sg_text_c(&fb, &FC, W / 2.0f, H - U * 3.4f, "CONTAINS FLASHING LIGHTS  /  ANY KEY SKIPS", U * 0.9f, WHITE, 0.55f * sg_sat((T_PEN + 0.9f - t) * 3) * sg_sat((t - 0.15f) * 4), 0.26f);
+		if (t < T_SNAP) sg_text_c(&fb, &FC, W / 2.0f, H - U * 3.4f, "CONTAINS FLASHING LIGHTS  /  ANY KEY SKIPS", U * 0.9f, WHITE, 0.5f * sg_sat((T_PEN + 1.0f - t) * 3) * sg_sat((t - 0.15f) * 4), 0.26f);
 		flip();
 	}
 }
