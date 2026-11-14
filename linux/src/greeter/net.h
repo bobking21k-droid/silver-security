@@ -9,6 +9,7 @@
 #pragma once
 #include <errno.h>
 #include "yt.h"
+#include "web.h"
 
 typedef struct { int fd; pid_t pid; char *buf; size_t n, cap; int active, done, ok; } Job;
 
@@ -164,6 +165,8 @@ enum { Y_IDLE, Y_LOADING, Y_RESULTS, Y_ERROR, Y_WATCH };
 typedef struct {
 	char q[96]; int state;
 	Video v[MAXVID]; int nv;
+	int mode;                     /* 0 the web, 1 YouTube videos */
+	Web web[MAXWEB]; int nw;
 	int sel, top, watch;          /* watch: index of the video whose page is open */
 	Job job; char err[96];
 	char fetch[64];
@@ -171,19 +174,26 @@ typedef struct {
 static Yt yt;
 
 static void yt_mock(Yt *y);
+static int yt_count(const Yt *y) { return y->mode ? y->nv : y->nw; }
 static void yt_search(Yt *y)
 {
 	job_free(&y->job);
-	y->nv = 0; y->sel = 0; y->top = 0; y->err[0] = 0;
+	y->nv = 0; y->nw = 0; y->sel = 0; y->top = 0; y->err[0] = 0;
 	if (!y->q[0]) { y->state = Y_IDLE; return; }
 #ifdef RENDER
-	yt_mock(y); y->state = Y_RESULTS;
+	yt_mock(y); y->state = yt_count(y) ? Y_RESULTS : Y_ERROR;
 #else
 	char enc[300], url[400];
 	url_encode(y->q, enc, sizeof enc);
-	snprintf(url, sizeof url, "https://www.youtube.com/results?search_query=%s&hl=en", enc);
-	char *argv[] = {y->fetch, "-q", "-m", "3000000", "-H", "Cookie: SOCS=CAI", "-H", "Accept-Language: en", url, 0};
-	job_start(&y->job, argv, 3000000);
+	if (y->mode) {
+		snprintf(url, sizeof url, "https://www.youtube.com/results?search_query=%s&hl=en", enc);
+		char *argv[] = {y->fetch, "-q", "-m", "3000000", "-H", "Cookie: SOCS=CAI", url, 0};
+		job_start(&y->job, argv, 3000000);
+	} else {
+		snprintf(url, sizeof url, "https://html.duckduckgo.com/html/?q=%s", enc);
+		char *argv[] = {y->fetch, "-q", "-m", "1000000", url, 0};
+		job_start(&y->job, argv, 1000000);
+	}
 	y->state = y->job.active ? Y_LOADING : Y_ERROR;
 	if (y->state == Y_ERROR) snprintf(y->err, sizeof y->err, "Could not start the downloader");
 #endif
@@ -194,17 +204,31 @@ static void yt_poll(Yt *y)
 	if (y->state != Y_LOADING) return;
 	job_poll(&y->job);
 	if (!y->job.done) return;
-	if (!y->job.ok) snprintf(y->err, sizeof y->err, "Can't reach YouTube. Check your network.");
+	if (!y->job.ok) snprintf(y->err, sizeof y->err, "Can't reach the internet. Check your network.");
 	else {
-		y->nv = yt_parse(y->job.buf, y->job.n, y->v, MAXVID);
-		if (!y->nv) snprintf(y->err, sizeof y->err, "No results, or YouTube changed its page.");
+		if (y->mode) y->nv = yt_parse(y->job.buf, y->job.n, y->v, MAXVID);
+		else y->nw = web_parse(y->job.buf, y->job.n, y->web, MAXWEB);
+		if (!yt_count(y)) snprintf(y->err, sizeof y->err, "No results, or the search site changed its page.");
 	}
-	y->state = y->nv ? Y_RESULTS : Y_ERROR;
+	y->state = yt_count(y) ? Y_RESULTS : Y_ERROR;
 	job_free(&y->job);
 }
 
 static void yt_mock(Yt *y)
 {
+	if (!y->mode) {
+		static const struct { const char *t, *u, *s; } M[] = {
+			{"What Happens When We Turn on Computer? - GeeksforGeeks", "https://www.geeksforgeeks.org/operating-systems/what-happens-when-we-turn-on-computer/", "The job of the boot loader is to load the actual operating system kernel into memory. After the boot loader runs, the kernel is loaded into RAM and starts the init process."},
+			{"Booting - Wikipedia", "https://en.wikipedia.org/wiki/Booting", "Booting is the process of starting a computer. It can be initiated by hardware, such as a button press, or by a software command. Booting is complete when the runtime system is ready."},
+			{"The Boot Process: 6 Stages from Power-On to Operating System", "https://www.thecoreitech.com/computer-basics/boot-process/", "The ordered sequence a computer runs from the moment you press the power button until the operating system is ready to use, in six stages."},
+			{"Linux From Scratch", "https://www.linuxfromscratch.org/", "Linux From Scratch is a project that provides step-by-step instructions for building your own custom Linux system, entirely from source code."},
+			{"How Does a Computer Boot? | Explained", "https://www.howtogeek.com/how-does-a-computer-boot/", "From firmware to bootloader to kernel to login screen: what really happens in the seconds after you press the power button."},
+			{"UEFI vs BIOS: what is the difference?", "https://www.example.org/uefi-vs-bios", "UEFI replaces the legacy BIOS with a faster, more secure firmware interface that supports large disks and Secure Boot."},
+		};
+		y->nw = 0;
+		for (unsigned i = 0; i < sizeof M / sizeof M[0]; i++) { Web *w = &y->web[y->nw++]; memset(w, 0, sizeof *w); snprintf(w->title, sizeof w->title, "%s", M[i].t); snprintf(w->url, sizeof w->url, "%s", M[i].u); snprintf(w->snip, sizeof w->snip, "%s", M[i].s); }
+		return;
+	}
 	static const struct { const char *id, *title, *ch, *views, *len, *age, *desc; } M[] = {
 		{"mock0001", "lofi hip hop radio - beats to relax/study to", "Lofi Girl", "12M views", "", "Streamed live", "Thank you for listening, I hope you have a good time here"},
 		{"mock0002", "Chill Lofi Beats for Deep Focus & Coding", "Mellow Studio", "2.4M views", "3:12:08", "8 months ago", "Two hours of calm instrumentals made for long nights of work"},

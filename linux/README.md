@@ -36,12 +36,12 @@ reference, not its content.)
    to white glass), Enter opens it, Esc comes back. Every section works:
    - **Files**: browse your home folder (Enter opens a folder, Backspace goes up) with a text
      preview of the selected file.
-   - **Search**: YouTube search. Type, Enter, pick a result, Enter opens a watch page (title,
+   - **Search**: Internet search. Type, Enter, pick a result (Tab switches between **Web** and **Videos**). Web results come from DuckDuckGo's plain-HTML page; Videos from YouTube. Enter on a video opens a watch page (title,
      channel, description, up-next list). **Playback is not built yet**, and the page is a
-     placeholder for you to change. Results are read from YouTube's public search page through
+     placeholder for you to change. Results are read from those sites' public pages through
      `silver-fetch` (our own small HTTPS client on BearSSL, checking certificates against the
      bundled Mozilla roots). That scraping is unofficial, can break whenever YouTube changes its
-     page, and is against YouTube's terms for automated use. What you search for goes to YouTube.
+     page, and is against those sites' terms for automated use. What you search for goes to DuckDuckGo or YouTube. There is no web browser, so a web result opens a page showing its title, snippet and address.
    - **Files** also searches: press `/`, type part of a name (letters may be spread out) or
      switch with Tab to search inside text files; Enter shows the result in its folder.
    - **Apps**: a Terminal (a shell on the console; `exit` returns here), a live System Monitor

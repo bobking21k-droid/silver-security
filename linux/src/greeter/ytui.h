@@ -79,29 +79,56 @@ static void draw_watch(Home *h, float t)
 	(void)h;
 }
 
+static void draw_page(Home *h, float t)
+{
+	Yt *y = &yt;
+	const Web *w = &y->web[y->watch];
+	memcpy(fb.px, bg_sec, (size_t)W * H * 4);
+	title_block("RESULT", "FROM THE WEB", I_SEARCH);
+	float lx = U * 6, lw = W - U * 12, ty = U * 24;
+	char du[200]; web_display_url(w->url, du, sizeof du);
+	ui_card(lx, ty, lw, H - ty - U * 12, U * 1.8f, BLACK, 0.5f, 0.4f);
+	float cx = lx + U * 4, cw = lw - U * 8;
+	ui_avatar(cx + U * 1.4f, ty + U * 5, U * 1.4f, du);
+	sg_text(&fb, &FT, cx + U * 4.2f, ty + U * 5.8f, du, U * 1.8f, RGB(150, 190, 150), 1, 0.01f);
+	char ln[3][160]; int n = ui_wrap(w->title, U * 3.4f, cw, 3, ln);
+	for (int i = 0; i < n; i++) sg_text(&fb, &FT, cx, ty + U * 12.5f + i * U * 4.4f, ln[i], U * 3.4f, WHITE, 1, 0.01f);
+	float sy = ty + U * 12.5f + n * U * 4.4f + U * 2;
+	char sn[5][160]; int m = ui_wrap(w->snip, U * 2.2f, cw, 5, sn);
+	for (int i = 0; i < m; i++) sg_text(&fb, &FT, cx, sy + i * U * 3.2f, sn[i], U * 2.2f, RGB(206, 206, 212), 1, 0.01f);
+	cap_text(cx, sy + m * U * 3.2f + U * 4, "ADDRESS", U * 0.95f, RGB(150, 150, 156), 1, 0);
+	char uf[200]; fit(w->url, U * 2.0f, cw, uf, sizeof uf);
+	sg_text(&fb, &FT, cx, sy + m * U * 3.2f + U * 7.6f, uf, U * 2.0f, WHITE, 1, 0.01f);
+	ui_chip(lx, H - U * 7.6f, "THERE IS NO WEB BROWSER YET - THIS PAGE SHOWS THE RESULT ONLY", U * 0.85f, RGB(255, 190, 70), BLACK, 0.55f);
+	foot_hints("ESC  BACK TO RESULTS");
+	(void)h; (void)t;
+}
+
 static void draw_search(Home *h, float t)
 {
 	Yt *y = &yt;
-	if (y->state == Y_WATCH) { draw_watch(h, t); return; }
+	if (y->state == Y_WATCH) { if (y->mode) draw_watch(h, t); else draw_page(h, t); return; }
 	memcpy(fb.px, bg_sec, (size_t)W * H * 4);
-	title_block("SEARCH", "VIDEOS FROM YOUTUBE", I_SEARCH);
+	title_block("SEARCH", "THE WEB AND VIDEOS", I_SEARCH);
 	float lx = U * 6, lw = W - U * 12, by = U * 22, bh = U * 6.6f;
 	/* the search bar */
 	ui_card(lx, by, lw, bh, bh / 2, BLACK, 0.62f, 0.3f);
 	if (h->focus == 0) sg_rrect(&fb, lx, by, lw, bh, bh / 2, sg_max(1.5f, U * 0.2f), ACCENT, 0.95f);
 	icon(I_SEARCH, lx + bh * 0.72f, by + bh / 2, U * 1.5f, WHITE, 1);
 	float tx = lx + bh * 1.3f, tb = by + bh / 2 + U * 0.95f;
-	if (!y->q[0]) sg_text(&fb, &FT, tx, tb, "Search YouTube", U * 2.5f, RGB(120, 120, 126), 1, 0.01f);
+	if (!y->q[0]) sg_text(&fb, &FT, tx, tb, y->mode ? "Search YouTube" : "Search the internet", U * 2.5f, RGB(120, 120, 126), 1, 0.01f);
 	float qx = sg_text(&fb, &FT, tx, tb, y->q, U * 2.5f, WHITE, 1, 0.01f);
 	if (h->focus == 0 && ((int)(t * 2) & 1)) sg_rect(&fb, qx + U * 0.3f, by + U * 1.4f, sg_max(2, U * 0.26f), bh - U * 2.8f, WHITE, 1);
 	if (y->q[0]) { ui_pill(lx + lw - U * 11.2f, by + U * 1.2f, U * 10, bh - U * 2.4f, ACCENT, h->focus == 0 ? 1 : 0.6f); cap_text(lx + lw - U * 6.2f - sg_text_w(&FC, "SEARCH", U * 0.95f, 0.2f) / 2, by + bh / 2 + U * 0.4f, "SEARCH", U * 0.95f, WHITE, 1, 0); }
-	float ry0 = by + bh + U * 3.2f, rh = U * 14.2f;
+	{ float cx = lx; static const char *tb2[2] = {"WEB", "VIDEOS"};
+	  for (int i = 0; i < 2; i++) cx = ui_chip(cx, by + bh + U * 3.4f, tb2[i], U * 0.95f, i == y->mode ? INK : RGB(190, 190, 196), WHITE, i == y->mode ? 0.96f : 0.10f) + U * 1.0f; }
+	float ry0 = by + bh + U * 7.4f, rh = y->mode ? U * 14.2f : U * 12.4f;
 	if (y->state == Y_IDLE) {
-		static const char *ex[] = {"lofi beats", "how operating systems boot", "synthwave mix", "linux from scratch"};
+		static const char *ex[] = {"how operating systems boot", "linux from scratch", "weather", "lofi beats"};
 		cap_text(lx, ry0 + U * 2, "TRY", U * 1.0f, RGB(176, 176, 182), 1, 0);
 		float cx = lx;
 		for (int i = 0; i < 4; i++) cx = ui_chip(cx, ry0 + U * 7, ex[i], U * 1.0f, WHITE, WHITE, 0.10f) + U * 1.2f;
-		sg_text(&fb, &FT, lx, ry0 + U * 14, "Type what you want to watch, then press Enter.", U * 2.2f, RGB(150, 150, 156), 1, 0.01f);
+		sg_text(&fb, &FT, lx, ry0 + U * 14, "Type anything, then press Enter. Tab switches between the web and videos.", U * 2.2f, RGB(150, 150, 156), 1, 0.01f);
 	} else if (y->state == Y_LOADING) {
 		for (int i = 0; i < 4; i++) {                                    /* skeleton rows */
 			float ry = ry0 + i * rh, ph = sg_fract(t * 0.8f - i * 0.12f);
@@ -113,6 +140,27 @@ static void draw_search(Home *h, float t)
 	} else if (y->state == Y_ERROR) {
 		sg_text(&fb, &FT, lx, ry0 + U * 6, y->err[0] ? y->err : "Something went wrong.", U * 2.6f, WHITE, 1, 0.01f);
 		sg_text(&fb, &FT, lx, ry0 + U * 11, "Press Enter to try again.", U * 2.0f, RGB(150, 150, 156), 1, 0.01f);
+	} else if (!y->mode) {
+		int vis = (int)((H - ry0 - U * 10) / rh), cnt = y->nw;
+		if (vis < 1) vis = 1;
+		if (y->sel >= cnt) y->sel = cnt - 1;
+		if (y->sel < y->top) y->top = y->sel;
+		if (y->sel >= y->top + vis) y->top = y->sel - vis + 1;
+		for (int i = 0; i < vis && y->top + i < cnt; i++) {
+			const Web *w = &y->web[y->top + i];
+			float ry = ry0 + i * rh, cx = lx + U * 1.6f, cw = lw - U * 4.4f;
+			int sel = h->focus == 1 && y->top + i == y->sel;
+			if (sel) { ui_card(lx - U * 1.0f, ry, lw - U * 1.6f, rh - U * 0.6f, U * 1.4f, WHITE, 0.14f, 0.35f); sg_rrect(&fb, lx - U * 1.0f, ry, lw - U * 1.6f, rh - U * 0.6f, U * 1.4f, sg_max(1.5f, U * 0.2f), ACCENT, 0.9f); }
+			char du[200], df[200]; web_display_url(w->url, du, sizeof du);
+			ui_avatar(cx + U * 0.9f, ry + U * 2.4f, U * 0.95f, du);
+			fit(du, U * 1.4f, cw - U * 3.4f, df, sizeof df);
+			sg_text(&fb, &FT, cx + U * 3.0f, ry + U * 3.0f, df, U * 1.4f, RGB(150, 190, 150), 1, 0.01f);
+			char tf[200]; fit(w->title, U * 2.3f, cw, tf, sizeof tf);
+			sg_text(&fb, &FT, cx, ry + U * 6.3f, tf, U * 2.3f, WHITE, 1, 0.01f);
+			char sn[2][160]; int m = ui_wrap(w->snip, U * 1.5f, cw, 2, sn);
+			for (int k = 0; k < m; k++) sg_text(&fb, &FT, cx, ry + U * 9.0f + k * U * 2.0f, sn[k], U * 1.5f, RGB(160, 160, 166), 1, 0.01f);
+		}
+		ui_scroll(W - U * 4, ry0, vis * rh, y->top, vis, cnt);
 	} else {
 		int vis = (int)((H - ry0 - U * 10) / rh);
 		if (vis < 1) vis = 1;
@@ -138,7 +186,7 @@ static void draw_search(Home *h, float t)
 		}
 		ui_scroll(W - U * 4, ry0, vis * rh, y->top, vis, y->nv);
 	}
-	foot_hints(y->state == Y_RESULTS ? "TYPE  SEARCH      DOWN UP  PICK      ENTER  OPEN      ESC  HOME" : "TYPE  SEARCH      ENTER  GO      ESC  HOME");
+	foot_hints(y->state == Y_RESULTS ? "TYPE  SEARCH      TAB  WEB OR VIDEOS      DOWN UP  PICK      ENTER  OPEN      ESC  HOME" : "TYPE  SEARCH      TAB  WEB OR VIDEOS      ENTER  GO      ESC  HOME");
 }
 
 /* ---------------------------------------------------------------- files search */

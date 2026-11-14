@@ -620,7 +620,7 @@ static void draw_settings(Home *h, float t)
 
 /* ================================================================ the home screen itself */
 static const char *TILE_NAME[4] = {"SETTINGS", "SEARCH", "APPS", "FILES"};
-static const char *TILE_CAP[4] = {"NETWORK  DISPLAY  POWER", "WATCH  YOUTUBE", "TERMINAL  MONITOR", "BROWSE YOUR HOME"};
+static const char *TILE_CAP[4] = {"NETWORK  DISPLAY  POWER", "THE WEB  VIDEOS", "TERMINAL  MONITOR", "BROWSE YOUR HOME"};
 static const int TILE_ICON[4] = {I_SETTINGS, I_SEARCH, I_APPS, I_FILES};
 
 static void tile_content(int q, float a, float blend, float beat)

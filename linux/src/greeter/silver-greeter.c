@@ -442,7 +442,7 @@ static void open_screen(Home *h, int s)
 {
 	h->screen = s; h->row = 0; h->top = 0; h->sub = 0; h->confirm = 0; h->fade = 0;
 	if (s == 4) { snprintf(cwd, sizeof cwd, "%s", homedir); h->depth = 0; fs_list(cwd); files_preview(h); }
-	if (s == 2) { h->focus = yt.nv ? 1 : 0; if (!yt.fetch[0]) snprintf(yt.fetch, sizeof yt.fetch, "/sbin/silver-fetch"); if (yt.state == Y_WATCH) yt.state = Y_RESULTS; }
+	if (s == 2) { h->focus = yt_count(&yt) ? 1 : 0; if (!yt.fetch[0]) snprintf(yt.fetch, sizeof yt.fetch, "/sbin/silver-fetch"); if (yt.state == Y_WATCH) yt.state = Y_RESULTS; }
 	h->fs = 0;
 	if (s == 3) h->sub = 0;
 }
@@ -499,9 +499,10 @@ static void handle_key(Home *h, int k)
 		if (k == K_DOWN && h->focus == 0 && y->state == Y_RESULTS) { h->focus = 1; break; }
 		if (h->focus == 1) {
 			if (k == K_UP) { if (y->sel > 0) y->sel--; else h->focus = 0; break; }
-			if (k == K_DOWN) { if (y->sel + 1 < y->nv) y->sel++; break; }
+			if (k == K_DOWN) { if (y->sel + 1 < yt_count(y)) y->sel++; break; }
 			if (k == K_ENTER) { y->watch = y->sel; y->state = Y_WATCH; break; }
 		}
+		if (k == 9) { y->mode ^= 1; if (y->q[0]) { yt_search(y); h->focus = y->state == Y_RESULTS ? 1 : 0; } break; }
 		size_t n = strlen(y->q);
 		if (k == K_BACK && n) { y->q[n - 1] = 0; h->focus = 0; }
 		else if (k == 21) { y->q[0] = 0; h->focus = 0; }
@@ -587,14 +588,15 @@ static const struct { float t; int k; } SCRIPT[] = {
 	{6.0f, K_ENTER}, {7.0f, K_DOWN}, {7.8f, K_DOWN}, {8.6f, K_BACK}, {9.6f, K_DOWN}, {10.2f, K_DOWN},
 	{11.2f, '/'}, {12.0f, 'r'}, {12.4f, 'e'}, {12.8f, 'p'}, {14.0f, K_DOWN}, {15.0f, K_ESC}, {15.8f, K_ESC},  /* search inside Files */
 	{16.6f, K_UP}, {17.3f, K_ENTER},                                                                          /* Search = YouTube */
-	{18.2f, 'l'}, {18.5f, 'o'}, {18.8f, 'f'}, {19.1f, 'i'}, {20.0f, K_ENTER},
-	{22.2f, K_DOWN}, {23.0f, K_DOWN}, {23.8f, K_DOWN}, {24.8f, K_ENTER}, {28.0f, K_ESC}, {28.6f, K_ESC},       /* watch page */
-	{29.4f, K_LEFT}, {30.1f, K_ENTER},                                                                        /* Settings */
-	{31.4f, K_DOWN}, {32.0f, K_DOWN}, {32.6f, K_ENTER}, {33.6f, K_ENTER}, {34.4f, K_ESC},
-	{35.2f, K_DOWN}, {35.8f, K_ENTER},                                                                        /* Apps */
-	{36.6f, K_DOWN}, {37.2f, K_ENTER}, {41.5f, K_ESC}, {42.1f, K_ESC},
+	{18.2f, 'l'}, {18.5f, 'i'}, {18.8f, 'n'}, {19.1f, 'u'}, {19.4f, 'x'}, {20.0f, K_ENTER},                  /* web results */
+	{22.0f, K_DOWN}, {22.8f, K_DOWN}, {23.6f, K_ENTER}, {25.6f, K_ESC},                                       /* a result */
+	{26.4f, 9}, {28.0f, K_DOWN}, {28.8f, K_DOWN}, {29.6f, K_ENTER}, {32.0f, K_ESC}, {32.6f, K_ESC},           /* videos, watch page */
+	{33.4f, K_LEFT}, {34.1f, K_ENTER},                                                                        /* Settings */
+	{35.4f, K_DOWN}, {36.0f, K_DOWN}, {36.6f, K_ENTER}, {37.6f, K_ENTER}, {38.4f, K_ESC},
+	{39.2f, K_DOWN}, {39.8f, K_ENTER},                                                                        /* Apps */
+	{40.6f, K_DOWN}, {41.2f, K_ENTER}, {45.5f, K_ESC}, {46.1f, K_ESC},
 };
-#define SCRIPT_END 44.0f
+#define SCRIPT_END 48.0f
 #endif
 
 static void home_loop(Home *h)
