@@ -18,7 +18,7 @@ static void swirl_frame(float t)
 	int sw = W / 4 + 2, sh = H / 4 + 2;
 	if (swirl_w != sw || swirl_h != sh) { free(swirl); swirl = malloc((size_t)sw * sh); swirl_w = sw; swirl_h = sh; }
 	if (!swirl) return;
-	float cx = W * 0.62f, cy = H * 0.42f, maxr = sg_sqrt((float)W * W + (float)H * H) * 0.62f;
+	float cx = W * 0.56f, cy = H * 0.76f, maxr = sg_sqrt((float)W * W + (float)H * H) * 0.62f;
 	for (int j = 0; j < sh; j++)
 		for (int i = 0; i < sw; i++) {
 			float dx = i * 4 - cx, dy = (j * 4 - cy) * 1.05f;
@@ -27,24 +27,25 @@ static void swirl_frame(float t)
 			float ph = r / (U * 9.0f) + a * (3.0f / 6.2832f) - t * 0.22f + wob;
 			float band = sg_smooth((sg_abs(sg_fract(ph) - 0.5f) * 2 - 0.30f) * 4.0f);       /* soft stripes */
 			float vig = sg_sat(1 - r / maxr);
-			swirl[j * sw + i] = (uint8_t)(255 * band * vig * vig);
+			float yy = (j * 4) / (float)H, mask = sg_smooth((yy - 0.52f) / 0.10f) * sg_smooth((0.995f - yy) / 0.03f);   /* a band across the lower half, like a film strip */
+			swirl[j * sw + i] = (uint8_t)(255 * band * sg_sat(vig * 1.6f) * mask);
 		}
 }
 
 static void parade_figure(float x, float base, float s, float ph, float a, int eyes)
 {
 	float bob = sg_sin(ph * 2) * s * 0.012f, hipy = base - s * 0.40f + bob;
-	uint32_t body = RGB(30, 27, 29), edge = RGB(235, 235, 240);
+	uint32_t body = RGB(46, 42, 44), edge = RGB(255, 245, 245);
 	for (int side = 0; side < 2; side++) {                                           /* legs: two swinging quads */
 		float sw = sg_sin(ph + side * 3.14159f) * 0.42f, hx = x + (side ? 0.045f : -0.045f) * s;
 		float fx = hx + sg_sin(sw) * s * 0.40f, fy = hipy + sg_cos(sw) * s * 0.40f, wd = s * 0.034f;
 		V2 q[4] = {{hx - wd, hipy}, {hx + wd, hipy}, {fx + wd * 0.7f, fy}, {fx - wd * 0.7f, fy}};
-		sg_poly(&fb, q, 4, RGB(44, 40, 42), a, 0);
+		sg_poly(&fb, q, 4, RGB(104, 96, 90), a, 0);
 		V2 foot[3] = {{fx - wd, fy}, {fx + wd, fy}, {fx + s * 0.07f, fy + s * 0.012f}};
-		sg_poly(&fb, foot, 3, RGB(44, 40, 42), a, 0);
+		sg_poly(&fb, foot, 3, RGB(104, 96, 90), a, 0);
 	}
-	sg_rrect(&fb, x - s * 0.19f, base - s * 0.80f + bob, s * 0.38f, s * 0.46f, s * 0.12f, 0, body, a);   /* the oversized coat */
-	sg_rrect(&fb, x - s * 0.19f, base - s * 0.80f + bob, s * 0.38f, s * 0.46f, s * 0.12f, sg_max(1, s * 0.006f), edge, a * 0.30f);
+	sg_rrect(&fb, x - s * 0.15f, base - s * 0.80f + bob, s * 0.30f, s * 0.46f, s * 0.12f, 0, body, a);   /* the oversized coat */
+	sg_rrect(&fb, x - s * 0.15f, base - s * 0.80f + bob, s * 0.30f, s * 0.46f, s * 0.12f, sg_max(1, s * 0.006f), edge, a * 0.30f);
 	sg_disc(&fb, x + s * 0.02f, base - s * 0.89f + bob, s * 0.115f, body, a);                              /* head with a lot of hair */
 	sg_disc(&fb, x - s * 0.03f, base - s * 0.93f + bob, s * 0.105f, body, a);
 	sg_disc(&fb, x + s * 0.02f, base - s * 0.89f + bob, s * 0.115f, edge, 0);
@@ -66,17 +67,21 @@ static void parade_bg(float t)
 			row[x] = RGB(r, g, b);
 		}
 	}
-	static const struct { float size, speed, base, alpha; int n; } L[3] = {{0.20f, 38, 0.80f, 0.55f, 11}, {0.28f, 60, 0.90f, 0.80f, 9}, {0.38f, 92, 1.04f, 1.0f, 7}};
-	for (int l = 0; l < 3; l++) {
-		float s = H * L[l].size, gap = (W + s * 1.2f) / L[l].n, span = gap * L[l].n;
-		for (int i = 0; i < L[l].n; i++) {
-			float x = fmodf(i * gap + t * L[l].speed * U * 0.1f, span) - s * 0.6f;
-			parade_figure(x, H * L[l].base, s, t * (2.6f + l * 0.35f) + i * 0.9f, L[l].alpha, l == 2 && (i % 3 == 0));
+	/* the march: one dense row of identical figures, packed so their coats overlap, filling the band
+	 * from the left. Each steps a little out of phase with its neighbour, so a ripple runs through them. */
+	{
+		float s = H * 0.27f, gap = s * 0.12f, front = s_age * U * 34 - s * 0.3f;
+		int n = (int)((W + s) / gap) + 1;
+		for (int i = 0; i < n; i++) {
+			float x = i * gap - s * 0.3f;
+			if (x > front) break;
+			float a = sg_smooth((front - x) / (s * 0.5f));
+			parade_figure(x, H * 1.02f, s, t * 3.1f + i * 0.55f, 0.80f * a, i % 23 == 7);
 		}
 	}
 	sg_rect(&fb, 0, 0, W, H * 0.46f, BLACK, 0.0f);
 	/* keep the top calm for the search bar, and the middle darker for reading */
-	for (int y = 0; y < H * 0.62f; y++) { float f = 1 - (float)y / (H * 0.62f); sg_rect(&fb, 0, y, W, 1, BLACK, 0.55f * f * f + 0.18f * f); }
+	for (int y = 0; y < H * 0.62f; y++) { float f = 1 - (float)y / (H * 0.62f); sg_rect(&fb, 0, y, W, 1, BLACK, 0.50f * f * f + 0.20f * f); }
 }
 
 static void yt_meta(const Video *v, char *out, size_t n)
