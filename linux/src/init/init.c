@@ -27,7 +27,7 @@
 #define MAX_SERVICES 16
 
 struct service {
-	char tty[128];
+	char tty[400];
 	char cmd[256];
 	pid_t pid;
 	time_t last_start;
@@ -62,6 +62,7 @@ static void early_mounts(void)
 	const unsigned long hard = MS_NOSUID | MS_NODEV | MS_NOEXEC;
 	mount_or_warn("proc", "/proc", "proc", hard, "hidepid=2");
 	mount_or_warn("sysfs", "/sys", "sysfs", hard, NULL);
+	mount_or_warn("securityfs", "/sys/kernel/security", "securityfs", hard, NULL);
 	mount_or_warn("devtmpfs", "/dev", "devtmpfs", MS_NOSUID | MS_NOEXEC, "mode=0755");
 	mount_or_warn("devpts", "/dev/pts", "devpts", MS_NOSUID | MS_NOEXEC, "gid=5,mode=0620,ptmxmode=0666");
 	mount_or_warn("tmpfs", "/dev/shm", "tmpfs", hard, "mode=1777");

@@ -1,4 +1,4 @@
 # respawn:<tty>:<command>   -- supervised by silver-init
-respawn:/dev/tty1:/sbin/silver-login tty1
+respawn:/dev/tty1:/sbin/silver-login tty1 38400
 respawn:/dev/tty2:/sbin/getty 38400 tty2
-respawn:/dev/ttyS0:/sbin/getty -L 115200 ttyS0 vt100
+respawn:/dev/ttyS0:/sbin/silver-login ttyS0 -L 115200

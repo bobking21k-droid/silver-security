@@ -1,10 +1,20 @@
 #!/bin/sh
 # First boot: accounts are locked until the owner sets passwords here.
-tty=$1
+# Setup runs on whichever console the owner presses Enter at first.
+tty=$1; shift
 if grep -q '^silver:!' /etc/shadow; then
   clear; cat /etc/issue
-  echo "  First boot setup -- choose passwords."
-  echo; echo "  Password for your user 'silver':"; until passwd silver; do :; done
-  echo; echo "  Password for 'root' (used with su):"; until passwd root; do :; done
+  echo "  Press Enter to begin first boot setup."
+  # wake up when Enter is pressed here, or when another console finished setup
+  while grep -q '^silver:!' /etc/shadow && ! read -t 1 _; do :; done
+  if grep -q '^silver:!' /etc/shadow && mkdir /run/firstboot 2>/dev/null; then
+    clear; cat /etc/issue
+    echo "  First boot setup -- choose passwords."
+    echo; echo "  Password for your user 'silver':"; until passwd silver; do :; done
+    echo; echo "  Password for 'root' (used with su):"; until passwd root; do :; done
+  else
+    echo "  First boot setup is running on another console..."
+    while grep -q '^silver:!' /etc/shadow; do sleep 1; done
+  fi
 fi
-exec /sbin/getty 38400 "$tty"
+exec /sbin/getty "$@" "$tty"

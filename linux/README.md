@@ -26,7 +26,7 @@ Rebrand everything by editing `config.sh` (`OS_NAME`, `OS_HOSTNAME`, colours, ..
 On Ubuntu/Debian:
 
 ```sh
-sudo apt-get install build-essential bison flex bc libelf-dev libssl-dev cpio xz-utils \
+sudo apt-get install build-essential rsync bison flex bc libelf-dev libssl-dev cpio xz-utils \
      xorriso grub-pc-bin grub-efi-amd64-bin mtools qemu-system-x86 ovmf
 ./build.sh                 # all stages: fetch musl kernel userland rootfs image
 ./build.sh userland rootfs image   # or rebuild individual stages
@@ -39,7 +39,16 @@ verified against `checksums.sha256`.
 
 ```sh
 ./run-qemu.sh bios         # or: ./run-qemu.sh uefi
+tests/boot-test.py work/out/silveros-0.1.0-x86_64.iso   # automated boot + security checks
 ```
+
+Verified in QEMU on both BIOS and UEFI: it boots to the login prompt, runs first-boot
+password setup, refuses direct root login, gets DHCP networking, and `su` works. Kernel
+lockdown reports `[integrity]`. Runtime sysctls and `hidepid` are applied, and `/dev/mem`
+is absent. Size: 26 MB ISO, 0.8 MB root filesystem.
+
+Note: the live USB keeps everything in RAM, so the passwords you set are lost at
+reboot. The Phase 2 install makes them persistent.
 
 ## Put it on a USB stick
 
@@ -48,7 +57,8 @@ sudo dd if=work/out/silveros-0.1.0-x86_64.iso of=/dev/sdX bs=4M status=progress 
 ```
 
 Then boot the PC from USB. You may need to turn off Secure Boot, because this image isn't
-signed yet. On the first boot it asks you to set passwords for `silver` and `root`.
+signed yet. On the first boot, press Enter on any console (screen or serial) to set passwords for
+`silver` and `root`.
 
 ## Security defaults
 

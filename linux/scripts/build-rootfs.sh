@@ -9,6 +9,7 @@ find "$ROOTFS" -name .keep -delete
 cp "$WORK/stage/bin/busybox" "$ROOTFS/bin/busybox"
 cp "$WORK/stage/sbin/init" "$ROOTFS/sbin/init"
 cp "$WORK/stage/sbin/dropbearmulti" "$ROOTFS/sbin/dropbearmulti"
+ln -s sbin/init "$ROOTFS/init"   # the kernel runs /init from an initramfs
 for a in dropbear dropbearkey; do ln -sf dropbearmulti "$ROOTFS/sbin/$a"; done
 
 # Expand every applet into a symlink at the path BusyBox reports for it.
