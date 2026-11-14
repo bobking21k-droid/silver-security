@@ -110,3 +110,63 @@ static float ui_chip(float x, float cy, const char *s, float size, uint32_t fg, 
 	sg_text(&fb, &FC, x + size * 1.1f, cy + size * 0.36f, s, size, fg, 1, 0.18f);
 	return x + w;
 }
+
+/* Frosted glass: blur what is behind a rounded rectangle and darken it, so text on top reads
+ * over a busy, moving background. */
+static uint32_t *frost_buf, *frost_tmp;
+static size_t frost_cap;
+static void ui_frost(float x, float y, float w, float h, float r, float dark)
+{
+	int x0 = (int)sg_max(0, x), y0 = (int)sg_max(0, y), x1 = (int)sg_min(W, x + w + 1), y1 = (int)sg_min(H, y + h + 1);
+	int bw = x1 - x0, bh = y1 - y0;
+	if (bw < 4 || bh < 4) return;
+	if ((size_t)bw * bh > frost_cap) {
+		free(frost_buf); free(frost_tmp);
+		frost_cap = (size_t)bw * bh;
+		frost_buf = malloc(frost_cap * 4); frost_tmp = malloc(frost_cap * 4);
+		if (!frost_buf || !frost_tmp) { frost_cap = 0; return; }
+	}
+	for (int j = 0; j < bh; j++) memcpy(frost_buf + j * bw, fb.px + (y0 + j) * W + x0, (size_t)bw * 4);
+	sg_blur(frost_buf, frost_tmp, bw, bh, (int)(U * 1.3f) + 1, 2);
+	float cx = x + w / 2, cy = y + h / 2, hx = w / 2 - r, hy = h / 2 - r, k = 1 - dark;
+	for (int j = 0; j < bh; j++) {
+		uint32_t *d = fb.px + (y0 + j) * W + x0;
+		const uint32_t *s = frost_buf + j * bw;
+		float qy = sg_abs(y0 + j + 0.5f - cy) - hy;
+		for (int i = 0; i < bw; i++) {
+			float qx = sg_abs(x0 + i + 0.5f - cx) - hx;
+			float ox = qx > 0 ? qx : 0, oy = qy > 0 ? qy : 0;
+			float dd = sg_sqrt(ox * ox + oy * oy) + sg_min(sg_max(qx, qy), 0) - r, cov = sg_sat(0.5f - dd);
+			if (cov <= 0) continue;
+			uint32_t c = s[i];
+			c = RGB((int)(((c >> 16) & 255) * k + 4), (int)(((c >> 8) & 255) * k + 3), (int)((c & 255) * k + 4));
+			d[i] = cov >= 1 ? c : sg_mix(d[i], c, cov);
+		}
+	}
+	sg_rrect(&fb, x, y, w, h, r, sg_max(1, U * 0.11f), WHITE, 0.12f);                                     /* glass edge */
+	sg_rrect(&fb, x + r * 0.5f, y + sg_max(1, U * 0.1f), w - r, sg_max(1, U * 0.1f), U * 0.05f, 0, WHITE, 0.10f);   /* lit top */
+}
+
+/* a key cap with its meaning beside it; returns where the next one starts */
+static float ui_key(float x, float cy, const char *key, const char *label, float a)
+{
+	int wide = 0; for (const char *p = key; *p; p++) if ((unsigned char)*p >= 0x80) wide = 1;
+	const Font *kf = wide ? &FT : &FC;                    /* the caption font has no arrows */
+	float ks = wide ? U * 1.5f : U * 0.85f, kw = sg_text_w(kf, key, ks, 0.14f) + U * 1.8f, kh = U * 2.7f;
+	sg_rrect(&fb, x, cy - kh / 2, kw, kh, U * 0.6f, 0, WHITE, 0.10f * a);
+	sg_rrect(&fb, x, cy - kh / 2, kw, kh, U * 0.6f, sg_max(1, U * 0.1f), WHITE, 0.32f * a);
+	sg_text(&fb, kf, x + U * 0.9f, cy + ks * 0.36f, key, ks, WHITE, a, 0.14f);
+	float lx = x + kw + U * 0.9f;
+	return sg_text(&fb, &FT, lx, cy + U * 0.55f, label, U * 1.5f, RGB(196, 196, 202), a, 0.01f) + U * 2.4f;
+}
+
+/* the hint bar along the bottom: pairs of key and meaning, on frosted glass */
+static void ui_footer(float x, const char *const *kv, int n)
+{
+	float w = U * 2.4f;
+	for (int i = 0; i < n; i++) w += ((unsigned char)kv[2 * i][0] >= 0x80 ? sg_text_w(&FT, kv[2 * i], U * 1.5f, 0.14f) : sg_text_w(&FC, kv[2 * i], U * 0.85f, 0.14f)) + U * 1.8f + U * 0.9f + sg_text_w(&FT, kv[2 * i + 1], U * 1.5f, 0.01f) + U * 2.4f;
+	float h = U * 4.8f, y = H - U * 7.0f;
+	ui_frost(x, y, w - U * 1.2f, h, h / 2, 0.55f);
+	float cx = x + U * 1.8f;
+	for (int i = 0; i < n; i++) cx = ui_key(cx, y + h / 2, kv[2 * i], kv[2 * i + 1], 1);
+}

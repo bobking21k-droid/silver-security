@@ -1,14 +1,13 @@
 /*
  * The Search pane's moving background, on a loop:
  *
- *   the march   a packed crowd of identical hooded figures crossing a turning swirl (drawn, ytui.h)
- *   the rooms   a video clip, played as-is but tinted black and red
+ * a video clip (the march and the rooms), played as-is but tinted black and red.
  *
  * The clip comes from /usr/share/silver/search-bg.svid, made on the build machine by
  * scripts/make-search-bg.sh from a video you supply (it is not part of the source tree).
  * Frames are stored as small greyscale pictures; we scale them up and map grey to
- * black -> dark red -> pale as they play. Without the file only the march plays.
- * Scenes change with a short glitch.
+ * black -> dark red -> pale as they play. Without the file a turning dark-red
+ * swirl plays instead. The loop point is hidden with a short glitch.
  */
 #pragma once
 
@@ -34,7 +33,8 @@ static void clip_load(void)
 	clip.frames = clip.blob + 12;
 	for (int v = 0; v < 256; v++) {                         /* grey -> black, a held-back red, then pale highlights */
 		float x = v / 255.0f, hi = x * x * x;
-		clip_lut[v] = RGB((int)(255 * sg_sat(x * 0.86f + hi * 0.16f)), (int)(255 * sg_sat(x * 0.30f + hi * 0.60f)), (int)(255 * sg_sat(x * 0.32f + hi * 0.58f)));
+		float m = x * x;                                    /* darker overall, red held to the middle tones */
+		clip_lut[v] = RGB((int)(255 * sg_sat(m * 0.84f + hi * 0.16f)), (int)(255 * sg_sat(m * 0.20f + hi * 0.52f)), (int)(255 * sg_sat(m * 0.22f + hi * 0.52f)));
 	}
 }
 static float clip_len(void) { return clip.n ? (float)clip.n / clip.fps : 0; }
@@ -86,24 +86,16 @@ static void glitch(float amt, float seed)
 	sg_rect(&fb, 0, 0, W, H, RGB(120, 10, 16), 0.12f * amt);
 }
 
-#define MARCH_LEN 7.0f
 static void parade_bg(float t);
 static void scene_bg(float t)
 {
 	clip_load();
-	float rooms = clip.n ? clip_len() * 2 : 0;                  /* the clip plays twice, then the march again */
-	float loop = MARCH_LEN + rooms, u = rooms > 0 ? fmodf(s_age, loop) : s_age;
-	int k = u < MARCH_LEN || rooms <= 0 ? 0 : 1;
-	float into = k ? u - MARCH_LEN : u, left = (k ? rooms : MARCH_LEN) - into;
-	if (!k) parade_bg(t);
-	else {
-		clip_draw((int)(into * clip.fps), 1.22f, 0.74f);
-		sg_rect(&fb, 0, 0, W, H, BLACK, 0.18f);                   /* a little darker, for reading */
-	}
-	if (rooms > 0) {                                                /* tear the picture as one scene hands over to the next */
-		if (s_age > 1.0f && into < 0.22f) glitch(1 - into / 0.22f, (float)k + into);
-		else if (left < 0.12f) glitch(1 - left / 0.12f, (float)k * 3 + left);
-	}
-	/* keep the top calm for the search bar */
+	if (clip.n) {                                       /* the clip, looping */
+		float len = clip_len(), u = fmodf(s_age, len);
+		clip_draw((int)(u * clip.fps), 1.22f, 0.74f);
+		sg_rect(&fb, 0, 0, W, H, BLACK, 0.20f);           /* a little darker, for reading */
+		if (s_age > 1.0f && u < 0.20f) glitch(1 - u / 0.20f, u + 1);           /* tear the picture where it loops */
+		else if (len - u < 0.10f) glitch(1 - (len - u) / 0.10f, len - u);
+	} else parade_bg(t);                                /* no clip: just the turning swirl */
 	for (int y = 0; y < H * 0.30f; y++) { float f = 1 - (float)y / (H * 0.30f); sg_rect(&fb, 0, y, W, 1, BLACK, 0.55f * f); }
 }
