@@ -13,7 +13,9 @@
  * Usage (from silver-login, as root, stdin = the tty):  silver-greeter tty1
  */
 #define _GNU_SOURCE
+#ifndef RENDER
 #include <crypt.h>
+#endif
 #include <errno.h>
 #include <fcntl.h>
 #include <linux/fb.h>
@@ -45,7 +47,12 @@ static const char *tty_name = "tty1";
 #define WHITE RGB(255, 255, 255)
 #define BLACK RGB(0, 0, 0)
 
+#ifdef RENDER   /* offline render for demo videos: a fake clock that advances 1/30 s per frame */
+static double fake_t;
+static double now(void) { return fake_t; }
+#else
 static double now(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t); return t.tv_sec + t.tv_nsec / 1e9; }
+#endif
 static float clampf(float x, float a, float b) { return x < a ? a : x > b ? b : x; }
 static float smooth(float x) { x = clampf(x, 0, 1); return x * x * (3 - 2 * x); }
 
@@ -91,10 +98,15 @@ static int fb_open(void)
 	return buf && ink_bg && edge ? 0 : -1;
 }
 
+#ifdef RENDER
+static FILE *outpipe;
+static void flip(void) { fwrite(buf, 4, (size_t)W * H, outpipe); fake_t += 1.0 / 30; }
+#else
 static void flip(void)
 {
 	for (int y = 0; y < H; y++) memcpy(fbmem + y * stride, buf + y * W, (size_t)W * 4);
 }
+#endif
 
 /* ---------------------------------------------------------------- drawing */
 static void rect(float x, float y, float w, float h, uint32_t c, float a)
@@ -280,6 +292,9 @@ static void pen(float cx, float cy, float L, float snap, float t)
 /* ---------------------------------------------------------------- intro */
 static int key_waiting(void)
 {
+#ifdef RENDER
+	return 0;
+#endif
 	struct pollfd p = {tty_fd, POLLIN, 0};
 	return poll(&p, 1, 0) > 0;
 }
@@ -376,6 +391,9 @@ static void card(float alpha, float shake)
 	flip();
 }
 
+#ifdef RENDER
+#define crypt(a, b) ((char *)0)
+#endif
 static int check_password(const char *u, const char *p)
 {
 	FILE *f = fopen("/etc/shadow", "r");
@@ -445,6 +463,33 @@ static void login_loop(void)
 	}
 }
 
+#ifdef RENDER
+/* ./silver-greeter-render out.mp4  -> the full intro + sign-in, rendered at a steady 30 fps */
+int main(int argc, char **argv)
+{
+	W = 1280; H = 800; stride = W;
+	buf = malloc((size_t)W * H * 4); ink_bg = malloc((size_t)W * H * 4); edge = malloc((size_t)W * H);
+	char cmd[512];
+	snprintf(cmd, sizeof cmd, "ffmpeg -v error -y -f rawvideo -pix_fmt bgr0 -s %dx%d -r 30 -i - "
+		 "-c:v libx264 -crf 16 -preset medium -pix_fmt yuv420p '%s'", W, H, argc > 1 ? argv[1] : "greeter.mp4");
+	outpipe = popen(cmd, "w");
+	build_ink();
+	intro();
+	/* sign-in card: fade in, type the user name, then the password */
+	const char *u = "silver", *pw = "Silver#Test1";
+	for (int f = 0; f < 200; f++) {
+		float a = clampf(f / 30.0f / 0.4f, 0, 1);
+		int nu = f < 45 ? 0 : (f - 45) / 5, np = f < 100 ? 0 : (f - 100) / 4;
+		nu = nu > (int)strlen(u) ? (int)strlen(u) : nu; np = np > (int)strlen(pw) ? (int)strlen(pw) : np;
+		memset(user, 0, sizeof user); memset(pass, 0, sizeof pass);
+		memcpy(user, u, nu); memcpy(pass, pw, np);
+		field = f >= 80;
+		card(a, 0);
+	}
+	pclose(outpipe);
+	return 0;
+}
+#else
 int main(int argc, char **argv)
 {
 	if (argc > 1) tty_name = argv[1];
@@ -463,3 +508,5 @@ int main(int argc, char **argv)
 	login_loop();
 	return 0;
 }
+
+#endif
