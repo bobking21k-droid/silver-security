@@ -191,6 +191,9 @@ static void do_shutdown(int sig)
 	sleep(2);
 	kill(-1, SIGKILL);
 	sync();
+	/* installed systems: leave the root filesystem clean (no-op on the live USB) */
+	mount(NULL, "/", NULL, MS_REMOUNT | MS_RDONLY, NULL);
+	sync();
 	reboot(cmd);
 	for (;;)
 		pause();

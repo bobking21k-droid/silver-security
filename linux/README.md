@@ -27,7 +27,7 @@ On Ubuntu/Debian:
 
 ```sh
 sudo apt-get install build-essential rsync bison flex bc libelf-dev libssl-dev cpio xz-utils \
-     xorriso grub-pc-bin grub-efi-amd64-bin mtools qemu-system-x86 ovmf
+     xorriso grub-pc-bin grub-efi-amd64-bin mtools qemu-system-x86 ovmf fdisk dosfstools
 ./build.sh                 # all stages: fetch musl kernel userland rootfs image
 ./build.sh userland rootfs image   # or rebuild individual stages
 ```

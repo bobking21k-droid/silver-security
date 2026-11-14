@@ -38,9 +38,40 @@ db="$BUILD/dropbear-$DROPBEAR_VER"
   make -j"$JOBS" PROGRAMS="dropbear dropbearkey" MULTI=1 STATIC=1 >/dev/null )
 cp "$db/dropbearmulti" "$WORK/stage/sbin/dropbearmulti"
 
+# ---- util-linux: sfdisk (GPT partitioning, used by silver-install) ----
+ul="$BUILD/util-linux-$UTIL_LINUX_VER"
+[[ -d "$ul" ]] || tar -C "$BUILD" -xf "$SOURCES/util-linux-$UTIL_LINUX_VER.tar.xz"
+( cd "$ul"
+  [[ -f Makefile ]] || CC="$CC" ./configure --host=x86_64-linux-musl --disable-shared --enable-static \
+      --enable-static-programs=sfdisk --disable-nls --disable-liblastlog2 --disable-pam-lastlog2 \
+      --without-python --without-systemd --without-udev --without-ncurses --without-ncursesw \
+      --without-tinfo --without-readline --without-libmagic --without-cap-ng --without-btrfs \
+      --without-cryptsetup --without-econf --without-selinux --without-audit --without-user \
+      --without-utempter --disable-login --disable-su --disable-runuser --disable-chfn-chsh \
+      --disable-sulogin --disable-wall --disable-write --disable-mesg --disable-pylibmount \
+      --disable-makeinstall-chown --disable-makeinstall-setuid --disable-bash-completion >/dev/null
+  make -j"$JOBS" sfdisk.static >/dev/null )
+cp "$ul/sfdisk.static" "$WORK/stage/sbin/sfdisk"
+
+# ---- e2fsprogs: mkfs.ext4 + e2fsck ----
+e2="$BUILD/e2fsprogs-$E2FSPROGS_VER"
+[[ -d "$e2" ]] || tar -C "$BUILD" -xf "$SOURCES/e2fsprogs-$E2FSPROGS_VER.tar.xz"
+( cd "$e2"
+  [[ -f Makefile ]] || CC="$CC" ./configure --host=x86_64-linux-musl --disable-nls --disable-elf-shlibs \
+      --disable-fuse2fs --disable-e2initrd-helper --disable-uuidd --disable-defrag --disable-tls \
+      --enable-libuuid --enable-libblkid --without-libarchive LDFLAGS=-static >/dev/null
+  make -j"$JOBS" libs >/dev/null
+  make -C misc -j"$JOBS" mke2fs >/dev/null
+  make -C e2fsck -j"$JOBS" e2fsck >/dev/null )
+cp "$e2/misc/mke2fs" "$WORK/stage/sbin/mke2fs"
+cp "$e2/e2fsck/e2fsck" "$WORK/stage/sbin/e2fsck"
+
+# ---- silver-efiboot: our own UEFI boot-entry manager ----
+$CC $HARDEN -static -Wall -Wextra -o "$WORK/stage/sbin/silver-efiboot" "$TOP/src/tools/silver-efiboot.c"
+
 # ---- silver-init: our own PID 1 ----
 $CC $HARDEN -static -Wall -Wextra -o "$WORK/stage/sbin/init" "$TOP/src/init/init.c"
 
-strip "$WORK/stage/bin/busybox" "$WORK/stage/sbin/dropbearmulti" "$WORK/stage/sbin/init"
+strip "$WORK/stage/bin/busybox" "$WORK/stage/sbin/"*
 ls -l "$WORK/stage/bin" "$WORK/stage/sbin"
 echo ">> userland ready"

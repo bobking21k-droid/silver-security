@@ -7,8 +7,8 @@ mkdir -p "$ROOTFS"/{bin,sbin,usr/bin,usr/sbin,dev,proc,sys,run,tmp,var/lib,var/l
 cp -a "$TOP/rootfs-overlay/." "$ROOTFS/"
 find "$ROOTFS" -name .keep -delete
 cp "$WORK/stage/bin/busybox" "$ROOTFS/bin/busybox"
-cp "$WORK/stage/sbin/init" "$ROOTFS/sbin/init"
-cp "$WORK/stage/sbin/dropbearmulti" "$ROOTFS/sbin/dropbearmulti"
+cp "$WORK/stage/sbin/"* "$ROOTFS/sbin/"     # init, dropbear, sfdisk, mke2fs, e2fsck, silver-efiboot
+ln -sf mke2fs "$ROOTFS/sbin/mkfs.ext4"; ln -sf e2fsck "$ROOTFS/sbin/fsck.ext4"
 ln -s sbin/init "$ROOTFS/init"   # the kernel runs /init from an initramfs
 for a in dropbear dropbearkey; do ln -sf dropbearmulti "$ROOTFS/sbin/$a"; done
 
