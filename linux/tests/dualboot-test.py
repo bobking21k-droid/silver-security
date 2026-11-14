@@ -15,7 +15,9 @@ os.makedirs(outdir, exist_ok=True)
 CODE = "/usr/share/OVMF/OVMF_CODE_4M.fd"
 
 class VM:
+    runs = 0
     def __init__(self, with_iso):
+        VM.runs += 1
         self.mon = os.path.join(outdir, "mon.sock")
         if os.path.exists(self.mon): os.unlink(self.mon)
         args = ["qemu-system-x86_64", "-m", "1024", "-smp", "2", "-machine", "q35",
@@ -26,6 +28,9 @@ class VM:
                 "-serial", "stdio", "-monitor", f"unix:{self.mon},server,nowait"]
         if with_iso:
             args += ["-drive", f"file={iso},media=cdrom,readonly=on", "-boot", "order=d"]
+        # a sound card whose output is recorded, so the intro's sound can be checked
+        args += ["-audiodev", f"wav,id=snd0,path={os.path.join(outdir, f'sound-{VM.runs}.wav')}",
+                 "-device", "intel-hda", "-device", "hda-duplex,audiodev=snd0"]
         self.p = subprocess.Popen(args, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         os.set_blocking(self.p.stdout.fileno(), False)
         self.buf = b""; self.log = b""

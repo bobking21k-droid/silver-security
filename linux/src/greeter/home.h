@@ -508,11 +508,32 @@ static void title_block(const char *title, const char *cap, int ic)
 	sg_text(&fb, &FD, U * 15.5f, U * 13.2f, title, U * 7.4f, WHITE, 1, 0);
 	cap_text(U * 15.7f, U * 17.8f, cap, U * 1.2f, RGB(176, 176, 182), 1, 0);
 }
+static void ui_footer(float x, const char *const *kv, int n);
+static void ui_frost(float x, float y, float w, float h, float r, float dark);
+/* the hint bar: "KEY  meaning      KEY  meaning" becomes key caps on glass */
 static void foot_hints(const char *s)
 {
-	cap_text(U * 6.0f, H - U * 3.4f, s, U * 1.05f, RGB(176, 176, 182), 1, 0);
-	char w[] = "SILVER OS";
-	cap_text(W - U * 6.0f, H - U * 3.4f, w, U * 1.05f, RGB(120, 120, 126), 1, 1);
+	static char buf[16][40];
+	const char *kv[16];
+	int n = 0;
+	for (const char *p = s; *p && n < 8;) {
+		while (*p == ' ') p++;
+		const char *e = strstr(p, "      "), *end = e ? e : p + strlen(p);
+		const char *m = strstr(p, "  ");
+		if (!m || m > end) m = end;
+		char key[40], lab[40];
+		snprintf(key, sizeof key, "%.*s", (int)(m - p), p);
+		const char *l = m; while (l < end && *l == ' ') l++;
+		snprintf(lab, sizeof lab, "%.*s", (int)(end - l), l);
+		for (char *c = lab; *c; c++) if (*c >= 'A' && *c <= 'Z') *c = (char)(*c + 32);
+		if (!strcmp(key, "UP DOWN")) snprintf(key, sizeof key, "\xE2\x86\x91\xE2\x86\x93");
+		snprintf(buf[2 * n], 40, "%s", key); snprintf(buf[2 * n + 1], 40, "%s", lab);
+		kv[2 * n] = buf[2 * n]; kv[2 * n + 1] = buf[2 * n + 1];
+		n++;
+		p = end;
+	}
+	ui_footer(U * 5, kv, n);
+	cap_text(W - U * 5, H - U * 4.15f, "SILVER OS", U * 1.0f, RGB(150, 150, 156), 1, 1);
 }
 
 static void ui_card(float x, float y, float w, float h, float r, uint32_t fill, float a, float shadow);
@@ -537,8 +558,9 @@ static void draw_files(Home *h, float t)
 	memcpy(fb.px, bg_sec, (size_t)W * H * 4);
 	title_block("FILES", "BROWSE YOUR HOME", I_FILES);
 	float lx = U * 6, ly = U * 24, lw = W * 0.54f, rh = U * 5.0f;
+	ui_frost(lx - U * 1.2f, ly - U * 5.0f, lw + U * 2.4f, H - U * 9 - (ly - U * 5.0f), U * 2.2f, 0.55f);
 	char crumb[256]; fit(cwd, U * 1.7f, lw, crumb, sizeof crumb);
-	sg_text(&fb, &FT, lx, ly - U * 1.6f, crumb, U * 1.8f, RGB(210, 210, 216), 1, 0.01f);
+	sg_text(&fb, &FT, lx + U * 0.4f, ly - U * 1.8f, crumb, U * 1.8f, RGB(210, 210, 216), 1, 0.01f);
 	int vis = (int)((H - ly - U * 9) / rh);
 	if (h->row >= nent) h->row = nent ? nent - 1 : 0;
 	if (h->row < h->top) h->top = h->row;
@@ -558,7 +580,7 @@ static void draw_files(Home *h, float t)
 	}
 	/* preview pane */
 	float px = W * 0.62f, pw = W - px - U * 6, py = ly, ph = H - ly - U * 9;
-	ui_card(px, py, pw, ph, U * 1.6f, BLACK, 0.55f, 0.4f);
+	ui_frost(px, py, pw, ph, U * 2.0f, 0.6f);
 	if (nent && !ents[h->row].dir) {
 		FEnt *e = &ents[h->row];
 		char nm[128]; fit(e->name, U * 2.4f, pw - U * 4, nm, sizeof nm);
@@ -574,7 +596,7 @@ static void draw_files(Home *h, float t)
 		sg_text(&fb, &FT, px + U * 2, py + U * 4.2f, ents[h->row].name, U * 2.4f, WHITE, 1, 0.01f);
 		cap_text(px + U * 2, py + U * 6.4f, "FOLDER  -  ENTER TO OPEN", U * 0.85f, RGB(150, 150, 156), 1, 0);
 	}
-	foot_hints("UP DOWN  MOVE      ENTER  OPEN      BACKSPACE  UP A LEVEL      ESC  HOME");
+	foot_hints("UP DOWN  move      ENTER  open      BACKSPACE  up a level      /  search      ESC  home");
 	(void)t;
 }
 
@@ -652,10 +674,11 @@ static void draw_apps(Home *h, float t)
 	memcpy(fb.px, bg_sec, (size_t)W * H * 4);
 	title_block("APPS", "TERMINAL  MONITOR  ABOUT", I_APPS);
 	float lx = U * 6, lw = W - U * 12, ly = U * 25, rh = U * 12.5f;
+	ui_frost(lx - U * 1.2f, ly - U * 1.2f, lw + U * 2.4f, 3 * (rh + U * 1.4f) + U * 1.0f, U * 2.2f, 0.55f);
 	for (int i = 0; i < 3; i++) {
 		float y = ly + i * (rh + U * 1.4f); int sel = i == h->row;
-		sg_rect(&fb, lx, y, lw, rh, sel ? WHITE : BLACK, sel ? 0.94f : 0.45f);
-		if (sel) sg_rect(&fb, lx, y, U * 0.5f, rh, RED, 1);
+		if (sel) { sg_rrect(&fb, lx, y, lw, rh, U * 1.6f, 0, WHITE, 0.95f); sg_rrect(&fb, lx + U * 0.8f, y + rh * 0.25f, U * 0.5f, rh * 0.5f, U * 0.25f, 0, RED, 1); }
+		else if (i) sg_rect(&fb, lx + U * 3, y - U * 0.7f, lw - U * 6, sg_max(1, U * 0.08f), WHITE, 0.08f);
 		icon(APPICON[i], lx + U * 7, y + rh / 2, U * 3.6f, sel ? INK : WHITE, 1);
 		sg_text(&fb, &FD, lx + U * 14, y + rh * 0.50f, APPNAME[i], U * 4.6f, sel ? INK : WHITE, 1, 0);
 		sg_text(&fb, &FT, lx + U * 14, y + rh * 0.82f, APPDESC[i], U * 2.0f, sel ? RGB(70, 70, 78) : RGB(160, 160, 166), 1, 0.01f);
@@ -677,10 +700,11 @@ static void draw_settings(Home *h, float t)
 	snprintf(val[3], 80, "SilverOS 0.1.0"); snprintf(val[4], 80, "%s", h->confirm == 4 ? "PRESS ENTER AGAIN TO RESTART" : "Restart the computer");
 	snprintf(val[5], 80, "%s", h->confirm == 5 ? "PRESS ENTER AGAIN TO SHUT DOWN" : "Turn the computer off");
 	float lx = U * 6, lw = W - U * 12, ly = U * 24, rh = U * 7.4f;
+	ui_frost(lx - U * 1.2f, ly - U * 1.2f, lw + U * 2.4f, 6 * (rh + U * 0.8f) + U * 1.6f, U * 2.2f, 0.55f);
 	for (int i = 0; i < 6; i++) {
 		float y = ly + i * (rh + U * 0.8f); int sel = i == h->row, danger = i >= 4;
-		sg_rect(&fb, lx, y, lw, rh, sel ? WHITE : BLACK, sel ? 0.94f : 0.45f);
-		if (sel) sg_rect(&fb, lx, y, U * 0.5f, rh, RED, 1);
+		if (sel) { sg_rrect(&fb, lx, y, lw, rh, U * 1.4f, 0, WHITE, 0.95f); sg_rrect(&fb, lx + U * 0.7f, y + rh * 0.25f, U * 0.45f, rh * 0.5f, U * 0.22f, 0, RED, 1); }
+		else if (i) sg_rect(&fb, lx + U * 3, y - U * 0.4f, lw - U * 6, sg_max(1, U * 0.08f), WHITE, 0.08f);
 		uint32_t fg = sel ? INK : WHITE;
 		icon(ic[i], lx + U * 4.2f, y + rh / 2, U * 2.0f, danger && !sel ? RGB(255, 120, 110) : fg, 1);
 		sg_text(&fb, &FT, lx + U * 9, y + rh / 2 + U * 0.9f, name[i], U * 2.6f, fg, 1, 0.01f);
@@ -732,6 +756,6 @@ static void home_draw(const Home *h, float open, float t, float cracks_t)
 	impact_draw(&fb, cracks_t, 1);
 	glints_draw(&fb, t, sg_sat(cracks_t * 2));
 	if (ca > 0.5f) {
-		cap_text(U * 6.0f, H - U * 3.4f, "ARROWS  SELECT      ENTER  OPEN", U * 1.05f, RGB(200, 200, 206), 0.8f * ca, 0);
+		if (ca > 0.95f) foot_hints("ARROWS  select      ENTER  open");
 	}
 }

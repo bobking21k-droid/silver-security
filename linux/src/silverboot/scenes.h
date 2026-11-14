@@ -460,25 +460,47 @@ static int melt_steps;
 static void trans_begin(Surf *last_frame)
 {
 	sg_copy(snap, last_frame->px, (size_t)W * H * 4);
-	Surf sc = sg_surf(scene, W, H);
-	landscape(&sc, 0, W);
 	melt_steps = -1;
 }
 
+/* The fake Windows boot, as a modern PC shows it: black, the four-pane logo in blue, and the
+ * ring of five dots chasing round underneath. */
+static void win_logo(Surf *s, float cx, float cy, float size, float al)
+{
+	float g = size * 0.045f, w = (size - g) / 2;
+	for (int q = 0; q < 4; q++) {
+		int x0 = (int)(cx - size / 2 + (q & 1) * (w + g)), y0 = (int)(cy - size / 2 + (q >> 1) * (w + g)), n = (int)w;
+		for (int y = 0; y < n; y++) {
+			if (y0 + y < 0 || y0 + y >= s->h) continue;
+			uint32_t *row = s->px + (y0 + y) * s->w;
+			for (int x = 0; x < n; x++) {
+				if (x0 + x < 0 || x0 + x >= s->w) continue;
+				/* light from the top left across the whole logo */
+				float u = ((q & 1) * (w + g) + x + (q >> 1) * (w + g) + y) / (2 * size);
+				uint32_t c = sg_mix(RGB(84, 196, 255), RGB(0, 94, 196), sg_sat(u * 1.15f));
+				row[x0 + x] = al >= 1 ? c : sg_mix(row[x0 + x], c, al);
+			}
+		}
+	}
+}
+static void win_spinner(Surf *s, float cx, float cy, float r, float t)
+{
+	const float lap = 2.15f;
+	for (int i = 0; i < 5; i++) {
+		float cyc = lap + 0.55f, u = t - sg_floor(t / cyc) * cyc - i * 0.105f;
+		if (u < 0 || u > lap) continue;
+		float x = u / lap, f = 2 * x - 0.115f * sg_sin(4 * SG_PI * x) * 1.0f;     /* two laps: slow over the top, fast underneath */
+		float an = -SG_PI / 2 + f * 2 * SG_PI;
+		float a = sg_sat(u / 0.08f) * sg_sat((lap - u) / 0.12f);
+		sg_disc(s, cx + sg_cos(an) * r, cy + sg_sin(an) * r, r * 0.17f, WHITE, a);
+	}
+}
 static void classic(Surf *s, float t)
 {
-	sg_copy(s->px, scene, (size_t)W * H * 4);
-	clouds(s, 0, W, t * 22, 1);
-	float size = U * 15, cx = W / 2.0f, cy = H * 0.36f;
-	sg_blob(s, cx, cy + size * 0.1f, size * 1.2f, size * 1.0f, RGB(10, 50, 130), 0.20f);
-	logo4(s, cx, cy, size, RGB(242, 80, 34), RGB(127, 186, 0), RGB(0, 164, 239), RGB(255, 185, 0), 1);
-	float ts = U * 7.6f, tw = sg_text_w(&FD, "Windows", ts, -0.01f);
-	sg_text_ex(s, &FD, cx - tw / 2, cy + size * 0.5f + U * 8.6f, "Windows", ts, RGB(8, 40, 110), 0.3f, -0.01f, 0.8f, U);
-	sg_text_c(s, &FD, cx, cy + size * 0.5f + U * 8.2f, "Windows", ts, WHITE, 1, -0.01f);
-	for (int k = 0; k < 3; k++) {                           /* loading dots */
-		float ph = sg_fract(t * 0.8f - k * 0.16f), x = cx + (ph - 0.5f) * U * 22;
-		sg_disc(s, x, H * 0.86f, U * 0.55f, WHITE, sg_sat(ph * 6) * sg_sat((1 - ph) * 6));
-	}
+	sg_clear(s, BLACK);
+	float size = H * 0.115f, cx = W / 2.0f, cy = H * 0.42f;
+	if (t > 0.30f) win_logo(s, cx, cy, size, 1);
+	if (t > 0.95f) win_spinner(s, cx, H * 0.735f, H * 0.026f, t - 0.95f);
 }
 
 static void melt_step(int step)
@@ -514,7 +536,7 @@ static void melt_step(int step)
 
 static const struct { float dur; int inv, logo; } FLICK[] = {
 	{0.18f, 0, 0}, {0.50f, 0, 1}, {0.26f, 1, 1}, {0.36f, 0, 1}, {0.16f, 1, 1}, {0.09f, 2, 1}, {0.14f, 1, 1}, {0.55f, 0, 1}};
-#define T_CLASSIC 2.8f
+#define T_CLASSIC 3.6f
 #define T_FLIP 0.62f
 #define T_MELT 3.9f
 
@@ -523,7 +545,7 @@ static int trans_frame(Surf *s, float t)
 {
 	if (t < T_CLASSIC) {                                    /* 1. the classic boot scene */
 		classic(s, t);
-		if (t < 0.22f) for (int i = 0; i < W * H; i++) s->px[i] = sg_mix(snap[i], s->px[i], t / 0.22f);
+		if (t < 0.22f) for (int i = 0; i < W * H; i++) s->px[i] = sg_mix(snap[i], s->px[i], sg_sat(t / 0.12f));
 		return 0;
 	}
 	t -= T_CLASSIC;

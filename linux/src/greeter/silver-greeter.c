@@ -90,6 +90,7 @@ static int key_waiting(void) { struct pollfd p = {tty_fd, POLLIN, 0}; return pol
 #define STBI_NO_LINEAR
 #include "../common/stb_image.h"
 #include "home.h"
+#include "sound.h"
 
 static void restore_tty(void)
 {
@@ -305,10 +306,19 @@ static void intro(Home *h)
 	enum { NS = 34 };
 	static struct { float vx, vy, spin, size, kind; } sp[NS];
 	for (int i = 0; i < NS; i++) sp[i] = (typeof(sp[0])){(sg_frand() - .5f) * 2.4f, -0.4f - sg_frand() * 1.4f, (sg_frand() - .5f) * 16, 0.3f + sg_frand() * 0.9f, sg_frand()};
+#ifndef RENDER
+	pid_t snd = intro_sound_start(T_DOT, T_PEN, T_SNAP, T_OPEN, T_END, calm);
+#endif
 	double t0 = now();
 	for (;;) {
 		float t = (float)(now() - t0), ct = t - T_SNAP, st = slowmo(ct);
-		if (t > T_END || key_waiting()) break;
+		if (t > T_END) break;
+		if (key_waiting()) {                                  /* skipped: stop the sound too */
+#ifndef RENDER
+			if (snd > 0) { kill(snd, SIGTERM); waitpid(snd, NULL, 0); }
+#endif
+			break;
+		}
 		sg_clear(&fb, BLACK);
 		float open = sg_sat((t - T_OPEN) / 0.75f);
 		/* a cold light from above, and dust hanging in it, before the glass appears */
@@ -752,6 +762,7 @@ int main(int argc, char **argv)
 		 W, H, argc > 1 ? argv[1] : "greeter.mp4");
 	outpipe = popen(cmd, "w");
 	{ const char *f = getenv("SILVER_FETCH"); if (f) snprintf(yt.fetch, sizeof yt.fetch, "%s", f); }
+	{ const char *f = getenv("SILVER_SOUND_OUT"); if (f) intro_sound_wav(f, T_DOT, T_PEN, T_SNAP, T_OPEN, T_END, 0); }
 	gen_cracks(); bake_home();
 	Home h; home_init(&h);
 	if (argc > 4) {                                   /* the password card, over the cracked glass */

@@ -21,17 +21,24 @@ reference, not its content.)
    drift across the seam into the other, and every change of selection cuts with a brief red
    strobe. Use <- -> or the mouse, then press Enter or click; `1` and `2` jump straight to a
    system; `C` turns on calm mode (no strobing). It starts SilverOS after 8 s if untouched.
-2. **Pick SilverOS:** a full-screen classic Windows boot scene appears, flips upside-down in
-   grey, then melts, in pure black and white: columns drip at their own speeds, blocks slip
+2. **Pick SilverOS:** a fake modern Windows boot appears (black, the blue four-pane logo, the
+   ring of dots chasing round), then flips upside-down in grey and melts, in pure black and white: columns drip at their own speeds, blocks slip
    sideways and flip to negative. A white flash, the four-pane logo flickers (with one red cut),
    and then the system check runs (CPU, GPU, RAM, STORAGE) with values read from the real
    hardware, each confirmed by a beating red dot.
-3. **The greeter** (`src/greeter`): a red dot beats in the dark. A chrome pen rises up the
-   middle, strains and snaps, and the screen **cracks**: fractures race out from the break,
-   and two jagged ones split the glass into four panes. "SILVER OS" slams in where they cross,
-   and the panes light up as **Settings, Search, Apps and Files**. The intro plays once per
-   boot; any key skips it. Add `silver.calm` to the kernel command line (or turn on Calm mode
-   in Settings) to turn off its shake and flashes.
+3. **The greeter** (`src/greeter`): a red dot beats in the dark. A white hexagonal pencil rises
+   up the middle, bows and snaps (time slows for a beat, splinters fly), and the screen
+   **cracks**: fractures race out from the break, and two jagged ones split the glass into four
+   panes that light up as **Settings, Search, Apps and Files**. The intro plays once per boot;
+   any key skips it. Add `silver.calm` to the kernel command line (or turn on Calm mode in
+   Settings) to turn off its shake and flashes.
+   **Sound:** the intro has its own sound effects, synthesised at start-up (no sound files) and
+   played straight through the kernel's ALSA interface: a heartbeat, a rising whoosh, wood
+   creaking, the snap with a deep boom, glass shattering, cracks ticking and a soft chord as the
+   panes light up (`src/greeter/sound.h`). It needs a sound card the kernel drives: Intel HD
+   Audio with the common codecs (Realtek, Conexant, Analog, Cirrus, HDMI) or USB audio. Calm
+   mode plays it quieter, without the boom. The boot chooser and the fake Windows run before
+   Linux, in UEFI firmware, so they are silent.
 4. **The home screen** (`src/greeter/home.h`): arrow keys choose a pane (the chosen one turns
    to white glass), Enter opens it, Esc comes back. Every section works:
    - **Files**: browse your home folder (Enter opens a folder, Backspace goes up) with a text
