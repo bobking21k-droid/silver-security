@@ -17,4 +17,8 @@ if grep -q '^silver:!' /etc/shadow; then
     while grep -q '^silver:!' /etc/shadow; do sleep 1; done
   fi
 fi
+# tty1 with a framebuffer: the graphical SilverOS login; everything else: text getty
+if [ "$tty" = tty1 ] && [ -c /dev/fb0 ] && [ -x /sbin/silver-greeter ]; then
+  exec /sbin/silver-greeter "$tty"
+fi
 exec /sbin/getty "$@" "$tty"

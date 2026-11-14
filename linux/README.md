@@ -4,8 +4,25 @@ A Linux system built from source, from nothing, where every part is chosen and o
 the kernel config, the C library, the init system (written here, in C), the boot menu,
 and soon the desktop down to the pixel.
 
-> Status: **Phase 1, the groundwork.** It's a live system that boots from a USB stick on
-> real BIOS and UEFI PCs. Installing it for dual boot is Phase 2.
+> Status: **Phase 2, dual boot.** It boots live from a USB stick (BIOS + UEFI) and installs next
+> to Windows with its own animated boot chooser and graphical login.
+
+## Power-on experience
+
+1. **The chooser** (`src/silverboot`, our own UEFI program in C): the screen splits exactly in
+   half. On the left is SilverOS: a black-and-white world where a broken low-poly pencil hangs in
+   the air, and time crawls until you press a key or move the mouse. On the right is Windows,
+   in full colour: blue sky, clouds, a rolling green hill. A sliding sawtooth seam divides them,
+   and shards drift across it, flipping colour as they cross. Use ← → or the mouse, then press
+   Enter or click; `1` and `2` jump straight to SilverOS or Windows. It boots SilverOS after
+   8 s if you don't touch anything.
+2. **Pick SilverOS:** Windows melts away in glitchy colour drips. Then a black-and-white system
+   check runs (CPU, GPU, RAM, STORAGE) with values read from the real hardware.
+3. **The greeter** (`src/greeter`): "SILVER OS" scribbles itself onto black, a pen appears and
+   snaps, silver ink leaks from the break and spreads until it becomes the background, and the
+   title slides into the bottom-right corner. Then the sign-in card appears. The full intro
+   plays once per boot; any key skips it.
+4. **Pick Windows:** the screen shatters and Windows Boot Manager starts as normal.
 
 ## What's in it
 
@@ -18,6 +35,10 @@ and soon the desktop down to the pixel.
 | Userland | BusyBox (shell + core utils; telnet/ftp/http daemons removed) | `scripts/build-userland.sh` |
 | Remote access | Dropbear SSH: key-only, no root, off unless a key exists | `rootfs-overlay/etc/rc.boot` |
 | Config & branding | users, sysctl hardening, issue/motd, os-release | `rootfs-overlay/`, `config.sh` |
+| Boot chooser | **silverboot**: split-screen animated UEFI app, written from scratch | `src/silverboot/` |
+| Login | **silver-greeter**: framebuffer intro + sign-in, checks `/etc/shadow` | `src/greeter/` |
+| Installer | **silver-install** (dual boot) + **silver-efiboot** (UEFI boot entries) | `rootfs-overlay/sbin/`, `src/tools/` |
+| Disk tools | sfdisk (util-linux), mkfs.ext4/e2fsck (e2fsprogs), static | `scripts/build-userland.sh` |
 
 Rebrand everything by editing `config.sh` (`OS_NAME`, `OS_HOSTNAME`, colours, ...).
 
@@ -42,6 +63,10 @@ verified against `checksums.sha256`.
 tests/boot-test.py work/out/silveros-0.1.0-x86_64.iso   # automated boot + security checks
 ```
 
+`tests/dualboot-test.py` runs the whole dual-boot story in QEMU against a fake Windows 11
+disk (`tests/make-fake-windows-disk.sh`): install, chooser, melt, system check, greeter
+intro, graphical login, then a reboot into "Windows". It saves screenshots of each step.
+
 Verified in QEMU on both BIOS and UEFI: it boots to the login prompt, runs first-boot
 password setup, refuses direct root login, gets DHCP networking, and `su` works. Kernel
 lockdown reports `[integrity]`. Runtime sysctls and `hidepid` are applied, and `/dev/mem`
@@ -60,6 +85,48 @@ Then boot the PC from USB. You may need to turn off Secure Boot, because this im
 signed yet. On the first boot, press Enter on any console (screen or serial) to set passwords for
 `silver` and `root`.
 
+## Install next to Windows (dual boot)
+
+Before you start, in Windows:
+
+1. **Back up anything important.** The installer only writes to free space, but this is your disk.
+2. If BitLocker is on, have your recovery key ready (https://aka.ms/myrecoverykey).
+3. Turn off **Fast Startup**: Control Panel > Power Options > Choose what the power buttons do.
+4. Make room: right-click Start > **Disk Management** > right-click C: > **Shrink Volume**.
+   Shrink by at least 4 GB (20+ GB is comfortable) and leave the space **Unallocated**.
+
+Then boot the USB stick in **UEFI** mode (Secure Boot off), finish first-boot setup, log in and run:
+
+```sh
+su -c silver-install
+```
+
+It shows the plan (disk, new partition, what it won't touch) and only proceeds when you type
+`install`. Remove the stick and restart: the chooser appears.
+
+### PC skips the chooser and goes straight to Windows
+
+Some firmware (often HP and some Lenovo models) ignores the boot order. In Windows, open
+**Command Prompt as administrator** and run:
+
+```bat
+bcdedit /set {bootmgr} path \EFI\SilverOS\silverboot.efi
+```
+
+Undo it with `bcdedit /set {bootmgr} path \EFI\Microsoft\Boot\bootmgfw.efi`.
+
+### Uninstall
+
+1. In Windows (admin Command Prompt): `mountvol S: /S`, then `rmdir /S /Q S:\EFI\SilverOS`,
+   then `mountvol S: /D`.
+2. Disk Management: delete the **SilverOS** partition, then extend C: into the free space.
+3. Optionally, remove the leftover "SilverOS" entry in your firmware's boot menu.
+
+### Recovery
+
+Hold **Shift** while SilverOS starts loading (after you pick it in the chooser) to get a plain
+text menu: SilverOS, SilverOS (verbose boot), Windows, Firmware setup.
+
 ## Security defaults
 
 - Kernel: KASLR, lockdown (integrity), no modules, no `/dev/mem`, no kexec, no
@@ -67,7 +134,8 @@ signed yet. On the first boot, press Enter on any console (screen or serial) to 
   freelist hardening, panic on oops.
 - Runtime: kptr/dmesg restricted, ptrace restricted (Yama 2), unprivileged BPF off,
   SysRq off, protected links/fifos, network anti-spoofing / no redirects.
-- Accounts start locked. Root can't log in directly (empty `securetty`), so you use `su`.
+- Accounts start locked. Root can't log in directly (empty `securetty`, refused by the greeter),
+  so you use `su`. Passwords are stored as SHA-512 crypt hashes, and wrong logins are slowed down.
 - No plaintext network services. SSH accepts keys only and runs only when
   `authorized_keys` exists.
 - `/proc` is mounted with `hidepid=2`.
@@ -75,13 +143,7 @@ signed yet. On the first boot, press Enter on any console (screen or serial) to 
 ## Roadmap
 
 1. **Groundwork** ✅: toolchain, kernel, init, userland, bootable USB.
-2. **Dual-boot install.** An installer (`silver-install`) that:
-   - shrinks nothing on its own. It installs into free space or a partition you pick,
-     and shows a clear plan before it writes anything.
-   - adds a SilverOS root partition (ext4) and reuses the existing EFI System Partition.
-   - installs GRUB with a menu entry for SilverOS **and** one for the other OS
-     (Windows Boot Manager chainload / other Linux via os-prober-style detection).
-   - makes `/etc`, `/home` and `/var` persistent (live USB keeps them in RAM today).
+2. **Dual boot with Windows** ✅: installer, own boot chooser, graphical login, persistent install.
 3. **Firewall**: build nftables (libmnl + libnftnl) from source, default-deny inbound.
 4. **Silver Desktop**: our own framebuffer/DRM compositor in C. We draw the window
    manager, font rendering, cursor and widgets ourselves, pixel by pixel.

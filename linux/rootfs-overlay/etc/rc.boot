@@ -1,5 +1,7 @@
 #!/bin/sh
 # SilverOS boot sequence, run once by silver-init before services start.
+# With 'quiet' on the kernel command line the output goes to /run/boot.log instead.
+grep -qw quiet /proc/cmdline && exec >/run/boot.log 2>&1
 chown -R silver:silver /home/silver; chmod 700 /home/silver
 echo "  * loopback";   ip link set lo up
 echo "  * random seed"; [ -f /var/lib/random-seed ] && cat /var/lib/random-seed > /dev/urandom

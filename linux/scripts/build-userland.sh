@@ -23,6 +23,7 @@ cfg FTPD '# CONFIG_FTPD is not set'
 cfg TFTPD '# CONFIG_TFTPD is not set'
 cfg HTTPD '# CONFIG_HTTPD is not set'
 cfg INIT '# CONFIG_INIT is not set'             # we ship our own PID 1
+cfg FEATURE_DEFAULT_PASSWD_ALGO 'CONFIG_FEATURE_DEFAULT_PASSWD_ALGO="sha512"'   # not DES
 cfg LINUXRC '# CONFIG_LINUXRC is not set'
 { yes '' || true; } | make -C "$bb" oldconfig >/dev/null
 make -C "$bb" -j"$JOBS" CC="$CC" CONFIG_EXTRA_CFLAGS="-Os" busybox >/dev/null
@@ -68,6 +69,9 @@ cp "$e2/e2fsck/e2fsck" "$WORK/stage/sbin/e2fsck"
 
 # ---- silver-efiboot: our own UEFI boot-entry manager ----
 $CC $HARDEN -static -Wall -Wextra -o "$WORK/stage/sbin/silver-efiboot" "$TOP/src/tools/silver-efiboot.c"
+
+# ---- silver-greeter: graphical login on the framebuffer ----
+$CC $HARDEN -static -Wall -Wextra -o "$WORK/stage/sbin/silver-greeter" "$TOP/src/greeter/silver-greeter.c" -lm
 
 # ---- silver-init: our own PID 1 ----
 $CC $HARDEN -static -Wall -Wextra -o "$WORK/stage/sbin/init" "$TOP/src/init/init.c"

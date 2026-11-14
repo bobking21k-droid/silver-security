@@ -6,7 +6,7 @@
 #   2. picks the largest block of *unallocated* space (you make it by shrinking
 #      Windows in Disk Management -- this tool never resizes or touches NTFS)
 #   3. creates one ext4 partition there and copies the running system onto it
-#   4. copies the SilverOS boot chooser to \EFI\SilverOS\ on the existing ESP
+#   4. copies the boot chooser (silverboot) + GRUB to \EFI\SilverOS\ on the existing ESP
 #      (Windows' own files in \EFI\Microsoft are left alone)
 #   5. adds a firmware boot entry "SilverOS" and puts it first, so the chooser
 #      is the first thing you see when the computer turns on
@@ -15,7 +15,7 @@ set -eu
 LINUX_ROOT_TYPE=4F68BCE3-E8CD-4DB1-96E7-FBCAF984B709   # GPT: Linux root (x86-64)
 ESP_TYPE=C12A7328-F81F-11D2-BA4B-00A0C93EC93B           # GPT: EFI System Partition
 MIN_MB=4096
-LOADER='\EFI\SilverOS\grubx64.efi'
+LOADER='\EFI\SilverOS\silverboot.efi'
 MEDIA=/run/silver-media ESP=/run/silver-esp TARGET=/run/silver-target
 
 b() { printf '\033[1;37m%s\033[0m\n' "$*"; }
@@ -116,7 +116,7 @@ echo "   Disk:            $DEV ${MODEL:+($MODEL)}  $(human "$(cat /sys/block/$DI
 echo "   Windows found:   $WINDOWS"
 echo "   New partition:   SilverOS, ext4, $(human $((FSECT * SSZ / 512))) of unallocated space"
 echo "   Boot chooser:    $LOADER on $ESPDEV (Windows files untouched)"
-echo "   Firmware entry:  'SilverOS' first in boot order -> chooser shows SilverOS and Windows"
+echo "   Firmware entry:  'SilverOS' first in boot order -> split screen: SilverOS | Windows"
 echo "   Not touched:     Windows partitions, recovery partition, \\EFI\\Microsoft"
 echo
 [ "$WINDOWS" = yes ] || warn "No Windows Boot Manager found on $ESPDEV. The chooser will only offer SilverOS."
@@ -162,38 +162,32 @@ sync; umount "$TARGET"
 b "  [4/5] Installing the boot chooser on $ESPDEV"
 mount -t vfat "$ESPDEV" "$ESP"
 mkdir -p "$ESP/EFI/SilverOS"
-cp "$MEDIA/boot/silver/grubx64.efi" "$ESP/EFI/SilverOS/grubx64.efi"
+cp "$MEDIA/boot/silver/silverboot.efi" "$MEDIA/boot/silver/grubx64.efi" "$ESP/EFI/SilverOS/"
+# GRUB runs after the chooser picked SilverOS: boot straight through.
+# Hold Shift while it starts for a plain recovery menu.
 {
-  echo "# SilverOS boot chooser menu -- written by silver-install"
-  echo "insmod all_video; insmod gfxterm; insmod gfxmenu; insmod png"
-  echo "set gfxmode=auto"
-  echo "terminal_output gfxterm"
-  echo "set theme=(memdisk)/boot/grub/themes/silver/theme.txt"
-  echo "export theme"
-  echo "set timeout=5"
+  echo "# SilverOS kernel loader -- written by silver-install"
+  echo "set timeout_style=hidden"
+  echo "set timeout=0"
   echo "set default=silveros"
+  echo "terminal_output console"
+  echo "if keystatus --shift; then set timeout_style=menu; set timeout=-1; fi"
   echo
-  echo "menuentry \" \" --class silveros --id silveros {"
+  echo "menuentry \"SilverOS\" --id silveros {"
   echo "    search --no-floppy --fs-uuid --set=root $FSUUID"
-  echo "    linux /boot/vmlinuz root=PARTUUID=$PARTUUID rootfstype=ext4 rootwait rw quiet loglevel=3 console=tty1"
+  echo "    linux /boot/vmlinuz root=PARTUUID=$PARTUUID rootfstype=ext4 rootwait rw quiet loglevel=3 vt.global_cursor_default=0 console=tty1"
+  echo "}"
+  echo "menuentry \"SilverOS (verbose boot)\" {"
+  echo "    search --no-floppy --fs-uuid --set=root $FSUUID"
+  echo "    linux /boot/vmlinuz root=PARTUUID=$PARTUUID rootfstype=ext4 rootwait rw console=tty1"
   echo "}"
   if [ "$WINDOWS" = yes ]; then
-  echo "menuentry \" \" --class windows --id windows {"
+  echo "menuentry \"Windows\" {"
   echo "    search --no-floppy --file --set=root /EFI/Microsoft/Boot/bootmgfw.efi"
   echo "    chainloader /EFI/Microsoft/Boot/bootmgfw.efi"
   echo "}"
   fi
-  echo "submenu \" \" --class advanced {"
-  echo "    set theme="
-  echo "    terminal_output console"
-  echo "    menuentry \"SilverOS (verbose boot)\" {"
-  echo "        search --no-floppy --fs-uuid --set=root $FSUUID"
-  echo "        linux /boot/vmlinuz root=PARTUUID=$PARTUUID rootfstype=ext4 rootwait rw console=tty1"
-  echo "    }"
-  echo "    menuentry \"Firmware setup\" { fwsetup }"
-  echo "    menuentry \"Reboot\" { reboot }"
-  echo "    menuentry \"Power off\" { halt }"
-  echo "}"
+  echo "menuentry \"Firmware setup\" { fwsetup }"
 } > "$ESP/EFI/SilverOS/grub.cfg"
 sync; umount "$ESP"
 

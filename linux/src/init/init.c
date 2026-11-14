@@ -36,9 +36,12 @@ struct service {
 static struct service services[MAX_SERVICES];
 static int nservices;
 static volatile sig_atomic_t shutdown_cmd;
+static int quiet;   /* 'quiet' on the kernel command line: keep the screen clean */
 
 static void say(const char *msg)
 {
+	if (quiet)
+		return;
 	int fd = open("/dev/console", O_WRONLY | O_NOCTTY);
 	if (fd < 0)
 		return;
@@ -207,6 +210,15 @@ int main(void)
 	}
 	umask(022);
 	early_mounts();
+	{
+		char cmd[1024] = "";
+		FILE *f = fopen("/proc/cmdline", "r");
+		if (f) {
+			if (fgets(cmd, sizeof cmd, f)) { /* read */ }
+			fclose(f);
+		}
+		quiet = strstr(cmd, "quiet") != NULL;
+	}
 	say("SilverOS is waking up");
 	apply_sysctl();
 	set_hostname();
