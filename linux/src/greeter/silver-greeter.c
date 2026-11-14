@@ -573,6 +573,13 @@ static void handle_key(Home *h, int k)
 		if (h->focus == 2) { if (k == K_UP) { h->focus = yt_count(y) ? 1 : 0; break; } else if (k == K_ENTER) { open_screen(h, 1); break; } else h->focus = 0; if (h->focus == 2) break; }
 		if (k == K_DOWN && h->focus == 0 && y->state == Y_RESULTS) { h->focus = 1; break; }
 		if (k == K_DOWN && h->focus == 0 && y->state != Y_RESULTS && !y->q[0]) { h->focus = 2; break; }
+		if (h->focus == 1 && y->mode) {                                       /* the video grid */
+			int n = yt_count(y);
+			if (k == K_UP) { if (y->sel >= GRID_COLS) y->sel -= GRID_COLS; else h->focus = 0; break; }
+			if (k == K_DOWN) { if (y->sel + GRID_COLS < n) y->sel += GRID_COLS; else if (y->sel / GRID_COLS < (n - 1) / GRID_COLS) y->sel = n - 1; else h->focus = 2; break; }
+			if (k == K_LEFT) { if (y->sel > 0) y->sel--; break; }
+			if (k == K_RIGHT) { if (y->sel + 1 < n) y->sel++; break; }
+		}
 		if (h->focus == 1) {
 			if (k == K_UP) { if (y->sel > 0) y->sel--; else h->focus = 0; break; }
 			if (k == K_DOWN) { if (y->sel + 1 < yt_count(y)) y->sel++; else h->focus = 2; break; }

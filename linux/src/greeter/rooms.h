@@ -31,10 +31,9 @@ static void clip_load(void)
 	clip.n = clip.blob[8] | clip.blob[9] << 8; clip.fps = clip.blob[10] | clip.blob[11] << 8;
 	if (clip.w < 2 || clip.h < 2 || !clip.n || !clip.fps || 12 + (long)clip.w * clip.h * clip.n > n) { free(clip.blob); clip.blob = 0; clip.n = 0; return; }
 	clip.frames = clip.blob + 12;
-	for (int v = 0; v < 256; v++) {                         /* grey -> black, a held-back red, then pale highlights */
-		float x = v / 255.0f, hi = x * x * x;
-		float m = x * x;                                    /* darker overall, red held to the middle tones */
-		clip_lut[v] = RGB((int)(255 * sg_sat(m * 0.84f + hi * 0.16f)), (int)(255 * sg_sat(m * 0.20f + hi * 0.52f)), (int)(255 * sg_sat(m * 0.22f + hi * 0.52f)));
+	for (int v = 0; v < 256; v++) {                         /* grey -> deep black, a clean red, then pale highlights */
+		float x = v / 255.0f, s = sg_smooth((x - 0.10f) / 0.80f), hi = s * s * s * s;
+		clip_lut[v] = RGB((int)(255 * sg_sat(s * 0.50f + hi * 0.34f)), (int)(255 * sg_sat(s * 0.07f + hi * 0.55f)), (int)(255 * sg_sat(s * 0.09f + hi * 0.55f)));
 	}
 }
 static float clip_len(void) { return clip.n ? (float)clip.n / clip.fps : 0; }
@@ -93,7 +92,8 @@ static void scene_bg(float t)
 	if (clip.n) {                                       /* the clip, looping */
 		float len = clip_len(), u = fmodf(s_age, len);
 		clip_draw((int)(u * clip.fps), 1.22f, 0.74f);
-		sg_rect(&fb, 0, 0, W, H, BLACK, 0.20f);           /* a little darker, for reading */
+		sg_rect(&fb, 0, 0, W, H, BLACK, 0.12f);           /* a little darker, for reading */
+		for (int yy = 0; yy < H; yy += 3) sg_rect(&fb, 0, yy, W, 1, BLACK, 0.22f);   /* scanlines */
 		if (s_age > 1.0f && u < 0.20f) glitch(1 - u / 0.20f, u + 1);           /* tear the picture where it loops */
 		else if (len - u < 0.10f) glitch(1 - (len - u) / 0.10f, len - u);
 	} else parade_bg(t);                                /* no clip: just the turning swirl */

@@ -56,15 +56,6 @@ static void parade_bg(float t)
 
 static void search_footer(Home *h, const char *const *kv, int n);
 
-static void yt_meta(const Video *v, char *out, size_t n)
-{
-	char tmp[160] = "";
-	snprintf(tmp, sizeof tmp, "%s", v->channel);
-	if (v->views[0]) { strncat(tmp, "  -  ", sizeof tmp - strlen(tmp) - 1); strncat(tmp, v->views, sizeof tmp - strlen(tmp) - 1); }
-	if (v->age[0]) { strncat(tmp, "  -  ", sizeof tmp - strlen(tmp) - 1); strncat(tmp, v->age, sizeof tmp - strlen(tmp) - 1); }
-	snprintf(out, n, "%s", tmp);
-}
-
 static void length_badge(float x, float y, const Video *v)         /* bottom-right of a thumbnail at (x, y) */
 {
 	const char *s = v->live ? "LIVE" : v->length;
@@ -171,128 +162,179 @@ static void search_footer(Home *h, const char *const *kv, int n)
 }
 
 static float seg_pos;                                         /* where the Web/Videos highlight sits, eased */
+#define GRID_COLS 4
+
+/* the header row shared by the results screens: the word SEARCH, then the bar */
+static void search_header(Home *h, float t, float op)
+{
+	Yt *y = &yt;
+	float tx = U * 5, ty = U * 10.6f, tsz = U * 6.2f;
+	sg_text(&fb, &FD, tx + U * 0.4f, ty, "SEARCH", tsz, ACCENT, 0.85f * op, 0);
+	sg_text(&fb, &FD, tx, ty, "SEARCH", tsz, WHITE, op, 0);
+	float bx0 = tx + sg_text_w(&FD, "SEARCH", tsz, 0) + U * 3.5f, by = U * 4.0f, bh = U * 7.6f, full = W - U * 5 - bx0;
+	float bw = sg_max(bh, full * op);
+	if (h->focus == 0) sg_glow(&fb, bx0 + bw / 2, by + bh / 2, bw * 0.4f, ACCENT, 0.08f);
+	ui_frost(bx0, by, bw, bh, bh / 2, 0.6f);
+	sg_rrect(&fb, bx0, by, bw, bh, bh / 2, sg_max(1.5f, U * 0.2f), h->focus == 0 ? ACCENT : WHITE, h->focus == 0 ? 0.95f : 0.18f);
+	if (op < 0.98f) return;
+	icon(I_SEARCH, bx0 + bh * 0.62f, by + bh / 2, U * 1.6f, h->focus == 0 ? WHITE : RGB(170, 170, 176), 1);
+	float sw = U * 21, sh = bh - U * 2.0f, sx = bx0 + full - sw - U * 1.0f, sy = by + U * 1.0f;
+	seg_pos += ((float)y->mode - seg_pos) * 0.25f;
+	sg_rrect(&fb, sx, sy, sw, sh, sh / 2, 0, WHITE, 0.07f);
+	sg_rrect(&fb, sx + U * 0.4f + seg_pos * (sw / 2), sy + U * 0.4f, sw / 2 - U * 0.8f, sh - U * 0.8f, (sh - U * 0.8f) / 2, 0, WHITE, 0.95f);
+	static const char *seg[2] = {"WEB", "VIDEOS"};
+	for (int i = 0; i < 2; i++) {
+		float on = 1 - sg_abs(seg_pos - i), w = sg_text_w(&FC, seg[i], U * 1.0f, 0.2f);
+		sg_text(&fb, &FC, sx + sw / 4 + i * sw / 2 - w / 2, sy + sh / 2 + U * 0.38f, seg[i], U * 1.0f, sg_mix(RGB(180, 180, 186), INK, on), 1, 0.2f);
+	}
+	float qx0 = bx0 + bh * 1.2f, tb = by + bh / 2 + U * 1.0f;
+	if (!y->q[0]) sg_text(&fb, &FT, qx0, tb, y->mode ? "Search YouTube" : "Search the internet", U * 2.7f, RGB(130, 130, 136), 1, 0.01f);
+	float qx = sg_text(&fb, &FT, qx0, tb, y->q, U * 2.7f, WHITE, 1, 0.01f);
+	if (h->focus == 0 && ((int)(t * 2) & 1)) sg_rect(&fb, qx + U * 0.3f, by + U * 1.7f, sg_max(2, U * 0.26f), bh - U * 3.4f, ACCENT, 1);
+	if (y->q[0] && h->focus == 0) ui_key(sx - U * 13.5f, by + bh / 2, "ENTER", "search", 0.85f);
+}
+
+/* web results: titles down the left, the chosen one large on the right */
+static void draw_web(Home *h, float t, float top, float bot)
+{
+	Yt *y = &yt;
+	float lx = U * 5, lw = W * 0.36f, rx = lx + lw + U * 2.5f, rw = W - U * 5 - rx, rh = U * 8.4f;
+	int cnt = y->nw, vis = (int)((bot - top) / rh);
+	if (vis < 1) vis = 1;
+	if (y->sel >= cnt) y->sel = cnt - 1;
+	if (y->sel < y->top) y->top = y->sel;
+	if (y->sel >= y->top + vis) y->top = y->sel - vis + 1;
+	ui_frost(lx, top, lw, vis * rh + U * 1.2f, U * 2.0f, 0.62f);
+	for (int i = 0; i < vis && y->top + i < cnt; i++) {
+		int idx = y->top + i, sel = idx == y->sel, foc = sel && h->focus == 1;
+		const Web *w = &y->web[idx];
+		float ry = top + U * 0.6f + i * rh + row_in(i), ix = lx + U * 0.8f, iw = lw - U * 1.6f;
+		if (sel) {
+			sg_rrect(&fb, ix, ry + U * 0.3f, iw, rh - U * 0.6f, U * 1.3f, 0, WHITE, foc ? 0.95f : 0.16f);
+			if (foc) sg_rrect(&fb, ix + U * 0.6f, ry + rh * 0.27f, U * 0.45f, rh * 0.46f, U * 0.22f, 0, ACCENT, 1);
+		}
+		char du[200]; web_display_url(w->url, du, sizeof du);
+		char dom[64]; { const char *g = strstr(du, " > "); size_t l = g ? (size_t)(g - du) : strlen(du); if (l > 63) l = 63; memcpy(dom, du, l); dom[l] = 0; }
+		ui_avatar(ix + U * 2.8f, ry + rh / 2, U * 1.5f, dom);
+		float cx = ix + U * 5.4f, cw = iw - U * 6.6f;
+		char tf[200]; fit(w->title, U * 1.9f, cw, tf, sizeof tf);
+		sg_text(&fb, &FT, cx, ry + rh * 0.47f, tf, U * 1.9f, foc ? INK : WHITE, 1, 0.01f);
+		char df[80]; fit(dom, U * 1.35f, cw, df, sizeof df);
+		sg_text(&fb, &FT, cx, ry + rh * 0.47f + U * 2.4f, df, U * 1.35f, foc ? RGB(90, 90, 98) : RGB(160, 160, 166), 1, 0.01f);
+	}
+	ui_scroll(lx + lw - U * 1.0f, top + U * 1.0f, vis * rh - U * 0.8f, y->top, vis, cnt);
+	/* the preview */
+	const Web *w = &y->web[y->sel];
+	float ph = bot - top, pin = sg_smooth((s_age - 0.35f) / 0.4f);
+	ui_frost(rx, top, rw, ph, U * 2.4f, 0.66f);
+	sg_rect(&fb, rx + U * 3, top + U * 3.4f, U * 6, sg_max(2, U * 0.35f), ACCENT, pin);
+	char du[200]; web_display_url(w->url, du, sizeof du);
+	char dom[64]; { const char *g = strstr(du, " > "); size_t l = g ? (size_t)(g - du) : strlen(du); if (l > 63) l = 63; memcpy(dom, du, l); dom[l] = 0; }
+	ui_avatar(rx + U * 4.6f, top + U * 7.8f, U * 1.6f, dom);
+	sg_text(&fb, &FT, rx + U * 7.2f, top + U * 8.5f, dom, U * 1.8f, RGB(200, 200, 206), pin, 0.01f);
+	char ln[4][160]; int n = ui_wrap(w->title, U * 3.6f, rw - U * 6, 3, ln);
+	for (int i = 0; i < n; i++) sg_text(&fb, &FT, rx + U * 3, top + U * 15.5f + i * U * 4.6f, ln[i], U * 3.6f, WHITE, pin, 0.0f);
+	float sy = top + U * 15.5f + n * U * 4.6f + U * 1.6f;
+	char sn[7][160]; int m = ui_wrap(w->snip[0] ? w->snip : "No summary for this page.", U * 2.0f, rw - U * 6, 6, sn);
+	for (int i = 0; i < m && sy + i * U * 3.0f < bot - U * 9; i++) sg_text(&fb, &FT, rx + U * 3, sy + i * U * 3.0f, sn[i], U * 2.0f, RGB(196, 196, 202), pin, 0.01f);
+	char uf[200]; fit(w->url, U * 1.5f, rw - U * 6, uf, sizeof uf);
+	sg_rect(&fb, rx + U * 3, bot - U * 8.2f, rw - U * 6, sg_max(1, U * 0.1f), WHITE, 0.12f);
+	sg_text(&fb, &FT, rx + U * 3, bot - U * 4.4f, uf, U * 1.5f, RGB(150, 150, 156), pin, 0.01f);
+	(void)t;
+}
+
+/* video results: a grid of big thumbnails */
+static void draw_grid(Home *h, float t, float top, float bot)
+{
+	Yt *y = &yt;
+	float gx = U * 5, gw = W - U * 10, gap = U * 2.2f, cw = (gw - gap * (GRID_COLS - 1)) / GRID_COLS, th = cw * 9 / 16, ch = th + U * 9.6f;
+	int rows = (int)((bot - top + gap) / (ch + gap));
+	if (rows < 1) rows = 1;
+	int cnt = y->nv, srow = y->sel / GRID_COLS, trow = y->top / GRID_COLS;
+	if (srow < trow) trow = srow;
+	if (srow >= trow + rows) trow = srow - rows + 1;
+	y->top = trow * GRID_COLS;
+	for (int r = 0; r < rows; r++)
+		for (int c = 0; c < GRID_COLS; c++) {
+			int idx = (trow + r) * GRID_COLS + c;
+			if (idx >= cnt) continue;
+			const Video *v = &y->v[idx];
+			int sel = idx == y->sel && h->focus == 1;
+			float in = sg_smooth((s_age - 0.25f - 0.05f * (r * GRID_COLS + c)) / 0.35f);
+			float x = gx + c * (cw + gap), yy = top + r * (ch + gap) + (1 - in) * U * 4 - (sel ? U * 0.8f : 0);
+			if (sel) { sg_glow(&fb, x + cw / 2, yy + th / 2, cw * 0.62f, ACCENT, 0.16f); sg_blob(&fb, x + cw / 2, yy + ch / 2 + U * 1.5f, cw * 0.55f, ch * 0.6f, BLACK, 0.6f); }
+			ui_frost(x, yy, cw, ch, U * 1.4f, sel ? 0.45f : 0.62f);
+			thumb_draw(v->id, 0, y->fetch, x, yy, cw, th, U * 1.4f);
+			length_badge(x + cw - U * 0.8f, yy + th - U * 0.8f, v);
+			if (sel) sg_rrect(&fb, x - U * 0.2f, yy - U * 0.2f, cw + U * 0.4f, ch + U * 0.4f, U * 1.6f, sg_max(2, U * 0.28f), WHITE, 0.95f);
+			ui_avatar(x + U * 2.4f, yy + th + U * 3.0f, U * 1.3f, v->channel);
+			char ln[2][160]; int n = ui_wrap(v->title, U * 1.65f, cw - U * 5.6f, 2, ln);
+			for (int k = 0; k < n; k++) sg_text(&fb, &FT, x + U * 4.6f, yy + th + U * 3.4f + k * U * 2.3f, ln[k], U * 1.65f, WHITE, in, 0.01f);
+			char meta[160]; snprintf(meta, sizeof meta, "%s%s%s", v->channel, v->views[0] ? "  \xC2\xB7  " : "", v->views);
+			char mf[160]; fit(meta, U * 1.3f, cw - U * 5.6f, mf, sizeof mf);
+			sg_text(&fb, &FT, x + U * 4.6f, yy + th + U * 3.4f + n * U * 2.3f + U * 0.5f, mf, U * 1.3f, RGB(160, 160, 166), in, 0.01f);
+		}
+	int total_rows = (cnt + GRID_COLS - 1) / GRID_COLS;
+	if (total_rows > rows) ui_scroll(W - U * 3.2f, top, rows * (ch + gap) - gap, trow, rows, total_rows);
+	(void)t;
+}
 
 static void draw_search(Home *h, float t)
 {
 	Yt *y = &yt;
 	if (y->state == Y_WATCH) { if (y->mode) draw_watch(h, t); else draw_page(h, t); return; }
 	scene_bg(t);
-	float op = sg_smooth(s_age / 0.55f);                       /* the bar opens out from the middle */
-	float lx = W * 0.05f, lw = W * 0.90f, by = U * 4.5f, bh = U * 7.2f;
-	float bx = W / 2 - lw * op / 2, bw = sg_max(bh, lw * op);
-	/* the search bar */
-	if (h->focus == 0) sg_glow(&fb, W / 2, by + bh / 2, lw * 0.45f * op, ACCENT, 0.07f);
-	ui_frost(bx, by, bw, bh, bh / 2, 0.55f);
-	if (h->focus == 0) sg_rrect(&fb, bx, by, bw, bh, bh / 2, sg_max(1.5f, U * 0.2f), ACCENT, 0.9f);
-	if (op > 0.98f) {
-		icon(I_SEARCH, lx + bh * 0.66f, by + bh / 2, U * 1.5f, h->focus == 0 ? WHITE : RGB(170, 170, 176), 1);
-		/* Web | Videos, inside the bar on the right */
-		float sw = U * 20, sh = bh - U * 2.0f, sx = lx + lw - sw - U * 1.0f, sy = by + U * 1.0f;
-		seg_pos += ((float)y->mode - seg_pos) * 0.25f;
-		sg_rrect(&fb, sx, sy, sw, sh, sh / 2, 0, WHITE, 0.07f);
-		sg_rrect(&fb, sx + U * 0.4f + seg_pos * (sw / 2), sy + U * 0.4f, sw / 2 - U * 0.8f, sh - U * 0.8f, (sh - U * 0.8f) / 2, 0, WHITE, 0.94f);
-		static const char *seg[2] = {"WEB", "VIDEOS"};
-		for (int i = 0; i < 2; i++) {
-			float on = 1 - sg_abs(seg_pos - i);
-			float tw = sg_text_w(&FC, seg[i], U * 0.95f, 0.2f);
-			sg_text(&fb, &FC, sx + sw / 4 + i * sw / 2 - tw / 2, sy + sh / 2 + U * 0.36f, seg[i], U * 0.95f, sg_mix(RGB(180, 180, 186), INK, on), 1, 0.2f);
-		}
-		float tx = lx + bh * 1.25f, tb = by + bh / 2 + U * 0.95f;
-		if (!y->q[0]) sg_text(&fb, &FT, tx, tb, y->mode ? "Search YouTube" : "Search the internet", U * 2.5f, RGB(130, 130, 136), 1, 0.01f);
-		float qx = sg_text(&fb, &FT, tx, tb, y->q, U * 2.5f, WHITE, 1, 0.01f);
-		if (h->focus == 0 && ((int)(t * 2) & 1)) sg_rect(&fb, qx + U * 0.3f, by + U * 1.6f, sg_max(2, U * 0.24f), bh - U * 3.2f, ACCENT, 1);
-		if (y->q[0] && h->focus == 0) ui_key(sx - U * 12.5f, by + bh / 2, "ENTER", "search", 0.8f);
-	}
-	/* results keep to the left; the clip plays on the right */
-	lw = W * 0.56f;
-	float py = U * 15.5f, pb = H - U * 10.5f, ry0 = py + U * 4.6f, rh = y->mode ? U * 13.4f : U * 12.0f;
-	if (y->state == Y_RESULTS || y->state == Y_LOADING) {
-		ui_frost(lx, py, lw, pb - py, U * 2.0f, 0.62f);
-		char hd[160]; snprintf(hd, sizeof hd, "%s FOR  \"%s\"", y->mode ? "VIDEOS" : "TOP RESULTS", y->q);
-		char hf[160]; fit(hd, U * 1.0f, lw * 0.7f, hf, sizeof hf);
-		cap_text(lx + U * 2.4f, py + U * 3.0f, hf, U * 1.0f, RGB(200, 200, 206), 1, 0);
-		if (y->state == Y_RESULTS) { char nn[24]; snprintf(nn, sizeof nn, "%d", yt_count(y)); cap_text(lx + lw - U * 2.4f, py + U * 3.0f, nn, U * 1.0f, ACCENT, 1, 1); }
-		sg_rect(&fb, lx + U * 2.4f, py + U * 4.4f, lw - U * 4.8f, sg_max(1, U * 0.1f), WHITE, 0.10f);
-	}
-	float ix = lx + U * 1.4f, iw = lw - U * 2.8f;              /* the inside of the panel */
-	int vis = (int)((pb - ry0 - U * 1.0f) / rh);
-	if (vis < 1) vis = 1;
+	float op = sg_smooth(s_age / 0.55f);
+	search_header(h, t, op);
+	float top = U * 15.5f, bot = H - U * 10.0f, lx = U * 5;
 	if (y->state == Y_IDLE) {
-		ui_frost(lx, py, lw, U * 23, U * 2.0f, 0.62f);
-		cap_text(lx + U * 2.4f, py + U * 3.6f, "TRY", U * 1.0f, RGB(200, 200, 206), 1, 0);
+		float w0 = W * 0.48f;
+		ui_frost(lx, top, w0, U * 21, U * 2.2f, 0.62f);
+		cap_text(lx + U * 3, top + U * 4.4f, "TRY", U * 1.0f, ACCENT, 1, 0);
 		static const char *ex[] = {"how operating systems boot", "linux from scratch", "lofi beats", "weather"};
-		float cx = lx + U * 2.4f, cy = py + U * 8.4f;
+		float cx = lx + U * 3, cy = top + U * 9.4f;
 		for (int i = 0; i < 4; i++) {
-			float w = sg_text_w(&FT, ex[i], U * 1.7f, 0.01f) + U * 3.6f;
-			if (cx + w > lx + lw - U * 2) { cx = lx + U * 2.4f; cy += U * 5; }
-			sg_rrect(&fb, cx, cy - U * 1.9f, w, U * 3.8f, U * 1.9f, 0, WHITE, 0.08f);
-			sg_rrect(&fb, cx, cy - U * 1.9f, w, U * 3.8f, U * 1.9f, sg_max(1, U * 0.1f), WHITE, 0.16f);
-			sg_text(&fb, &FT, cx + U * 1.8f, cy + U * 0.6f, ex[i], U * 1.7f, WHITE, 1, 0.01f);
+			float w = sg_text_w(&FT, ex[i], U * 1.8f, 0.01f) + U * 4.0f;
+			if (cx + w > lx + w0 - U * 2) { cx = lx + U * 3; cy += U * 5.2f; }
+			sg_rrect(&fb, cx, cy - U * 2.0f, w, U * 4.0f, U * 2.0f, 0, WHITE, 0.08f);
+			sg_rrect(&fb, cx, cy - U * 2.0f, w, U * 4.0f, U * 2.0f, sg_max(1, U * 0.1f), WHITE, 0.2f);
+			sg_text(&fb, &FT, cx + U * 2.0f, cy + U * 0.65f, ex[i], U * 1.8f, WHITE, 1, 0.01f);
 			cx += w + U * 1.2f;
 		}
-		sg_text(&fb, &FT, lx + U * 2.4f, py + U * 19.4f, "Type anything and press Enter. Tab switches web and videos.", U * 1.7f, RGB(170, 170, 176), 1, 0.01f);
+		sg_text(&fb, &FT, lx + U * 3, top + U * 18.2f, "Type anything, press Enter. Tab switches between the web and videos.", U * 1.6f, RGB(170, 170, 176), 1, 0.01f);
 	} else if (y->state == Y_LOADING) {
-		for (int i = 0; i < vis; i++) {                                       /* shimmering placeholder rows */
-			float ry = ry0 + i * rh, ph = 0.5f + 0.5f * sg_sin(t * 5 - i * 0.7f);
-			float tw = y->mode ? (rh - U * 2.4f) * 16 / 9 : 0;
-			if (tw > 0) sg_rrect(&fb, ix + U * 1.0f, ry + U * 1.2f, tw, rh - U * 2.4f, U * 1.0f, 0, WHITE, 0.05f + 0.05f * ph);
-			sg_rrect(&fb, ix + U * 1.0f + tw + U * 2, ry + U * 2.2f, iw * 0.5f, U * 2.0f, U * 1.0f, 0, WHITE, 0.07f + 0.04f * ph);
-			sg_rrect(&fb, ix + U * 1.0f + tw + U * 2, ry + U * 5.6f, iw * 0.3f, U * 1.4f, U * 0.7f, 0, WHITE, 0.05f + 0.03f * ph);
+		float ph = 0.5f + 0.5f * sg_sin(t * 5);
+		if (y->mode) {
+			float gw = W - U * 10, gap = U * 2.2f, cw = (gw - gap * 3) / 4, th = cw * 9 / 16;
+			for (int i = 0; i < 8; i++) {
+				float x = lx + (i % 4) * (cw + gap), yy = top + (i / 4) * (th + U * 9.6f + gap), p = 0.5f + 0.5f * sg_sin(t * 5 - i * 0.5f);
+				sg_rrect(&fb, x, yy, cw, th, U * 1.4f, 0, WHITE, 0.06f + 0.05f * p);
+				sg_rrect(&fb, x + U * 4.6f, yy + th + U * 2.2f, cw * 0.6f, U * 1.6f, U * 0.8f, 0, WHITE, 0.07f + 0.04f * p);
+				sg_rrect(&fb, x + U * 4.6f, yy + th + U * 5.0f, cw * 0.35f, U * 1.2f, U * 0.6f, 0, WHITE, 0.05f + 0.03f * p);
+			}
+		} else {
+			ui_frost(lx, top, W * 0.36f, bot - top, U * 2.0f, 0.62f);
+			for (int i = 0; i < 7; i++) {
+				float p = 0.5f + 0.5f * sg_sin(t * 5 - i * 0.6f);
+				sg_disc(&fb, lx + U * 3.6f, top + U * 4.8f + i * U * 8.4f, U * 1.5f, WHITE, 0.06f + 0.04f * p);
+				sg_rrect(&fb, lx + U * 6.2f, top + U * 3.2f + i * U * 8.4f, W * 0.22f, U * 1.8f, U * 0.9f, 0, WHITE, 0.07f + 0.04f * p);
+				sg_rrect(&fb, lx + U * 6.2f, top + U * 6.0f + i * U * 8.4f, W * 0.10f, U * 1.2f, U * 0.6f, 0, WHITE, 0.05f + 0.03f * p);
+			}
+			ui_frost(lx + W * 0.36f + U * 2.5f, top, W - U * 7.5f - W * 0.36f - U * 2.5f + U * 2.5f, bot - top, U * 2.4f, 0.66f);
+			(void)ph;
 		}
 	} else if (y->state == Y_ERROR) {
-		ui_frost(lx, py, lw, U * 16, U * 2.0f, 0.62f);
-		sg_disc(&fb, lx + U * 4.6f, py + U * 5.6f, U * 1.8f, ACCENT, 0.9f);
-		sg_text_c(&fb, &FT, lx + U * 4.6f, py + U * 6.4f, "!", U * 2.2f, WHITE, 1, 0);
-		sg_text(&fb, &FT, lx + U * 8, py + U * 6.6f, y->err[0] ? y->err : "Something went wrong.", U * 2.3f, WHITE, 1, 0.01f);
-		sg_text(&fb, &FT, lx + U * 8, py + U * 11.0f, "Press Enter to try again.", U * 1.7f, RGB(170, 170, 176), 1, 0.01f);
-	} else {
-		int cnt = yt_count(y);
-		if (y->sel >= cnt) y->sel = cnt - 1;
-		if (y->sel < y->top) y->top = y->sel;
-		if (y->sel >= y->top + vis) y->top = y->sel - vis + 1;
-		for (int i = 0; i < vis && y->top + i < cnt; i++) {
-			int idx = y->top + i, sel = h->focus == 1 && idx == y->sel;
-			float ry = ry0 + i * rh + row_in(i);
-			if (sel) {
-				sg_rrect(&fb, ix, ry + U * 0.3f, iw, rh - U * 0.6f, U * 1.4f, 0, WHITE, 0.10f);
-				sg_rrect(&fb, ix, ry + U * 0.3f, iw, rh - U * 0.6f, U * 1.4f, sg_max(1, U * 0.12f), WHITE, 0.18f);
-				sg_rrect(&fb, ix + U * 0.5f, ry + rh * 0.25f, U * 0.45f, rh * 0.5f, U * 0.22f, 0, ACCENT, 1);
-			} else if (i > 0 && !(h->focus == 1 && idx - 1 == y->sel))
-				sg_rect(&fb, ix + U * 2, ry, iw - U * 4, sg_max(1, U * 0.08f), WHITE, 0.07f);
-			float cx0 = ix + U * 2.0f;
-			if (!y->mode) {
-				const Web *w = &y->web[idx];
-				float cw = iw - U * 4.0f;
-				char du[200], df[200]; web_display_url(w->url, du, sizeof du);
-				ui_avatar(cx0 + U * 1.0f, ry + U * 2.8f, U * 1.0f, du);
-				fit(du, U * 1.35f, cw - U * 3.4f, df, sizeof df);
-				sg_text(&fb, &FT, cx0 + U * 2.9f, ry + U * 3.3f, df, U * 1.35f, RGB(170, 170, 176), 1, 0.01f);
-				char tf[200]; fit(w->title, U * 2.2f, cw, tf, sizeof tf);
-				sg_text(&fb, &FT, cx0, ry + U * 6.6f, tf, U * 2.2f, sel ? WHITE : RGB(236, 236, 240), 1, 0.01f);
-				char sn[2][160]; int m = ui_wrap(w->snip, U * 1.45f, cw, 2, sn);
-				for (int k = 0; k < m; k++) sg_text(&fb, &FT, cx0, ry + U * 9.2f + k * U * 1.9f, sn[k], U * 1.45f, RGB(150, 150, 156), 1, 0.01f);
-			} else {
-				const Video *v = &y->v[idx];
-				float th = rh - U * 2.6f, tw = th * 16 / 9, tx0 = cx0, ty0 = ry + U * 1.3f;
-				sg_blob(&fb, tx0 + tw / 2, ty0 + th / 2 + U * 0.6f, tw * 0.56f, th * 0.68f, BLACK, 0.6f);
-				thumb_draw(v->id, 0, y->fetch, tx0, ty0, tw, th, U * 1.0f);
-				sg_rrect(&fb, tx0, ty0, tw, th, U * 1.0f, sg_max(1, U * 0.1f), WHITE, sel ? 0.35f : 0.12f);
-				length_badge(tx0 + tw - U * 0.6f, ty0 + th - U * 0.6f, v);
-				float cx = tx0 + tw + U * 2.0f, cw = ix + iw - cx - U * 1.6f;
-				char ln[2][160]; int n = ui_wrap(v->title, U * 2.1f, cw, 2, ln);
-				for (int k = 0; k < n; k++) sg_text(&fb, &FT, cx, ty0 + U * 2.6f + k * U * 2.8f, ln[k], U * 2.1f, WHITE, 1, 0.01f);
-				float my = ty0 + U * 2.6f + n * U * 2.8f + U * 0.6f;
-				ui_avatar(cx + U * 0.8f, my - U * 0.5f, U * 0.8f, v->channel);
-				char meta[200]; yt_meta(v, meta, sizeof meta); char mf[200]; fit(meta, U * 1.4f, cw - U * 2.4f, mf, sizeof mf);
-				sg_text(&fb, &FT, cx + U * 2.4f, my, mf, U * 1.4f, RGB(170, 170, 176), 1, 0.01f);
-				if (v->desc[0] && n < 2) { char df[220]; fit(v->desc, U * 1.35f, cw, df, sizeof df); sg_text(&fb, &FT, cx, my + U * 2.6f, df, U * 1.35f, RGB(130, 130, 136), 1, 0.01f); }
-			}
-		}
-		ui_scroll(lx + lw - U * 1.1f, ry0, vis * rh, y->top, vis, cnt);
-	}
-	static const char *k_res[] = {"TAB", "web / videos", "\xE2\x86\x91\xE2\x86\x93", "pick", "ENTER", "open", "ESC", "home"};
+		ui_frost(lx, top, W * 0.5f, U * 16, U * 2.0f, 0.62f);
+		sg_disc(&fb, lx + U * 4.6f, top + U * 5.6f, U * 1.8f, ACCENT, 0.95f);
+		sg_text_c(&fb, &FT, lx + U * 4.6f, top + U * 6.4f, "!", U * 2.2f, WHITE, 1, 0);
+		sg_text(&fb, &FT, lx + U * 8, top + U * 6.6f, y->err[0] ? y->err : "Something went wrong.", U * 2.3f, WHITE, 1, 0.01f);
+		sg_text(&fb, &FT, lx + U * 8, top + U * 11.0f, "Press Enter to try again.", U * 1.7f, RGB(170, 170, 176), 1, 0.01f);
+	} else if (y->mode) draw_grid(h, t, top, bot);
+	else draw_web(h, t, top, bot);
+	static const char *k_web[] = {"TAB", "web / videos", "\xE2\x86\x91\xE2\x86\x93", "pick", "ENTER", "open", "ESC", "home"};
+	static const char *k_vid[] = {"TAB", "web / videos", "\xE2\x86\x90\xE2\x86\x91\xE2\x86\x92\xE2\x86\x93", "pick", "ENTER", "watch", "ESC", "home"};
 	static const char *k_idle[] = {"TAB", "web / videos", "ENTER", "search", "\xE2\x86\x93", "settings", "ESC", "home"};
-	search_footer(h, y->state == Y_RESULTS ? k_res : k_idle, 4);
+	search_footer(h, y->state != Y_RESULTS ? k_idle : y->mode ? k_vid : k_web, 4);
 }
 
 /* ---------------------------------------------------------------- files search */
