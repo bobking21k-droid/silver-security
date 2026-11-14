@@ -6,6 +6,79 @@
 #include "ui.h"
 #include "net.h"
 
+
+/* ---------------------------------------------------------------- the background: a parade */
+/* A hypnotic loop: a slowly turning dark-red swirl, and rows of identical hooded figures walking
+ * across it at different depths. Black first; the red stays low. */
+static float s_age;                                   /* seconds since the Search pane opened */
+static uint8_t *swirl; static int swirl_w, swirl_h;
+
+static void swirl_frame(float t)
+{
+	int sw = W / 4 + 2, sh = H / 4 + 2;
+	if (swirl_w != sw || swirl_h != sh) { free(swirl); swirl = malloc((size_t)sw * sh); swirl_w = sw; swirl_h = sh; }
+	if (!swirl) return;
+	float cx = W * 0.62f, cy = H * 0.42f, maxr = sg_sqrt((float)W * W + (float)H * H) * 0.62f;
+	for (int j = 0; j < sh; j++)
+		for (int i = 0; i < sw; i++) {
+			float dx = i * 4 - cx, dy = (j * 4 - cy) * 1.05f;
+			float r = sg_sqrt(dx * dx + dy * dy), a = atan2f(dy, dx);
+			float wob = sg_sin(a * 5 + t * 0.7f) * 0.05f + sg_sin(a * 3 - t * 0.4f) * 0.03f;
+			float ph = r / (U * 9.0f) + a * (3.0f / 6.2832f) - t * 0.22f + wob;
+			float band = sg_smooth((sg_abs(sg_fract(ph) - 0.5f) * 2 - 0.30f) * 4.0f);       /* soft stripes */
+			float vig = sg_sat(1 - r / maxr);
+			swirl[j * sw + i] = (uint8_t)(255 * band * vig * vig);
+		}
+}
+
+static void parade_figure(float x, float base, float s, float ph, float a, int eyes)
+{
+	float bob = sg_sin(ph * 2) * s * 0.012f, hipy = base - s * 0.40f + bob;
+	uint32_t body = RGB(30, 27, 29), edge = RGB(235, 235, 240);
+	for (int side = 0; side < 2; side++) {                                           /* legs: two swinging quads */
+		float sw = sg_sin(ph + side * 3.14159f) * 0.42f, hx = x + (side ? 0.045f : -0.045f) * s;
+		float fx = hx + sg_sin(sw) * s * 0.40f, fy = hipy + sg_cos(sw) * s * 0.40f, wd = s * 0.034f;
+		V2 q[4] = {{hx - wd, hipy}, {hx + wd, hipy}, {fx + wd * 0.7f, fy}, {fx - wd * 0.7f, fy}};
+		sg_poly(&fb, q, 4, RGB(44, 40, 42), a, 0);
+		V2 foot[3] = {{fx - wd, fy}, {fx + wd, fy}, {fx + s * 0.07f, fy + s * 0.012f}};
+		sg_poly(&fb, foot, 3, RGB(44, 40, 42), a, 0);
+	}
+	sg_rrect(&fb, x - s * 0.19f, base - s * 0.80f + bob, s * 0.38f, s * 0.46f, s * 0.12f, 0, body, a);   /* the oversized coat */
+	sg_rrect(&fb, x - s * 0.19f, base - s * 0.80f + bob, s * 0.38f, s * 0.46f, s * 0.12f, sg_max(1, s * 0.006f), edge, a * 0.30f);
+	sg_disc(&fb, x + s * 0.02f, base - s * 0.89f + bob, s * 0.115f, body, a);                              /* head with a lot of hair */
+	sg_disc(&fb, x - s * 0.03f, base - s * 0.93f + bob, s * 0.105f, body, a);
+	sg_disc(&fb, x + s * 0.02f, base - s * 0.89f + bob, s * 0.115f, edge, 0);
+	if (eyes) { sg_disc(&fb, x + s * 0.05f, base - s * 0.875f + bob, s * 0.011f, RGB(210, 30, 36), a * 0.9f); sg_disc(&fb, x + s * 0.095f, base - s * 0.875f + bob, s * 0.011f, RGB(210, 30, 36), a * 0.9f); }
+}
+
+static void parade_bg(float t)
+{
+	swirl_frame(t);
+	int sw = swirl_w;
+	for (int y = 0; y < H; y++) {
+		float fy = y / 4.0f; int j = (int)fy; float ty = fy - j;
+		uint32_t *row = fb.px + y * W;
+		for (int x = 0; x < W; x++) {
+			float fx = x / 4.0f; int i = (int)fx; float tx = fx - i;
+			const uint8_t *p = swirl + j * sw + i;
+			float v = ((p[0] * (1 - tx) + p[1] * tx) * (1 - ty) + (p[sw] * (1 - tx) + p[sw + 1] * tx) * ty) * (1.0f / 255);
+			int r = (int)(7 + v * 34), g = (int)(6 + v * 3), b = (int)(8 + v * 5);
+			row[x] = RGB(r, g, b);
+		}
+	}
+	static const struct { float size, speed, base, alpha; int n; } L[3] = {{0.20f, 38, 0.80f, 0.55f, 11}, {0.28f, 60, 0.90f, 0.80f, 9}, {0.38f, 92, 1.04f, 1.0f, 7}};
+	for (int l = 0; l < 3; l++) {
+		float s = H * L[l].size, gap = (W + s * 1.2f) / L[l].n, span = gap * L[l].n;
+		for (int i = 0; i < L[l].n; i++) {
+			float x = fmodf(i * gap + t * L[l].speed * U * 0.1f, span) - s * 0.6f;
+			parade_figure(x, H * L[l].base, s, t * (2.6f + l * 0.35f) + i * 0.9f, L[l].alpha, l == 2 && (i % 3 == 0));
+		}
+	}
+	sg_rect(&fb, 0, 0, W, H * 0.46f, BLACK, 0.0f);
+	/* keep the top calm for the search bar, and the middle darker for reading */
+	for (int y = 0; y < H * 0.62f; y++) { float f = 1 - (float)y / (H * 0.62f); sg_rect(&fb, 0, y, W, 1, BLACK, 0.55f * f * f + 0.18f * f); }
+}
+
 static void yt_meta(const Video *v, char *out, size_t n)
 {
 	char tmp[160] = "";
@@ -28,7 +101,7 @@ static void draw_watch(Home *h, float t)
 {
 	Yt *y = &yt;
 	const Video *v = &y->v[y->watch];
-	memcpy(fb.px, bg_sec, (size_t)W * H * 4);
+	parade_bg(t);
 	float lx = U * 6, top = U * 7, pw = W * 0.56f, ph = pw * 9 / 16;
 	/* player */
 	sg_blob(&fb, lx + pw / 2, top + ph / 2 + U * 2, pw * 0.6f, ph * 0.7f, BLACK, 0.7f);
@@ -83,11 +156,10 @@ static void draw_page(Home *h, float t)
 {
 	Yt *y = &yt;
 	const Web *w = &y->web[y->watch];
-	memcpy(fb.px, bg_sec, (size_t)W * H * 4);
-	title_block("RESULT", "FROM THE WEB", I_SEARCH);
-	float lx = U * 6, lw = W - U * 12, ty = U * 24;
+	parade_bg(t);
+	float lx = W * 0.15f, lw = W * 0.70f, ty = U * 8;
 	char du[200]; web_display_url(w->url, du, sizeof du);
-	ui_card(lx, ty, lw, H - ty - U * 12, U * 1.8f, BLACK, 0.5f, 0.4f);
+	ui_card(lx, ty, lw, H - ty - U * 14, U * 1.8f, BLACK, 0.78f, 0.5f);
 	float cx = lx + U * 4, cw = lw - U * 8;
 	ui_avatar(cx + U * 1.4f, ty + U * 5, U * 1.4f, du);
 	sg_text(&fb, &FT, cx + U * 4.2f, ty + U * 5.8f, du, U * 1.8f, RGB(150, 190, 150), 1, 0.01f);
@@ -104,23 +176,38 @@ static void draw_page(Home *h, float t)
 	(void)h; (void)t;
 }
 
+static float row_in(int i) { return (1 - sg_smooth((s_age - 0.30f - 0.07f * i) / 0.40f)) * U * 4; }
+
 static void draw_search(Home *h, float t)
 {
 	Yt *y = &yt;
 	if (y->state == Y_WATCH) { if (y->mode) draw_watch(h, t); else draw_page(h, t); return; }
-	memcpy(fb.px, bg_sec, (size_t)W * H * 4);
-	title_block("SEARCH", "THE WEB AND VIDEOS", I_SEARCH);
-	float lx = U * 6, lw = W - U * 12, by = U * 22, bh = U * 6.6f;
-	/* the search bar */
-	ui_card(lx, by, lw, bh, bh / 2, BLACK, 0.62f, 0.3f);
-	if (h->focus == 0) sg_rrect(&fb, lx, by, lw, bh, bh / 2, sg_max(1.5f, U * 0.2f), ACCENT, 0.95f);
+	parade_bg(t);
+	float op = sg_smooth(s_age / 0.55f);                       /* the bar opens out from the middle */
+	float lx = W * 0.15f, lw = W * 0.70f, by = U * 5, bh = U * 7;
+	float bx = W / 2 - lw * op / 2, bw = lw * op;
+	ui_card(bx, by, bw, bh, bh / 2, BLACK, 0.74f, 0.5f);
+	sg_rrect(&fb, bx, by, bw, bh, bh / 2, sg_max(1.5f, U * 0.18f), h->focus == 0 ? ACCENT : WHITE, h->focus == 0 ? 0.85f : 0.16f);
+	if (h->focus == 0) sg_glow(&fb, W / 2, by + bh / 2, lw * 0.5f, ACCENT, 0.05f);
+	if (op > 0.98f) {
 	icon(I_SEARCH, lx + bh * 0.72f, by + bh / 2, U * 1.5f, WHITE, 1);
 	float tx = lx + bh * 1.3f, tb = by + bh / 2 + U * 0.95f;
 	if (!y->q[0]) sg_text(&fb, &FT, tx, tb, y->mode ? "Search YouTube" : "Search the internet", U * 2.5f, RGB(120, 120, 126), 1, 0.01f);
 	float qx = sg_text(&fb, &FT, tx, tb, y->q, U * 2.5f, WHITE, 1, 0.01f);
 	if (h->focus == 0 && ((int)(t * 2) & 1)) sg_rect(&fb, qx + U * 0.3f, by + U * 1.4f, sg_max(2, U * 0.26f), bh - U * 2.8f, WHITE, 1);
-	if (y->q[0]) { ui_pill(lx + lw - U * 11.2f, by + U * 1.2f, U * 10, bh - U * 2.4f, ACCENT, h->focus == 0 ? 1 : 0.6f); cap_text(lx + lw - U * 6.2f - sg_text_w(&FC, "SEARCH", U * 0.95f, 0.2f) / 2, by + bh / 2 + U * 0.4f, "SEARCH", U * 0.95f, WHITE, 1, 0); }
-	{ float cx = lx; static const char *tb2[2] = {"WEB", "VIDEOS"};
+	if (y->q[0]) { ui_pill(lx + lw - U * 11.2f, by + U * 1.2f, U * 10, bh - U * 2.4f, ACCENT, h->focus == 0 ? 0.9f : 0.5f); cap_text(lx + lw - U * 6.2f - sg_text_w(&FC, "SEARCH", U * 0.95f, 0.2f) / 2, by + bh / 2 + U * 0.4f, "SEARCH", U * 0.95f, WHITE, 1, 0); }
+	}
+	/* the gear, bottom left: Enter opens Settings */
+	{
+		float gr = U * 3.4f, gx = U * 7.5f, gy = H - U * 10.5f;
+		int on = h->focus == 2;
+		if (on) sg_glow(&fb, gx, gy, gr * 3.2f, ACCENT, 0.16f);
+		sg_disc(&fb, gx, gy, gr, on ? WHITE : BLACK, on ? 0.96f : 0.7f);
+		sg_ring(&fb, gx, gy, gr, sg_max(1.5f, U * 0.16f), on ? ACCENT : WHITE, on ? 0.95f : 0.22f);
+		icon(I_SETTINGS, gx, gy, gr * 0.56f, on ? INK : WHITE, 1);
+		if (on) cap_text(gx + gr + U * 1.6f, gy + U * 0.4f, "SETTINGS", U * 1.0f, WHITE, 1, 0);
+	}
+	if (op > 0.98f) { float cx = lx; static const char *tb2[2] = {"WEB", "VIDEOS"};
 	  for (int i = 0; i < 2; i++) cx = ui_chip(cx, by + bh + U * 3.4f, tb2[i], U * 0.95f, i == y->mode ? INK : RGB(190, 190, 196), WHITE, i == y->mode ? 0.96f : 0.10f) + U * 1.0f; }
 	float ry0 = by + bh + U * 7.4f, rh = y->mode ? U * 14.2f : U * 12.4f;
 	if (y->state == Y_IDLE) {
@@ -148,7 +235,7 @@ static void draw_search(Home *h, float t)
 		if (y->sel >= y->top + vis) y->top = y->sel - vis + 1;
 		for (int i = 0; i < vis && y->top + i < cnt; i++) {
 			const Web *w = &y->web[y->top + i];
-			float ry = ry0 + i * rh, cx = lx + U * 1.6f, cw = lw - U * 4.4f;
+			float ry = ry0 + i * rh + row_in(i), cx = lx + U * 1.6f, cw = lw - U * 4.4f;
 			int sel = h->focus == 1 && y->top + i == y->sel;
 			if (sel) { ui_card(lx - U * 1.0f, ry, lw - U * 1.6f, rh - U * 0.6f, U * 1.4f, WHITE, 0.14f, 0.35f); sg_rrect(&fb, lx - U * 1.0f, ry, lw - U * 1.6f, rh - U * 0.6f, U * 1.4f, sg_max(1.5f, U * 0.2f), ACCENT, 0.9f); }
 			char du[200], df[200]; web_display_url(w->url, du, sizeof du);
@@ -170,7 +257,7 @@ static void draw_search(Home *h, float t)
 		float tw = (rh - U * 2.2f) * 16 / 9, th = rh - U * 2.2f;
 		for (int i = 0; i < vis && y->top + i < y->nv; i++) {
 			const Video *v = &y->v[y->top + i];
-			float ry = ry0 + i * rh;
+			float ry = ry0 + i * rh + row_in(i);
 			int sel = h->focus == 1 && y->top + i == y->sel;
 			if (sel) { ui_card(lx - U * 1.0f, ry, lw - U * 1.6f, rh - U * 0.6f, U * 1.4f, WHITE, 0.14f, 0.35f); sg_rrect(&fb, lx - U * 1.0f, ry, lw - U * 1.6f, rh - U * 0.6f, U * 1.4f, sg_max(1.5f, U * 0.2f), ACCENT, 0.9f); }
 			float tx0 = lx + U * 0.4f, ty0 = ry + U * 1.1f;

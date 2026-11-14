@@ -442,7 +442,7 @@ static void open_screen(Home *h, int s)
 {
 	h->screen = s; h->row = 0; h->top = 0; h->sub = 0; h->confirm = 0; h->fade = 0;
 	if (s == 4) { snprintf(cwd, sizeof cwd, "%s", homedir); h->depth = 0; fs_list(cwd); files_preview(h); }
-	if (s == 2) { h->focus = yt_count(&yt) ? 1 : 0; if (!yt.fetch[0]) snprintf(yt.fetch, sizeof yt.fetch, "/sbin/silver-fetch"); if (yt.state == Y_WATCH) yt.state = Y_RESULTS; }
+	if (s == 2) { s_age = 0; h->focus = yt_count(&yt) ? 1 : 0; if (!yt.fetch[0]) snprintf(yt.fetch, sizeof yt.fetch, "/sbin/silver-fetch"); if (yt.state == Y_WATCH) yt.state = Y_RESULTS; }
 	h->fs = 0;
 	if (s == 3) h->sub = 0;
 }
@@ -496,10 +496,12 @@ static void handle_key(Home *h, int k)
 		Yt *y = &yt;
 		if (y->state == Y_WATCH) { if (k == K_ESC || k == K_BACK || k == K_LEFT) y->state = Y_RESULTS; break; }
 		if (k == K_ESC) { h->screen = 0; h->fade = 0; break; }
+		if (h->focus == 2) { if (k == K_UP) { h->focus = yt_count(y) ? 1 : 0; break; } else if (k == K_ENTER) { open_screen(h, 1); break; } else h->focus = 0; if (h->focus == 2) break; }
 		if (k == K_DOWN && h->focus == 0 && y->state == Y_RESULTS) { h->focus = 1; break; }
+		if (k == K_DOWN && h->focus == 0 && y->state != Y_RESULTS && !y->q[0]) { h->focus = 2; break; }
 		if (h->focus == 1) {
 			if (k == K_UP) { if (y->sel > 0) y->sel--; else h->focus = 0; break; }
-			if (k == K_DOWN) { if (y->sel + 1 < yt_count(y)) y->sel++; break; }
+			if (k == K_DOWN) { if (y->sel + 1 < yt_count(y)) y->sel++; else h->focus = 2; break; }
 			if (k == K_ENTER) { y->watch = y->sel; y->state = Y_WATCH; break; }
 		}
 		if (k == 9) { y->mode ^= 1; if (y->q[0]) { yt_search(y); h->focus = y->state == Y_RESULTS ? 1 : 0; } break; }
@@ -568,6 +570,7 @@ static void home_frame(Home *h, float t, float dt)
 	for (int q = 0; q < 4; q++) h->blend[q] += (((h->screen == 0 && q == h->sel) ? 1.f : 0.f) - h->blend[q]) * sg_min(1, dt * 11);
 	h->fade = sg_min(1, h->fade + dt * 6);
 	yt_poll(&yt);
+	s_age += dt;
 	if (h->fs) search_tick(&h->sr, 0.004);
 	switch (h->screen) {
 	case 0: home_draw(h, 1, t, 99); break;
