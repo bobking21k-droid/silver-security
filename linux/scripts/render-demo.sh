@@ -12,7 +12,9 @@ cc -O2 -fno-math-errno -DRENDER "$FONTS" -o "$tmp/greeter-render" "$TOP/src/gree
 enc=(-c:v libx264 -crf 17 -preset medium -pix_fmt yuv420p -movflags +faststart)
 "$tmp/preview" "$w" "$h" silver  | ffmpeg -v error -y -f rawvideo -pix_fmt bgr0 -s "${w}x${h}" -r 30 -i - "${enc[@]}" "$tmp/chooser.mp4"
 "$tmp/preview" "$w" "$h" windows | ffmpeg -v error -y -f rawvideo -pix_fmt bgr0 -s "${w}x${h}" -r 30 -i - "${enc[@]}" "$out/silveros-pick-windows.mp4"
-"$tmp/greeter-render" "$tmp/greeter.mp4" "$w" "$h"
+# live search results and thumbnails when the downloader is built and the network is reachable
+SILVER_FETCH="$WORK/stage/sbin/silver-fetch" SILVER_CA_FILE="$SOURCES/cacert.pem" SILVER_SEARCH_BG="$WORK/assets/search-bg.svid" \
+  "$tmp/greeter-render" "$tmp/greeter.mp4" "$w" "$h"
 # chooser -> transition -> check, a beat of black (the kernel starting), then the login
 ffmpeg -v error -y -i "$tmp/chooser.mp4" -i "$tmp/greeter.mp4" -filter_complex \
   "[0:v]tpad=stop_mode=add:stop_duration=0.8:color=black[a];[a][1:v]concat=n=2:v=1:a=0[v]" -map "[v]" "${enc[@]}" "$out/silveros-boot-demo.mp4"

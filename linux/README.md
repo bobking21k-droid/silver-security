@@ -42,6 +42,11 @@ reference, not its content.)
      `silver-fetch` (our own small HTTPS client on BearSSL, checking certificates against the
      bundled Mozilla roots). That scraping is unofficial, can break whenever YouTube changes its
      page, and is against those sites' terms for automated use. What you search for goes to DuckDuckGo or YouTube. There is no web browser, so a web result opens a page showing its title, snippet and address.
+   - Behind Search a background loops: a drawn crowd marching over a dark-red swirl, then a
+     video clip of your choice tinted black and red. Make it with
+     `scripts/make-search-bg.sh <clip> <start> <end>` before building. The clip is kept in
+     `work/` (not in git); only use footage you have the right to use. Without it, only the
+     march plays.
    - **Files** also searches: press `/`, type part of a name (letters may be spread out) or
      switch with Tab to search inside text files; Enter shows the result in its folder.
    - **Apps**: a Terminal (a shell on the console; `exit` returns here), a live System Monitor

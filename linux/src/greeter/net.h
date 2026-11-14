@@ -3,8 +3,9 @@
  *
  * A Job runs `silver-fetch` (which checks certificates) as a child process and collects its
  * output without ever blocking the interface. Thumbnails are decoded with stb_image and
- * cached as small RGB bitmaps. Under -DRENDER no network is used: a fixed set of sample
- * results with generated thumbnails stands in, so the demo is repeatable.
+ * cached as small RGB bitmaps. Under -DRENDER (the demo renderer, which runs on a fake clock)
+ * downloads run to completion before the frame continues; with no downloader available a fixed
+ * set of sample results stands in.
  */
 #pragma once
 #include <errno.h>
@@ -49,6 +50,7 @@ static void job_poll(Job *j)
 	j->ok = WIFEXITED(st) && WEXITSTATUS(st) == 0;
 	j->done = 1;
 }
+static void job_wait(Job *j) { while (j->active && !j->done) { job_poll(j); if (!j->done) usleep(3000); } }
 static void job_free(Job *j) { if (j->active && !j->done) { kill(j->pid, SIGKILL); waitpid(j->pid, 0, 0); if (j->fd >= 0) close(j->fd); } free(j->buf); memset(j, 0, sizeof *j); }
 
 #define TW 160
@@ -76,6 +78,7 @@ static uint8_t *scale_rgb(const uint8_t *src, int sw, int sh, int cx, int cy, in
 	return d;
 }
 
+static void thumb_poll(void);
 static Thumb *thumb_get(const char *id, int wide)
 {
 	for (int i = 0; i < MAXTHUMB; i++) if (thumbs[i].state && !strcmp(thumbs[i].id, id) && thumbs[i].wide == wide) return &thumbs[i];
@@ -91,13 +94,13 @@ static Thumb *thumb_want(const char *id, int wide, const char *fetch)
 	if (slot < 0) return 0;
 	t = &thumbs[slot]; memset(t, 0, sizeof *t);
 	snprintf(t->id, sizeof t->id, "%s", id); t->wide = wide;
-#ifdef RENDER
-	(void)fetch; t->state = 3;                               /* the mock fills these itself */
-#else
+	if (!fetch || !fetch[0]) { t->state = 3; return t; }
 	char url[160]; snprintf(url, sizeof url, "https://i.ytimg.com/vi/%s/%s.jpg", id, wide ? "hqdefault" : "mqdefault");
 	char *argv[] = {(char *)fetch, "-q", "-m", "400000", url, 0};
 	job_start(&t->job, argv, 400000);
 	t->state = t->job.active ? 1 : 3;
+#ifdef RENDER
+	job_wait(&t->job); thumb_poll();                         /* the demo clock waits for the download */
 #endif
 	return t;
 }
@@ -174,6 +177,7 @@ typedef struct {
 static Yt yt;
 
 static void yt_mock(Yt *y);
+static void yt_poll(Yt *y);
 static int yt_count(const Yt *y) { return y->mode ? y->nv : y->nw; }
 static void yt_search(Yt *y)
 {
@@ -181,8 +185,8 @@ static void yt_search(Yt *y)
 	y->nv = 0; y->nw = 0; y->sel = 0; y->top = 0; y->err[0] = 0;
 	if (!y->q[0]) { y->state = Y_IDLE; return; }
 #ifdef RENDER
-	yt_mock(y); y->state = yt_count(y) ? Y_RESULTS : Y_ERROR;
-#else
+	if (!y->fetch[0] || access(y->fetch, X_OK)) { yt_mock(y); y->state = yt_count(y) ? Y_RESULTS : Y_ERROR; return; }
+#endif
 	char enc[300], url[400];
 	url_encode(y->q, enc, sizeof enc);
 	if (y->mode) {
@@ -196,6 +200,9 @@ static void yt_search(Yt *y)
 	}
 	y->state = y->job.active ? Y_LOADING : Y_ERROR;
 	if (y->state == Y_ERROR) snprintf(y->err, sizeof y->err, "Could not start the downloader");
+#ifdef RENDER
+	job_wait(&y->job); yt_poll(y);
+	if (y->state != Y_RESULTS) { yt_mock(y); y->state = yt_count(y) ? Y_RESULTS : Y_ERROR; }
 #endif
 }
 static void yt_poll(Yt *y)

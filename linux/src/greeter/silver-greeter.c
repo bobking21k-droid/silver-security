@@ -591,15 +591,16 @@ static const struct { float t; int k; } SCRIPT[] = {
 	{6.0f, K_ENTER}, {7.0f, K_DOWN}, {7.8f, K_DOWN}, {8.6f, K_BACK}, {9.6f, K_DOWN}, {10.2f, K_DOWN},
 	{11.2f, '/'}, {12.0f, 'r'}, {12.4f, 'e'}, {12.8f, 'p'}, {14.0f, K_DOWN}, {15.0f, K_ESC}, {15.8f, K_ESC},  /* search inside Files */
 	{16.6f, K_UP}, {17.3f, K_ENTER},                                                                          /* Search = YouTube */
-	{18.2f, 'l'}, {18.5f, 'i'}, {18.8f, 'n'}, {19.1f, 'u'}, {19.4f, 'x'}, {20.0f, K_ENTER},                  /* web results */
+	{18.2f, 'l'}, {18.5f, 'o'}, {18.8f, 'f'}, {19.1f, 'i'}, {20.0f, K_ENTER},                                /* web results */
 	{22.0f, K_DOWN}, {22.8f, K_DOWN}, {23.6f, K_ENTER}, {25.6f, K_ESC},                                       /* a result */
-	{26.4f, 9}, {28.0f, K_DOWN}, {28.8f, K_DOWN}, {29.6f, K_ENTER}, {32.0f, K_ESC}, {32.6f, K_ESC},           /* videos, watch page */
-	{33.4f, K_LEFT}, {34.1f, K_ENTER},                                                                        /* Settings */
-	{35.4f, K_DOWN}, {36.0f, K_DOWN}, {36.6f, K_ENTER}, {37.6f, K_ENTER}, {38.4f, K_ESC},
-	{39.2f, K_DOWN}, {39.8f, K_ENTER},                                                                        /* Apps */
-	{40.6f, K_DOWN}, {41.2f, K_ENTER}, {45.5f, K_ESC}, {46.1f, K_ESC},
+	{26.4f, 9}, {28.4f, K_DOWN}, {29.4f, K_DOWN}, {30.4f, K_DOWN}, {31.6f, K_ENTER}, {35.0f, K_ESC},          /* videos, a watch page */
+	{36.5f, K_DOWN}, {38.0f, K_DOWN}, {40.0f, K_UP}, {42.0f, K_UP}, {44.0f, K_ESC},                           /* linger: the rooms loop behind */
+	{44.8f, K_LEFT}, {45.5f, K_ENTER},                                                                        /* Settings */
+	{46.8f, K_DOWN}, {47.4f, K_DOWN}, {48.0f, K_ENTER}, {49.0f, K_ENTER}, {49.8f, K_ESC},
+	{50.6f, K_DOWN}, {51.2f, K_ENTER},                                                                        /* Apps */
+	{52.0f, K_DOWN}, {52.6f, K_ENTER}, {56.9f, K_ESC}, {57.5f, K_ESC},
 };
-#define SCRIPT_END 48.0f
+#define SCRIPT_END 59.0f
 #endif
 
 static void home_loop(Home *h)
@@ -669,6 +670,7 @@ int main(int argc, char **argv)
 	snprintf(cmd, sizeof cmd, "ffmpeg -v error -y -f rawvideo -pix_fmt bgr0 -s %dx%d -r 30 -i - -c:v libx264 -crf 16 -preset medium -pix_fmt yuv420p '%s'",
 		 W, H, argc > 1 ? argv[1] : "greeter.mp4");
 	outpipe = popen(cmd, "w");
+	{ const char *f = getenv("SILVER_FETCH"); if (f) snprintf(yt.fetch, sizeof yt.fetch, "%s", f); }
 	gen_cracks(); bake_home();
 	Home h; home_init(&h);
 	if (argc > 4) {                                   /* the password card, over the cracked glass */

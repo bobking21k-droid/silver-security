@@ -84,6 +84,8 @@ static void parade_bg(float t)
 	for (int y = 0; y < H * 0.62f; y++) { float f = 1 - (float)y / (H * 0.62f); sg_rect(&fb, 0, y, W, 1, BLACK, 0.50f * f * f + 0.20f * f); }
 }
 
+#include "rooms.h"
+
 static void yt_meta(const Video *v, char *out, size_t n)
 {
 	char tmp[160] = "";
@@ -106,7 +108,7 @@ static void draw_watch(Home *h, float t)
 {
 	Yt *y = &yt;
 	const Video *v = &y->v[y->watch];
-	parade_bg(t);
+	scene_bg(t);
 	float lx = U * 6, top = U * 7, pw = W * 0.56f, ph = pw * 9 / 16;
 	/* player */
 	sg_blob(&fb, lx + pw / 2, top + ph / 2 + U * 2, pw * 0.6f, ph * 0.7f, BLACK, 0.7f);
@@ -161,8 +163,8 @@ static void draw_page(Home *h, float t)
 {
 	Yt *y = &yt;
 	const Web *w = &y->web[y->watch];
-	parade_bg(t);
-	float lx = W * 0.15f, lw = W * 0.70f, ty = U * 8;
+	scene_bg(t);
+	float lx = W * 0.05f, lw = W * 0.56f, ty = U * 8;
 	char du[200]; web_display_url(w->url, du, sizeof du);
 	ui_card(lx, ty, lw, H - ty - U * 14, U * 1.8f, BLACK, 0.78f, 0.5f);
 	float cx = lx + U * 4, cw = lw - U * 8;
@@ -187,9 +189,9 @@ static void draw_search(Home *h, float t)
 {
 	Yt *y = &yt;
 	if (y->state == Y_WATCH) { if (y->mode) draw_watch(h, t); else draw_page(h, t); return; }
-	parade_bg(t);
+	scene_bg(t);
 	float op = sg_smooth(s_age / 0.55f);                       /* the bar opens out from the middle */
-	float lx = W * 0.15f, lw = W * 0.70f, by = U * 5, bh = U * 7;
+	float lx = W * 0.05f, lw = W * 0.90f, by = U * 5, bh = U * 7;
 	float bx = W / 2 - lw * op / 2, bw = lw * op;
 	ui_card(bx, by, bw, bh, bh / 2, BLACK, 0.74f, 0.5f);
 	sg_rrect(&fb, bx, by, bw, bh, bh / 2, sg_max(1.5f, U * 0.18f), h->focus == 0 ? ACCENT : WHITE, h->focus == 0 ? 0.85f : 0.16f);
@@ -214,7 +216,9 @@ static void draw_search(Home *h, float t)
 	}
 	if (op > 0.98f) { float cx = lx; static const char *tb2[2] = {"WEB", "VIDEOS"};
 	  for (int i = 0; i < 2; i++) cx = ui_chip(cx, by + bh + U * 3.4f, tb2[i], U * 0.95f, i == y->mode ? INK : RGB(190, 190, 196), WHITE, i == y->mode ? 0.96f : 0.10f) + U * 1.0f; }
+	lw = W * 0.56f;                                            /* results keep to the left; the scene plays on the right */
 	float ry0 = by + bh + U * 7.4f, rh = y->mode ? U * 14.2f : U * 12.4f;
+	if (y->state == Y_RESULTS) ui_card(lx - U * 1.6f, ry0 - U * 1.2f, lw + U * 3.2f, H - ry0 - U * 13, U * 1.6f, BLACK, 0.62f, 0.45f);
 	if (y->state == Y_IDLE) {
 		static const char *ex[] = {"how operating systems boot", "linux from scratch", "weather", "lofi beats"};
 		cap_text(lx, ry0 + U * 2, "TRY", U * 1.0f, RGB(176, 176, 182), 1, 0);
@@ -233,7 +237,7 @@ static void draw_search(Home *h, float t)
 		sg_text(&fb, &FT, lx, ry0 + U * 6, y->err[0] ? y->err : "Something went wrong.", U * 2.6f, WHITE, 1, 0.01f);
 		sg_text(&fb, &FT, lx, ry0 + U * 11, "Press Enter to try again.", U * 2.0f, RGB(150, 150, 156), 1, 0.01f);
 	} else if (!y->mode) {
-		int vis = (int)((H - ry0 - U * 10) / rh), cnt = y->nw;
+		int vis = (int)((H - ry0 - U * 15) / rh), cnt = y->nw;
 		if (vis < 1) vis = 1;
 		if (y->sel >= cnt) y->sel = cnt - 1;
 		if (y->sel < y->top) y->top = y->sel;
@@ -252,9 +256,9 @@ static void draw_search(Home *h, float t)
 			char sn[2][160]; int m = ui_wrap(w->snip, U * 1.5f, cw, 2, sn);
 			for (int k = 0; k < m; k++) sg_text(&fb, &FT, cx, ry + U * 9.0f + k * U * 2.0f, sn[k], U * 1.5f, RGB(160, 160, 166), 1, 0.01f);
 		}
-		ui_scroll(W - U * 4, ry0, vis * rh, y->top, vis, cnt);
+		ui_scroll(lx + lw + U * 0.6f, ry0, vis * rh, y->top, vis, cnt);
 	} else {
-		int vis = (int)((H - ry0 - U * 10) / rh);
+		int vis = (int)((H - ry0 - U * 15) / rh);
 		if (vis < 1) vis = 1;
 		if (y->sel >= y->nv) y->sel = y->nv - 1;
 		if (y->sel < y->top) y->top = y->sel;
@@ -276,7 +280,7 @@ static void draw_search(Home *h, float t)
 			sg_text(&fb, &FT, cx, ty0 + U * 3.0f + n * U * 3.0f + U * 0.5f, mf, U * 1.5f, RGB(170, 170, 176), 1, 0.01f);
 			if (v->desc[0] && n < 2) { char df[220]; fit(v->desc, U * 1.45f, cw, df, sizeof df); sg_text(&fb, &FT, cx, ty0 + U * 3.0f + n * U * 3.0f + U * 3.6f, df, U * 1.45f, RGB(130, 130, 136), 1, 0.01f); }
 		}
-		ui_scroll(W - U * 4, ry0, vis * rh, y->top, vis, y->nv);
+		ui_scroll(lx + lw + U * 0.6f, ry0, vis * rh, y->top, vis, y->nv);
 	}
 	foot_hints(y->state == Y_RESULTS ? "TYPE  SEARCH      TAB  WEB OR VIDEOS      DOWN UP  PICK      ENTER  OPEN      ESC  HOME" : "TYPE  SEARCH      TAB  WEB OR VIDEOS      ENTER  GO      ESC  HOME");
 }
