@@ -7,4 +7,6 @@ audio:x:29:silver
 video:x:44:silver
 input:x:101:silver
 render:x:102:silver
+dbus:x:81:
+bluetooth:x:103:silver
 nogroup:x:65534:

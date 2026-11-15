@@ -16,16 +16,6 @@ grep -v '^\s*\(#\|$\)' "$TOP/firmware/wifi.list" | while read -r rel; do
   case "$rel" in intel/iwlwifi/*) cp "$fwsrc/$rel" "$fwdst/" ;; *) mkdir -p "$fwdst/$(dirname "$rel")"; cp "$fwsrc/$rel" "$fwdst/$rel" ;; esac
 done
 cp "$fwsrc/regulatory.db" "$fwsrc/regulatory.db.p7s" "$fwdst/"
-# graphics card firmware, from the linux-firmware tarball (older GSP firmware versions left out),
-# with the links its WHENCE file lists
-lf="linux-firmware-$FIRMWARE_TAG"; mapfile -t pats < <(grep -v '^\s*\(#\|$\)' "$TOP/firmware/gpu.list" | sed "s|^|$lf/|")
-tar -C "$fwdst" --strip-components=1 --wildcards --exclude='*gsp-535*' -xf "$SOURCES/$lf.tar.xz" "${pats[@]}"
-tar -xOf "$SOURCES/$lf.tar.xz" "$lf/WHENCE" | sed -n 's/^Link: \(.*\) -> \(.*\)$/\1 \2/p' | while read -r l t; do
-  top=$(echo "$l" | cut -d/ -f1-2); [[ $l == nvidia/* ]] || top=${l%%/*}
-  [[ -d "$fwdst/$top" && ! -e "$fwdst/$l" ]] || continue
-  mkdir -p "$fwdst/$(dirname "$l")"; ln -s "$t" "$fwdst/$l"
-  [[ -e "$fwdst/$l" ]] || rm "$fwdst/$l"                                # (points at something left out)
-done
 # kernel modules (Wi-Fi chips, graphics cards), each signed by this build's key
 rm -rf "$ROOTFS/lib/modules"; cp -a "$OUT/modules/lib/modules" "$ROOTFS/lib/"
 # where the games layer's programs expect things outside /usr (dangling without the layer)

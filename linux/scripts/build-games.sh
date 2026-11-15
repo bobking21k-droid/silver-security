@@ -30,6 +30,18 @@ if [[ -d "$t64/usr/lib" && -d "$t32/usr/lib" ]]; then
   for e in fonts X11 dbus-1 pulse udev ssl xdg; do [[ -e "$t64/etc/$e" ]] && cp -a "$t64/etc/$e" "$g/usr/etc-games/"; done
   printf '/usr/lib\n/usr/lib32\n/usr/lib32/dri\n' > "$g/usr/etc-games/ld.so.conf"
   cp -a "$TOP/games-overlay/usr/." "$g/usr/"
+  # graphics card and Bluetooth firmware (firmware/gpu.list), from the linux-firmware tarball
+  # (older GSP versions left out), with the links its WHENCE file lists; rc.boot points the
+  # kernel's firmware search here before it loads those drivers
+  fwdst="$g/usr/lib/firmware"; mkdir -p "$fwdst"; lf="linux-firmware-$FIRMWARE_TAG"
+  mapfile -t pats < <(grep -v '^\s*\(#\|$\)' "$TOP/firmware/gpu.list" | sed "s|^|$lf/|")
+  tar -C "$fwdst" --strip-components=1 --wildcards --exclude='*gsp-535*' -xf "$SOURCES/$lf.tar.xz" "${pats[@]}"
+  tar -xOf "$SOURCES/$lf.tar.xz" "$lf/WHENCE" | sed -n 's/^Link: \(.*\) -> \(.*\)$/\1 \2/p' | while read -r l t; do
+    top=$(echo "$l" | cut -d/ -f1-2); [[ $l == nvidia/* ]] || top=${l%%/*}
+    [[ -d "$fwdst/$top" && ! -e "$fwdst/$l" ]] || continue
+    mkdir -p "$fwdst/$(dirname "$l")"; ln -s "$t" "$fwdst/$l"
+    [[ -e "$fwdst/$l" ]] || rm "$fwdst/$l"                              # (points at something left out)
+  done
   [[ -d "$TOP/games-overlay/etc" ]] && cp -a "$TOP/games-overlay/etc/." "$g/usr/etc-games/"
   # the library cache, made here for the paths the running system will see
   mkdir -p "$g/etc"; cp "$g/usr/etc-games/ld.so.conf" "$g/etc/ld.so.conf"

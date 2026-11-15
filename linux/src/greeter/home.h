@@ -743,11 +743,13 @@ static void draw_about(Home *h)
 static float ui_t;                              /* seconds on the home screen clock */
 #include "apps.h"
 #include "wifi.h"
+#include "bt.h"
 
 /* ---------------------------------------------------------------- settings */
 static void draw_settings(Home *h, float t)
 {
 	if (h->sub == 1) { draw_network(h, t); return; }
+	if (h->sub == 2) { draw_bluetooth(h, t); return; }
 	memcpy(fb.px, bg_sec, (size_t)W * H * 4);
 	title_block("SETTINGS", "NETWORK  DISPLAY  SOUND  POWER", I_SETTINGS);
 	char net[80]; net_text(net, sizeof net);
@@ -755,22 +757,24 @@ static void draw_settings(Home *h, float t)
 	if (wf.ssid[0]) snprintf(net, sizeof net, "Wi-Fi  %.32s", wf.ssid);
 	else if (!strcmp(net, "not connected") && wf.adapters) snprintf(net, sizeof net, "Not connected  -  ENTER to pick Wi-Fi");
 	char disp[48]; snprintf(disp, sizeof disp, "%d x %d", W * scale, H * scale);
-	static const char *name[7] = {"Network", "Display", "Calm mode", "Sound effects", "About", "Restart", "Shut down"};
-	static const int ic[7] = {I_NET, I_SCREEN, I_SETTINGS, I_SOUND, I_INFO, I_POWER, I_POWER};
-	char val[7][80];
-	snprintf(val[0], 80, "%s", net); snprintf(val[1], 80, "%s", disp); snprintf(val[2], 80, "%s", h->calm_on ? "ON  -  no strobing or shaking" : "OFF");
-	snprintf(val[3], 80, "%s", h->mute_on ? "OFF  -  muted" : "ON");
-	snprintf(val[4], 80, "SilverOS 0.1.0"); snprintf(val[5], 80, "%s", h->confirm == 5 ? "PRESS ENTER AGAIN TO RESTART" : "Restart the computer");
-	snprintf(val[6], 80, "%s", h->confirm == 6 ? "PRESS ENTER AGAIN TO SHUT DOWN" : "Turn the computer off");
-	float lx = U * 6, lw = W - U * 12, ly = U * 23, rh = U * 7.0f;
-	ui_frost(lx - U * 1.2f, ly - U * 1.2f, lw + U * 2.4f, 7 * (rh + U * 0.6f) + U * 1.6f, U * 2.2f, 0.55f);
-	for (int i = 0; i < 7; i++) {
-		float y = ly + i * (rh + U * 0.6f); int sel = i == h->row, danger = i >= 5;
+	static const char *name[8] = {"Network", "Bluetooth", "Display", "Calm mode", "Sound effects", "About", "Restart", "Shut down"};
+	static const int ic[8] = {I_NET, I_SOUND, I_SCREEN, I_SETTINGS, I_SOUND, I_INFO, I_POWER, I_POWER};
+	char val[8][80];
+	snprintf(val[0], 80, "%s", net);
+	{ int c = 0; for (int i = 0; i < bt.n; i++) c += bt.d[i].connected; if (c) snprintf(val[1], 80, "%d connected", c); else snprintf(val[1], 80, "Pair headphones, controllers ..."); }
+	snprintf(val[2], 80, "%s", disp); snprintf(val[3], 80, "%s", h->calm_on ? "ON  -  no strobing or shaking" : "OFF");
+	snprintf(val[4], 80, "%s", h->mute_on ? "OFF  -  muted" : "ON");
+	snprintf(val[5], 80, "SilverOS 0.1.0"); snprintf(val[6], 80, "%s", h->confirm == 6 ? "PRESS ENTER AGAIN TO RESTART" : "Restart the computer");
+	snprintf(val[7], 80, "%s", h->confirm == 7 ? "PRESS ENTER AGAIN TO SHUT DOWN" : "Turn the computer off");
+	float lx = U * 6, lw = W - U * 12, ly = U * 22, rh = U * 6.3f;
+	ui_frost(lx - U * 1.2f, ly - U * 1.2f, lw + U * 2.4f, 8 * (rh + U * 0.6f) + U * 1.6f, U * 2.2f, 0.55f);
+	for (int i = 0; i < 8; i++) {
+		float y = ly + i * (rh + U * 0.6f); int sel = i == h->row, danger = i >= 6;
 		if (sel) { sg_rrect(&fb, lx, y, lw, rh, U * 1.4f, 0, WHITE, 0.95f); sg_rrect(&fb, lx + U * 0.7f, y + rh * 0.25f, U * 0.45f, rh * 0.5f, U * 0.22f, 0, RED, 1); }
 		else if (i) sg_rect(&fb, lx + U * 3, y - U * 0.3f, lw - U * 6, sg_max(1, U * 0.08f), WHITE, 0.08f);
 		uint32_t fg = sel ? INK : WHITE;
-		if (i == 2 || i == 3) {                                              /* on/off switches */
-			int on = i == 2 ? h->calm_on : !h->mute_on;
+		if (i == 3 || i == 4) {                                              /* on/off switches */
+			int on = i == 3 ? h->calm_on : !h->mute_on;
 			float sw = U * 5.4f, shh = U * 2.8f, sx = lx + lw - U * 3 - sw, sy = y + rh / 2 - shh / 2;
 			sg_rrect(&fb, sx, sy, sw, shh, shh / 2, 0, on ? RED : (sel ? RGB(170, 170, 176) : RGB(70, 70, 76)), 1);
 			sg_disc(&fb, on ? sx + sw - shh / 2 : sx + shh / 2, sy + shh / 2, shh * 0.38f, WHITE, 1);
