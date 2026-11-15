@@ -5,12 +5,12 @@
 # has it on the stick. Without it SilverOS works as before, and the Game Store says so.
 img=/boot/games.sqfs
 if [ ! -f "$img" ]; then
-  mkdir -p /run/silver-media
+  mkdir -p /run/silver-gmedia
   for dev in /dev/sr* /dev/sd? /dev/nvme?n? /dev/vd? /dev/mmcblk?; do
     [ -b "$dev" ] || continue
-    if mount -o ro -t iso9660 "$dev" /run/silver-media 2>/dev/null; then
-      [ -f /run/silver-media/boot/silver/SILVEROS_MEDIA ] && [ -f /run/silver-media/boot/games.sqfs ] && { img=/run/silver-media/boot/games.sqfs; break; }
-      umount /run/silver-media
+    if mount -o ro -t iso9660 "$dev" /run/silver-gmedia 2>/dev/null; then
+      [ -f /run/silver-gmedia/boot/silver/SILVEROS_MEDIA ] && [ -f /run/silver-gmedia/boot/games.sqfs ] && { img=/run/silver-gmedia/boot/games.sqfs; break; }
+      umount /run/silver-gmedia
     fi
   done
 fi
