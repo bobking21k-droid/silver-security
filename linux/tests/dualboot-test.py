@@ -150,18 +150,19 @@ for c in ["od -An -tx1 /sys/firmware/efi/efivars/SilverMute-6c5c3c2e-6b0a-4f3c-9
 print("== 3b. Wi-Fi: join the test access point from Settings > Network")
 vm.send("su -c 'mkdir -p /run/ap; mount -o ro $(findfs LABEL=TESTAP) /run/ap && /run/ap/ap.sh'"); vm.expect("Password:"); vm.send("Admin#Test12")
 print(strip(vm.expect(r"~\$ ", 30)))
-vm.send("exit"); time.sleep(6); vm.key("spc"); time.sleep(4); vm.shot("home-again")          # back to the home screen (intro skipped)
+for k in "exit": vm.key(k)
+vm.key("ret"); time.sleep(6); vm.key("spc"); time.sleep(4); vm.shot("home-again")          # leave the on-screen terminal: back to the home screen (intro skipped)
 vm.key("ret"); time.sleep(2); vm.key("ret"); time.sleep(10); vm.shot("network")            # Settings > Network: SilverTest listed
 vm.key("ret"); time.sleep(0.3)
 for ch in "silverpass1": vm.key(ch); time.sleep(0.15)
 time.sleep(1); vm.shot("network-password")
 vm.key("ret"); time.sleep(15); vm.shot("network-joined")
 vm.changed("network", "network-password"); vm.changed("network-password", "network-joined")
-vm.key("esc"); time.sleep(1); vm.key("esc"); time.sleep(1.5); vm.key("down"); time.sleep(0.8); vm.key("ret"); time.sleep(2); vm.key("ret"); time.sleep(5)
-vm.send("silver"); vm.expect(r"~\$ ")
+vm.key("esc"); time.sleep(1); vm.key("esc"); time.sleep(1.5); vm.key("down"); time.sleep(0.8); vm.key("ret"); time.sleep(2); vm.key("ret"); time.sleep(5)   # Terminal again, for the reboot
 for c in ["ip -4 addr show wlan0 | grep inet", "ping -c 1 -W 3 10.42.0.1 | grep -c 'bytes from'", "id"]:
     vm.send(c); out = strip(vm.expect(r"~\$ ")); print(out)
-    if "inet 10.42.0." in out: print("   Wi-Fi joined: got an address from the test access point")
+    if c.startswith("ip ") and "inet 10.42.0." not in out: vm.fail("Wi-Fi: no address from the test access point")
+    if c.startswith("ip "): print("   Wi-Fi joined: got an address from the test access point")
 vm.send("su -c 'grep -c SilverTest /etc/wpa_supplicant/wpa_supplicant.conf'"); vm.expect("Password:"); vm.send("Admin#Test12"); print(strip(vm.expect(r"~\$ ")))
 vm.send("su -c reboot"); vm.expect("Password:"); vm.send("Admin#Test12")
 print("== 4. reboot, choose Windows")
