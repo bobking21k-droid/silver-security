@@ -722,10 +722,15 @@ static const struct { float t; int k; } SCRIPT[] = {
 	{50.2f, K_DOWN}, {50.9f, K_ENTER},                                                                        /* Apps */
 	{52.0f, K_RIGHT}, {52.8f, K_ENTER}, {54.0f, K_ENTER},                                                     /* App Store: get btop */
 	{58.4f, K_DOWN}, {59.0f, K_DOWN}, {60.4f, K_ESC},                                                         /* micro is installed */
-	{61.4f, K_RIGHT}, {62.2f, K_ENTER}, {67.6f, K_ESC},                                                       /* Me and my PC */
-	{68.6f, K_DOWN}, {69.8f, K_ESC},
+	{61.2f, K_RIGHT}, {62.0f, K_ENTER},                                                                       /* Game Store: three stores */
+	{63.2f, K_RIGHT}, {64.4f, K_RIGHT}, {65.6f, K_LEFT}, {66.6f, K_LEFT}, {67.4f, K_ENTER},                  /* SilverOS games */
+	{68.4f, K_RIGHT}, {69.2f, K_LEFT}, {70.0f, K_ENTER},                                                      /* play Snake */
+	{70.6f, K_DOWN}, {71.4f, K_RIGHT}, {72.2f, K_UP}, {73.0f, K_RIGHT}, {74.0f, K_ESC}, {74.8f, K_ESC},
+	{75.6f, K_RIGHT}, {76.4f, K_ENTER}, {78.0f, K_RIGHT}, {78.8f, K_DOWN}, {79.6f, K_ENTER}, {80.8f, 'w'}, {82.4f, K_ESC}, {83.2f, K_ESC},   /* Steam */
+	{84.0f, K_RIGHT}, {84.8f, K_ENTER}, {86.4f, K_RIGHT}, {87.2f, K_ENTER}, {89.4f, K_ESC}, {90.2f, K_ESC}, {91.0f, K_ESC},                   /* Microsoft Store */
+	{91.8f, K_RIGHT}, {92.6f, K_ENTER}, {96.2f, K_ESC}, {97.0f, K_ESC},                                       /* Me and my PC */
 };
-#define SCRIPT_END 71.0f
+#define SCRIPT_END 98.5f
 #endif
 
 static void home_loop(Home *h)

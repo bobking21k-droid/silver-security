@@ -310,14 +310,15 @@ static void pc_read(PcInfo *p, const Sys *sy)
 typedef struct { const char *name, *desc; int icon, action; } AppTile;    /* action: 0 terminal 1 store 2 pc 3 monitor 4 about, 100+i catalog app */
 static int app_tiles(AppTile *t, int max)
 {
-	static const AppTile fixed[5] = {
+	static const AppTile fixed[6] = {
 		{"Terminal", "A command line. Type exit to come back.", I_TERM, 0},
 		{"App Store", "Get apps. Checked before they install.", I_STORE, 1},
+		{"Game Store", "Play here, or browse Steam and the Microsoft Store.", I_GAME, 5},
 		{"Me and my PC", "You, and everything inside this computer.", I_PC, 2},
 		{"System Monitor", "Live CPU and memory.", I_MONITOR, 3},
 		{"About SilverOS", "Version and install notes.", I_INFO, 4}};
 	int n = 0;
-	for (int i = 0; i < 5 && n < max; i++) t[n++] = fixed[i];
+	for (int i = 0; i < 6 && n < max; i++) t[n++] = fixed[i];
 	for (int i = 0; i < NCAT && n < max; i++) if (app_installed(i)) t[n++] = (AppTile){CATALOG[i].name, CATALOG[i].tag, -1, 100 + i};
 	return n;
 }
@@ -326,8 +327,8 @@ static int app_tiles(AppTile *t, int max)
 static void draw_app_grid(Home *h, float t)
 {
 	memcpy(fb.px, bg_sec, (size_t)W * H * 4);
-	title_block("APPS", "YOUR APPS  -  GET MORE IN THE APP STORE", I_APPS);
-	AppTile tl[5 + NCAT]; int n = app_tiles(tl, 5 + NCAT);
+	title_block("APPS", "YOUR APPS  -  GAMES  -  GET MORE IN THE APP STORE", I_APPS);
+	AppTile tl[6 + NCAT]; int n = app_tiles(tl, 6 + NCAT);
 	if (h->row >= n) h->row = n - 1;
 	float lx = U * 6, top = U * 24, gap = U * 2.2f, tw = (W - U * 12 - gap * (GRID_C - 1)) / GRID_C, th = U * 19;
 	int rows = (int)((H - U * 10 - top + gap) / (th + gap)), srow = h->row / GRID_C;
@@ -500,9 +501,13 @@ static void draw_mypc(Home *h, float t)
 	foot_hints("ESC  back to apps");
 }
 
+#include "gstore.h"
+
 /* keys for the whole Apps pane; returns 1 if it used the key */
 static int apps_key(Home *h, int k, float t)
 {
+	if (h->sub == 6) { if (game_key(k)) h->sub = 5; return 1; }            /* playing a SilverOS game */
+	if (h->sub == 5) { int play = 0; if (gstore_key(k, &play)) { h->sub = 0; h->row = h->sub_from; } else if (play) h->sub = 6; return 1; }
 	if (h->sub == 1 || h->sub == 2 || h->sub == 4) { if (k == K_ESC || k == K_BACK || k == K_LEFT) { h->sub = 0; h->row = h->sub_from; } return 1; }
 	if (h->sub == 3) {                                                     /* the App Store */
 		if (k == K_ESC || k == K_BACK) { h->sub = 0; h->row = h->sub_from; return 1; }
@@ -514,7 +519,7 @@ static int apps_key(Home *h, int k, float t)
 		} else if ((k == 'u' || k == 'U') && app_installed(h->row)) app_remove(h->row);
 		return 1;
 	}
-	AppTile tl[5 + NCAT]; int n = app_tiles(tl, 5 + NCAT);
+	AppTile tl[6 + NCAT]; int n = app_tiles(tl, 6 + NCAT);
 	if (k == K_ESC || k == K_BACK) { h->screen = 0; h->fade = 0; return 1; }
 	if (k == K_LEFT && h->row > 0) h->row--;
 	else if (k == K_RIGHT && h->row + 1 < n) h->row++;
@@ -529,6 +534,7 @@ static int apps_key(Home *h, int k, float t)
 		else if (act == 2) { h->sub = 4; pc.last = 0; }
 		else if (act == 3) h->sub = 1;
 		else if (act == 4) h->sub = 2;
+		else if (act == 5) { h->sub = 5; scores_load(); gs.open = 0; gs.focus = 1; }
 		else app_launch(CATALOG[act - 100].cmd);
 	}
 	return 1;
@@ -541,6 +547,8 @@ static void draw_apps(Home *h, float t)
 	case 2: draw_about(h); break;
 	case 3: draw_store(h, t); break;
 	case 4: draw_mypc(h, t); break;
+	case 5: draw_gstore(h, t); break;
+	case 6: { static float last; float dt = last > 0 && t > last ? t - last : 0; if (dt > 0.1f) dt = 0.1f; last = t; game_update(dt); game_draw(); break; }
 	default: draw_app_grid(h, t); break;
 	}
 }

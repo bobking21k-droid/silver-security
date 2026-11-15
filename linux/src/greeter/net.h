@@ -56,7 +56,7 @@ static void job_free(Job *j) { if (j->active && !j->done) { kill(j->pid, SIGKILL
 #define TW 160
 #define TH 90
 typedef struct { char id[16]; uint8_t *rgb; int w, h, state; Job job; int wide; } Thumb;       /* state 0 none 1 loading 2 ready 3 failed */
-#define MAXTHUMB 40
+#define MAXTHUMB 96
 static Thumb thumbs[MAXTHUMB];
 
 static uint8_t *scale_rgb(const uint8_t *src, int sw, int sh, int cx, int cy, int cw, int ch, int dw, int dh)
@@ -85,7 +85,10 @@ static Thumb *thumb_get(const char *id, int wide)
 	return 0;
 }
 /* ask for a thumbnail (once); wide = the larger one for the watch page */
-static Thumb *thumb_want(const char *id, int wide, const char *fetch)
+static Thumb *thumb_want_url(const char *id, int wide, const char *fetch, const char *src);
+static Thumb *thumb_want(const char *id, int wide, const char *fetch) { return thumb_want_url(id, wide, fetch, 0); }
+/* any picture by address (game art), cached under `id` */
+static Thumb *thumb_want_url(const char *id, int wide, const char *fetch, const char *src)
 {
 	Thumb *t = thumb_get(id, wide);
 	if (t) return t;
@@ -95,7 +98,9 @@ static Thumb *thumb_want(const char *id, int wide, const char *fetch)
 	t = &thumbs[slot]; memset(t, 0, sizeof *t);
 	snprintf(t->id, sizeof t->id, "%s", id); t->wide = wide;
 	if (!fetch || !fetch[0]) { t->state = 3; return t; }
-	char url[160]; snprintf(url, sizeof url, "https://i.ytimg.com/vi/%s/%s.jpg", id, wide ? "hqdefault" : "mqdefault");
+	char url[400];
+	if (src) snprintf(url, sizeof url, "%s", src);
+	else snprintf(url, sizeof url, "https://i.ytimg.com/vi/%s/%s.jpg", id, wide ? "hqdefault" : "mqdefault");
 	char *argv[] = {(char *)fetch, "-q", "-m", "400000", url, 0};
 	job_start(&t->job, argv, 400000);
 	t->state = t->job.active ? 1 : 3;
@@ -117,7 +122,8 @@ static void thumb_poll(void)
 			uint8_t *px = stbi_load_from_memory((const uint8_t *)t->job.buf, (int)t->job.n, &w, &h, &c, 3);
 			if (px) {
 				int cx = 0, cy = 0, cw = w, chh = h;
-				if (t->wide && h * 16 > w * 9) { chh = w * 9 / 16; cy = (h - chh) / 2; }    /* hqdefault has black bars */
+				if (h * 16 > w * 9) { chh = w * 9 / 16; cy = (h - chh) / 2; }                  /* cut to 16:9: hqdefault's black bars, square box art */
+				else if (w * 9 > h * 16) { cw = h * 16 / 9; cx = (w - cw) / 2; }                /* Steam's wide headers */
 				t->rgb = scale_rgb(px, w, h, cx, cy, cw, chh, t->wide ? 320 : TW, t->wide ? 180 : TH);
 				t->w = t->wide ? 320 : TW; t->h = t->wide ? 180 : TH;
 				if (t->rgb) t->state = 2;
@@ -129,9 +135,11 @@ static void thumb_poll(void)
 }
 
 /* draw a thumbnail (or a tinted placeholder) with rounded corners */
-static void thumb_draw(const char *id, int wide, const char *fetch, float x, float y, float w, float h, float r)
+static void thumb_paint(Thumb *t, const char *id, float x, float y, float w, float h, float r);
+static void thumb_draw(const char *id, int wide, const char *fetch, float x, float y, float w, float h, float r) { thumb_paint(thumb_want(id, wide, fetch), id, x, y, w, h, r); }
+static void thumb_draw_url(const char *id, const char *url, int wide, const char *fetch, float x, float y, float w, float h, float r) { thumb_paint(thumb_want_url(id, wide, fetch, url), id, x, y, w, h, r); }
+static void thumb_paint(Thumb *t, const char *id, float x, float y, float w, float h, float r)
 {
-	Thumb *t = thumb_want(id, wide, fetch);
 	if (t && t->state == 2) {
 		for (int py = 0; py < (int)h; py++) {
 			int sy = fb.cy0 > (int)y + py ? -1 : (int)y + py;

@@ -268,7 +268,7 @@ static void bake_home(void)
 
 /* ================================================================ icons */
 enum { I_SETTINGS, I_SEARCH, I_APPS, I_FILES, I_FOLDER, I_FILE, I_TERM, I_MONITOR, I_INFO, I_POWER,
-       I_STORE, I_PC, I_CHIP, I_RAM, I_DISK, I_SCREEN, I_NET, I_BATTERY, I_SOUND, I_DOWNLOAD, I_USER };
+       I_STORE, I_PC, I_CHIP, I_RAM, I_DISK, I_SCREEN, I_NET, I_BATTERY, I_SOUND, I_DOWNLOAD, I_USER, I_GAME };
 static void icon(int kind, float cx, float cy, float r, uint32_t c, float a)
 {
 	float sw = sg_max(1.6f, r * 0.15f);
@@ -386,6 +386,12 @@ static void icon(int kind, float cx, float cy, float r, uint32_t c, float a)
 		sg_line(&fb, (V2){cx - r * 0.42f, cy - r * 0.15f}, (V2){cx, cy + r * 0.28f}, sw * 1.2f, c, a);
 		sg_line(&fb, (V2){cx + r * 0.42f, cy - r * 0.15f}, (V2){cx, cy + r * 0.28f}, sw * 1.2f, c, a);
 		sg_line(&fb, (V2){cx - r * 0.8f, cy + r * 0.75f}, (V2){cx + r * 0.8f, cy + r * 0.75f}, sw * 1.2f, c, a);
+		break;
+	case I_GAME:                                                          /* a game controller */
+		sg_rrect(&fb, cx - r * 0.95f, cy - r * 0.45f, r * 1.9f, r * 0.95f, r * 0.42f, 0, c, a);
+		sg_rect(&fb, cx - r * 0.62f, cy - r * 0.07f, r * 0.42f, r * 0.14f, BLACK, a * 0.7f);
+		sg_rect(&fb, cx - r * 0.48f, cy - r * 0.21f, r * 0.14f, r * 0.42f, BLACK, a * 0.7f);
+		sg_disc(&fb, cx + r * 0.42f, cy - r * 0.1f, r * 0.1f, BLACK, a * 0.7f); sg_disc(&fb, cx + r * 0.62f, cy + r * 0.1f, r * 0.1f, BLACK, a * 0.7f);
 		break;
 	case I_USER:
 		sg_disc(&fb, cx, cy - r * 0.35f, r * 0.38f, c, a);

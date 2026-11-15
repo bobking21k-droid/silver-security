@@ -110,8 +110,12 @@ vm.key("esc"); time.sleep(1.5); vm.key("left"); time.sleep(0.8); vm.key("ret"); 
 for k in ["down", "down", "down"]: vm.key(k); time.sleep(0.5)
 vm.key("ret"); time.sleep(1.5); vm.shot("settings-sound-off")                      # Sound effects off (also for the boot chooser)
 vm.key("esc"); time.sleep(1.5); vm.key("down"); time.sleep(0.8); vm.key("ret"); time.sleep(2.5); vm.shot("apps")
-vm.key("right"); time.sleep(0.5); vm.key("right"); time.sleep(0.5); vm.key("ret"); time.sleep(3); vm.shot("me-and-my-pc")
-vm.key("esc"); time.sleep(1); vm.key("left"); time.sleep(0.5); vm.key("ret"); time.sleep(2); vm.shot("app-store")
+vm.key("right"); time.sleep(0.5); vm.key("right"); time.sleep(0.5); vm.key("ret"); time.sleep(2); vm.shot("game-store")     # three stores
+vm.key("ret"); time.sleep(1.5); vm.key("ret"); time.sleep(2); vm.key("down"); time.sleep(1); vm.shot("game-snake")         # play Snake
+vm.key("esc"); time.sleep(1); vm.key("esc"); time.sleep(1); vm.key("right"); time.sleep(0.5); vm.key("ret"); time.sleep(8); vm.shot("game-steam")
+vm.key("esc"); time.sleep(1); vm.key("esc"); time.sleep(1)
+vm.key("right"); time.sleep(0.5); vm.key("ret"); time.sleep(3); vm.shot("me-and-my-pc")
+vm.key("esc"); time.sleep(1); vm.key("left"); time.sleep(0.5); vm.key("left"); time.sleep(0.5); vm.key("ret"); time.sleep(2); vm.shot("app-store")
 vm.key("ret"); time.sleep(12); vm.shot("app-store-get")                            # no internet in this test: it must fail cleanly
 vm.key("esc"); time.sleep(1); vm.key("left"); time.sleep(0.8)
 vm.key("ret"); time.sleep(5); vm.shot("terminal")                                  # Terminal: a shell on tty1, as the user
