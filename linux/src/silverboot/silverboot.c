@@ -40,6 +40,13 @@ void *sb_alloc(size_t bytes)
 
 #include "scenes.h"
 
+static void *sb_zalloc(size_t n) { void *p = sb_alloc(n); if (p) memset(p, 0, n); return p; }
+#define SFX_ALLOC(n) sb_zalloc(n)
+#define SFX_FREE(p) BS->FreePool(p)
+#include "bootsfx.h"
+#include "hda.h"
+static BootSfx snd;
+
 static inline uint64_t rdtsc(void) { uint32_t lo, hi; __asm__ volatile("rdtsc" : "=a"(lo), "=d"(hi)); return ((uint64_t)hi << 32) | lo; }
 static float tsc_per_sec;
 static float since(uint64_t s) { return (float)(rdtsc() - s) / tsc_per_sec; }
@@ -155,8 +162,8 @@ static void *file_path(EFI_HANDLE dev, CHAR16 *path)
 static void play(int (*frame)(Surf *, float))
 {
 	uint64_t start = rdtsc();
-	while (!frame(&fb, since(start))) { present(); BS->Stall(4000); }
-	present();
+	while (!frame(&fb, since(start))) { present(); hda_pump(); BS->Stall(4000); }
+	present(); hda_pump();
 }
 static SysInfo sysinfo;
 static int checks_scene(Surf *s, float t) { return checks_frame(s, t, &sysinfo); }
@@ -167,11 +174,17 @@ static const char *launch(CHAR16 *path, int silver)
 	EFI_HANDLE dev = find_volume(path), img;
 	void *dp = dev ? file_path(dev, path) : 0;
 	if (!dp) return silver ? "SilverOS boot files are missing" : "Windows Boot Manager was not found";
+	sfx_stop(&hda_player, &snd.amb);
 	if (silver) {
+		probe(&sysinfo, 1);
+		sfx_play(&hda_player, &snd.go, 1, 0); sfx_play(&hda_player, &snd.trans, 1, 0);
 		trans_begin(&fb); play(trans_frame);
-		probe(&sysinfo, 1); play(checks_scene);
+		play(checks_scene);
+		hda_stop(0.4f);
 	} else {
+		sfx_play(&hda_player, &snd.shatter, 1, 0);
 		shatter_begin(&fb); play(shatter_frame);
+		hda_stop(0.6f);
 	}
 	if (BS->LoadImage(0, Self, dp, 0, 0, &img) != EFI_SUCCESS) return "That system could not be loaded";
 	BS->StartImage(img, 0, 0);
@@ -211,6 +224,9 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE *st)
 	static Chooser c;
 	c.windows_found = find_volume(WINDOWS_LOADER) != 0;
 	chooser_init(&c);
+	bootsfx_build(&snd, 1, calm);                            /* all the sounds, made now (well under a second) */
+	if (hda_start()) sfx_play(&hda_player, &snd.amb, 0.7f, 1);
+	int last_sel = c.sel, last_count = (int)(c.countdown + 0.999f);
 	uint64_t last = rdtsc();
 	for (;;) {
 		uint64_t now = rdtsc();
@@ -255,6 +271,9 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE *st)
 			if (click) go = c.sel;
 		}
 		chooser_update(&c, dt);
+		if (c.sel != last_sel) { sfx_play(&hda_player, c.sel ? &snd.to_r : &snd.to_l, 0.9f, 0); last_sel = c.sel; }
+		if (c.counting) { int cnt = (int)(c.countdown + 0.999f); if (cnt != last_count && cnt > 0) sfx_play(&hda_player, &snd.tick, 0.8f, 0); last_count = cnt; }
+		hda_pump();
 		if (c.counting && c.countdown <= 0) go = 0;
 		chooser_draw(&fb, &c);
 		present();
@@ -263,6 +282,7 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE *st)
 			chooser_draw(&fb, &c);
 			const char *err = launch(go == 0 ? SILVER_LOADER : WINDOWS_LOADER, go == 0);
 			chooser_init(&c);                                 /* we are back: show why, wait for a choice */
+			if (hda_start()) sfx_play(&hda_player, &snd.amb, 0.7f, 1);
 			c.err = err; c.counting = 0; c.real_t = 1;
 			last = rdtsc();
 		}

@@ -32,13 +32,23 @@ reference, not its content.)
    panes that light up as **Settings, Search, Apps and Files**. The intro plays once per boot;
    any key skips it. Add `silver.calm` to the kernel command line (or turn on Calm mode in
    Settings) to turn off its shake and flashes.
-   **Sound:** the intro has its own sound effects, synthesised at start-up (no sound files) and
-   played straight through the kernel's ALSA interface: a heartbeat, a rising whoosh, wood
-   creaking, the snap with a deep boom, glass shattering, cracks ticking and a soft chord as the
-   panes light up (`src/greeter/sound.h`). It needs a sound card the kernel drives: Intel HD
-   Audio with the common codecs (Realtek, Conexant, Analog, Cirrus, HDMI) or USB audio. Calm
-   mode plays it quieter, without the boom. The boot chooser and the fake Windows run before
-   Linux, in UEFI firmware, so they are silent.
+   **Sound:** everything has sound effects, all made by code at boot (no sound files):
+   - the chooser: a low breathing drone, a whoosh and click (or a soft chime) as you move
+     between the sides, a tick each second of the countdown, a deep thump on Enter;
+   - the fake Windows: a soft start-up bloom (an original chime), a tape stop as it flips, a
+     sinking, crackling drone as it melts, electric zaps on the flashes; the system check
+     ticks, rattles and beeps "OK" over a heartbeat; picking Windows sounds like glass breaking;
+   - the intro: a heartbeat, a rising whoosh, wood creaking, the snap with a deep boom, glass
+     shattering, cracks ticking and a soft chord as the panes light up;
+   - the home screen and every section: clicks as you move, whooshes as you open and go back,
+     key taps as you type, a two-note chime when search results arrive, a low buzz on errors.
+
+   The chooser runs before any operating system, so silverboot has its own small Intel HD Audio
+   driver (`src/silverboot/hda.h`); it resets the controller before Linux or Windows starts.
+   In Linux the greeter plays through the kernel's ALSA interface directly
+   (`src/greeter/sound.h`, sounds in `src/common/sfx.h`). It needs Intel HD Audio with a
+   common codec (Realtek, Conexant, Analog, Cirrus, HDMI) or, in Linux only, USB audio.
+   Calm mode plays the big moments quieter and without the booms.
 4. **The home screen** (`src/greeter/home.h`): arrow keys choose a pane (the chosen one turns
    to white glass), Enter opens it, Esc comes back. Every section works:
    - **Files**: browse your home folder (Enter opens a folder, Backspace goes up) with a text

@@ -90,7 +90,6 @@ static int key_waiting(void) { struct pollfd p = {tty_fd, POLLIN, 0}; return pol
 #define STBI_NO_LINEAR
 #include "../common/stb_image.h"
 #include "home.h"
-#include "sound.h"
 
 static void restore_tty(void)
 {
@@ -296,6 +295,7 @@ static void home_init(Home *h)
 #define T_SNAP 1.95f
 #define T_OPEN 3.10f
 #define T_END 3.95f
+#include "sound.h"
 
 /* after the snap, time runs slow for a moment (the SUPERHOT beat), then catches up */
 static float slowmo(float ct) { return ct < 0 ? ct : ct < 0.55f ? ct * 0.30f : 0.165f + (ct - 0.55f) * 1.25f; }
@@ -306,19 +306,12 @@ static void intro(Home *h)
 	enum { NS = 34 };
 	static struct { float vx, vy, spin, size, kind; } sp[NS];
 	for (int i = 0; i < NS; i++) sp[i] = (typeof(sp[0])){(sg_frand() - .5f) * 2.4f, -0.4f - sg_frand() * 1.4f, (sg_frand() - .5f) * 16, 0.3f + sg_frand() * 0.9f, sg_frand()};
-#ifndef RENDER
-	pid_t snd = intro_sound_start(T_DOT, T_PEN, T_SNAP, T_OPEN, T_END, calm);
-#endif
+	snd('I');
 	double t0 = now();
 	for (;;) {
 		float t = (float)(now() - t0), ct = t - T_SNAP, st = slowmo(ct);
 		if (t > T_END) break;
-		if (key_waiting()) {                                  /* skipped: stop the sound too */
-#ifndef RENDER
-			if (snd > 0) { kill(snd, SIGTERM); waitpid(snd, NULL, 0); }
-#endif
-			break;
-		}
+		if (key_waiting()) { snd('x'); break; }               /* skipped: stop the sound too */
 		sg_clear(&fb, BLACK);
 		float open = sg_sat((t - T_OPEN) / 0.75f);
 		/* a cold light from above, and dust hanging in it, before the glass appears */
@@ -647,6 +640,23 @@ static void handle_key(Home *h, int k)
 	}
 }
 
+/* every key press makes a sound that fits what it did */
+static void handle_key_snd(Home *h, int k)
+{
+	Home o = *h; Yt yo; memcpy(&yo, &yt, sizeof yo);
+	char cwd0[256]; snprintf(cwd0, sizeof cwd0, "%s", cwd);
+	char fq0[64]; snprintf(fq0, sizeof fq0, "%s", h->sr.q);
+	handle_key(h, k);
+	if (h->screen != o.screen) snd(h->screen ? 'o' : 'b');
+	else if (yt.state != yo.state && (yt.state == Y_WATCH || yo.state == Y_WATCH)) snd(yt.state == Y_WATCH ? 'o' : 'b');
+	else if (h->fs != o.fs || h->sub != o.sub) snd((h->fs > o.fs || h->sub > o.sub) ? 'o' : 'b');
+	else if (strcmp(cwd, cwd0)) snd(strlen(cwd) > strlen(cwd0) ? 'o' : 'b');
+	else if (strcmp(yt.q, yo.q) || strcmp(h->sr.q, fq0)) snd('k');
+	else if (yt.state == Y_LOADING && yo.state != Y_LOADING) snd('o');
+	else if (h->sel != o.sel || h->row != o.row || h->focus != o.focus || yt.sel != yo.sel || yt.mode != yo.mode || h->fs_scope != o.fs_scope) snd('m');
+	else if (h->calm_on != o.calm_on || h->confirm != o.confirm) snd('o');
+}
+
 static void sample_sys(Home *h, float t)
 {
 	if (t - h->last_sample < 0.5f) return;
@@ -660,7 +670,7 @@ static void home_frame(Home *h, float t, float dt)
 {
 	for (int q = 0; q < 4; q++) h->blend[q] += (((h->screen == 0 && q == h->sel) ? 1.f : 0.f) - h->blend[q]) * sg_min(1, dt * 11);
 	h->fade = sg_min(1, h->fade + dt * 6);
-	yt_poll(&yt);
+	{ int before = yt.state; yt_poll(&yt); if (before == Y_LOADING && yt.state == Y_RESULTS) snd('r'); else if (before == Y_LOADING && yt.state == Y_ERROR) snd('e'); }
 	s_age += dt;
 	if (h->fs) search_tick(&h->sr, 0.004);
 	switch (h->screen) {
@@ -705,11 +715,11 @@ static void home_loop(Home *h)
 		float t = (float)(tn - t0), dt = (float)(tn - last);
 		last = tn;
 #ifdef RENDER
-		while (si < sizeof SCRIPT / sizeof SCRIPT[0] && SCRIPT[si].t <= t) handle_key(h, SCRIPT[si++].k);
+		while (si < sizeof SCRIPT / sizeof SCRIPT[0] && SCRIPT[si].t <= t) handle_key_snd(h, SCRIPT[si++].k);
 		if (t > SCRIPT_END) return;
 #else
 		int k;
-		while ((k = read_key(0)) != -1) handle_key(h, k);
+		while ((k = read_key(0)) != -1) handle_key_snd(h, k);
 #endif
 		home_frame(h, t, dt > 0.2f ? 0.2f : dt);
 		flip();
@@ -747,6 +757,7 @@ static void run_session(void)
 	}
 	kill(pid, SIGKILL); waitpid(pid, NULL, 0);
 	restore_tty();
+	snd('q'); if (snd_fd >= 0) close(snd_fd);
 	execl("/bin/login", "login", "-f", user, (char *)NULL);
 	_exit(1);
 }
@@ -762,7 +773,6 @@ int main(int argc, char **argv)
 		 W, H, argc > 1 ? argv[1] : "greeter.mp4");
 	outpipe = popen(cmd, "w");
 	{ const char *f = getenv("SILVER_FETCH"); if (f) snprintf(yt.fetch, sizeof yt.fetch, "%s", f); }
-	{ const char *f = getenv("SILVER_SOUND_OUT"); if (f) intro_sound_wav(f, T_DOT, T_PEN, T_SNAP, T_OPEN, T_END, 0); }
 	gen_cracks(); bake_home();
 	Home h; home_init(&h);
 	if (argc > 4) {                                   /* the password card, over the cracked glass */
@@ -772,6 +782,24 @@ int main(int argc, char **argv)
 	intro(&h);
 	home_loop(&h);
 	pclose(outpipe);
+	const char *wav = getenv("SILVER_SOUND_OUT");
+	if (wav) {                                         /* the sound of the whole demo, from what was asked for */
+		UiSfx ui; ui_sfx_build(&ui, 0);
+		SfxClip intro = {0, 0}; { int16_t *s = 0; intro.n = intro_track(&s, INTRO_TIMES, 0); intro.s = s; }
+		int n = (int)(fake_t * SR) + SR;
+		int16_t *out = calloc((size_t)n, 4);
+		static SfxPlayer pl;
+		int at = 0;
+		for (int i = 0; i <= snd_nlog && out; i++) {
+			int until = i < snd_nlog ? (int)(snd_log[i].t * SR) : n;
+			if (until > n) until = n;
+			if (until > at) { sfx_render(&pl, out + at * 2, until - at); at = until; }
+			if (i == snd_nlog) break;
+			char ev = snd_log[i].ev;
+			if (ev == 'I') sfx_play(&pl, &intro, 1, 0); else if (ev == 'x') sfx_stop(&pl, &intro); else ui_sfx_play(&pl, &ui, ev);
+		}
+		if (out) wav_write(wav, out, n);
+	}
 	return 0;
 }
 #else
@@ -798,6 +826,8 @@ int main(int argc, char **argv)
 	raw.c_cc[VMIN] = 1; raw.c_cc[VTIME] = 0;
 	tcsetattr(tty_fd, TCSANOW, &raw);
 	ioctl(tty_fd, KDSETMODE, KD_GRAPHICS);            /* stop the text console drawing over us */
+	signal(SIGPIPE, SIG_IGN);
+	audio_start(calm);                                /* the sound process: it opens the card as root, then drops root */
 	sg_clear(&fb, BLACK); flip();
 	gen_cracks(); bake_home();
 	if (mkdir("/run/silver-greeter", 0700) == 0) { Home h; home_init(&h); intro(&h); }     /* the full intro plays once per boot */

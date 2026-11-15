@@ -167,6 +167,58 @@ static int intro_track(int16_t **out, float t_dot, float t_pen, float t_snap, fl
 	return n;
 }
 
+/* ================================================================ interface sounds */
+#define SFX_ALLOC(n) calloc(1, n)
+#define SFX_FREE(p) free(p)
+#include "../common/sfx.h"
+
+typedef struct { SfxClip move, open, back, key, results, error; } UiSfx;
+static SfxClip ui_clip(int kind)
+{
+	SfxMix m = sfx_mix(kind == 1 || kind == 2 ? 0.7f : 0.45f);
+	if (!m.n) return (SfxClip){0, 0};
+	switch (kind) {
+	case 0: sfx_noise_burst(&m, 0, 0.015f, 0.002f, 0.18f, 1, 0, 0); sfx_ping(&m, 0, 1500, 0.035f, 0.025f, 0, 0); break;           /* move */
+	case 1: sfx_whoosh(&m, 0, 0.26f, 0.22f, -0.3f, 0.3f, 0.9f); sfx_thump(&m, 0.05f, 140, 70, 0.03f, 0.05f, 0.25f, 0);
+		sfx_ping(&m, 0.06f, 659.25f, 0.06f, 0.15f, -0.2f, 0.003f); sfx_ping(&m, 0.10f, 987.8f, 0.05f, 0.20f, 0.2f, 0.003f); break;   /* open */
+	case 2: sfx_whoosh(&m, 0, 0.24f, 0.20f, 0.3f, -0.3f, 0.45f); sfx_ping(&m, 0.05f, 392.0f, 0.05f, 0.12f, 0, 0.003f); break;      /* back */
+	case 3: sfx_noise_burst(&m, 0, 0.012f, 0.0018f, 0.11f, 1, 0, sfx_noise() * 0.3f); break;                                         /* a key */
+	case 4: sfx_ping(&m, 0, 880, 0.06f, 0.14f, -0.2f, 0.002f); sfx_ping(&m, 0.07f, 1318.5f, 0.06f, 0.2f, 0.2f, 0.002f); break;      /* results */
+	case 5: sfx_glide(&m, 0, 0.22f, 110, 82, 0.10f, 0, 1); break;                                                                   /* error */
+	}
+	sfx_room(&m, 0.2f, 0.8f);
+	SfxClip c = sfx_clip(&m, 1.0f); sfx_free_mix(&m); return c;
+}
+static void ui_sfx_build(UiSfx *u, int quiet)
+{
+	(void)quiet;
+	u->move = ui_clip(0); u->open = ui_clip(1); u->back = ui_clip(2); u->key = ui_clip(3); u->results = ui_clip(4); u->error = ui_clip(5);
+}
+static void ui_sfx_play(SfxPlayer *p, UiSfx *u, char ev)
+{
+	switch (ev) {
+	case 'm': sfx_play(p, &u->move, 0.8f, 0); break;
+	case 'o': sfx_play(p, &u->open, 0.9f, 0); break;
+	case 'b': sfx_play(p, &u->back, 0.8f, 0); break;
+	case 'k': sfx_play(p, &u->key, 0.9f, 0); break;
+	case 'r': sfx_play(p, &u->results, 0.8f, 0); break;
+	case 'e': sfx_play(p, &u->error, 0.8f, 0); break;
+	}
+}
+
+#define INTRO_TIMES T_DOT, T_PEN, T_SNAP, T_OPEN, T_END
+static int snd_fd = -1;
+
+#ifdef RENDER
+/* the demo renderer records requests against its clock and mixes them at the end */
+static struct { double t; char ev; } snd_log[4096];
+static int snd_nlog;
+static double now(void);
+static void snd(char ev) { if (snd_nlog < 4096) { snd_log[snd_nlog].t = now(); snd_log[snd_nlog].ev = ev; snd_nlog++; } }
+#else
+static void snd(char ev) { if (snd_fd >= 0 && write(snd_fd, &ev, 1) < 0) { /* the sound process is gone: fine */ } }
+#endif
+
 #ifndef RENDER
 #include <sound/asound.h>
 #include <dirent.h>
@@ -238,39 +290,65 @@ static int pcm_open(void)
 	return -1;
 }
 
-/* Start playing the intro track in a child process. Returns its pid, or -1. */
-static pid_t intro_sound_start(float t_dot, float t_pen, float t_snap, float t_open, float t_end, int quiet)
+/* ================================================================ the sound process
+ * Forked once, as root, before anything else: it opens the sound card, makes every sound, drops
+ * root, then mixes and plays forever, taking one-byte requests from a pipe (see snd()). Both the
+ * intro and the unprivileged home screen send requests; nobody waits for it. */
+static pid_t audio_start(int quiet)
 {
+	int p[2];
+	if (pipe(p) < 0) return -1;
 	pid_t pid = fork();
-	if (pid != 0) return pid;
+	if (pid < 0) { close(p[0]); close(p[1]); return -1; }
+	if (pid > 0) { close(p[0]); snd_fd = p[1]; fcntl(snd_fd, F_SETFL, fcntl(snd_fd, F_GETFL) | O_NONBLOCK); return pid; }
+	close(p[1]);
 	signal(SIGTERM, SIG_DFL);
 	int fd = pcm_open();
 	if (fd < 0) _exit(0);
 	if (getuid() == 0 && (setgroups(0, NULL) || setgid(65534) || setuid(65534))) _exit(0);   /* nothing more needs root */
-	int16_t *buf; int n = intro_track(&buf, t_dot, t_pen, t_snap, t_open, t_end, quiet);
-	for (int done = 0; done < n;) {
-		struct snd_xferi x = {0, buf + done * 2, (snd_pcm_uframes_t)(n - done > 1024 ? 1024 : n - done)};
+	UiSfx ui; ui_sfx_build(&ui, quiet);
+	SfxClip intro = {0, 0};
+	fcntl(p[0], F_SETFL, fcntl(p[0], F_GETFL) | O_NONBLOCK);
+	static SfxPlayer pl;
+	int16_t buf[1024 * 2];
+	int open_pipe = 1;
+	for (;;) {
+		char ev[32];
+		ssize_t r;
+		while (open_pipe && (r = read(p[0], ev, sizeof ev)) != 0) {
+			if (r < 0) break;
+			for (ssize_t i = 0; i < r; i++) {
+				if (ev[i] == 'I') {
+					if (!intro.n) { int16_t *s = 0; intro.n = intro_track(&s, INTRO_TIMES, quiet); intro.s = s; }
+					sfx_play(&pl, &intro, 1, 0);
+				} else if (ev[i] == 'x') sfx_stop(&pl, &intro);
+				else if (ev[i] == 'q') open_pipe = 0;
+				else ui_sfx_play(&pl, &ui, ev[i]);
+			}
+		}
+		if (r == 0) open_pipe = 0;
+		if (!open_pipe) { int busy = 0; for (int i = 0; i < SFX_VOICES; i++) if (pl.v[i].c) busy = 1; if (!busy) break; }
+		sfx_render(&pl, buf, 1024);
+		struct snd_xferi x = {0, buf, 1024};
 		if (ioctl(fd, SNDRV_PCM_IOCTL_WRITEI_FRAMES, &x) < 0) {
 			if (errno == EPIPE) { ioctl(fd, SNDRV_PCM_IOCTL_PREPARE); continue; }   /* an underrun: carry on */
 			break;
 		}
-		done += (int)x.result;
 	}
 	ioctl(fd, SNDRV_PCM_IOCTL_DRAIN);
 	_exit(0);
 }
 #endif
 
-/* write the track as a WAV file (for the demo video) */
-static void intro_sound_wav(const char *path, float t_dot, float t_pen, float t_snap, float t_open, float t_end, int quiet)
+/* write interleaved 16-bit stereo as a WAV file (for the demo video) */
+static void wav_write(const char *path, const int16_t *buf, int n)
 {
-	int16_t *buf; int n = intro_track(&buf, t_dot, t_pen, t_snap, t_open, t_end, quiet);
 	FILE *f = fopen(path, "wb");
-	if (!f || !n) { if (f) fclose(f); return; }
+	if (!f) return;
 	uint32_t bytes = (uint32_t)n * 4, v;
 	fwrite("RIFF", 1, 4, f); v = 36 + bytes; fwrite(&v, 4, 1, f); fwrite("WAVEfmt ", 1, 8, f);
 	v = 16; fwrite(&v, 4, 1, f); uint16_t s = 1; fwrite(&s, 2, 1, f); s = 2; fwrite(&s, 2, 1, f);
 	v = SR; fwrite(&v, 4, 1, f); v = SR * 4; fwrite(&v, 4, 1, f); s = 4; fwrite(&s, 2, 1, f); s = 16; fwrite(&s, 2, 1, f);
 	fwrite("data", 1, 4, f); fwrite(&bytes, 4, 1, f); fwrite(buf, 4, (size_t)n, f);
-	fclose(f); free(buf);
+	fclose(f);
 }
