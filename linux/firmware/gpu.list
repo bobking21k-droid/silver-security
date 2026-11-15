@@ -1,0 +1,20 @@
+# Graphics card firmware taken from the linux-firmware release tarball (FIRMWARE_TAG), for
+# games: AMD (amdgpu, older radeon), Intel (i915, xe), Nvidia GeForce for nouveau
+# (Maxwell to Blackwell; GSP firmware for RTX 20 and newer). Paths are shell globs.
+# Each vendor's licence travels with it in /lib/firmware/LICENSES.
+amdgpu/*
+radeon/*
+i915/*
+xe/*
+nvidia/gm2*
+nvidia/gp10[0-8]
+nvidia/gv100
+nvidia/tu1*
+nvidia/ga10[2-7]
+nvidia/ad10*
+nvidia/gb20*
+LICENSES/LICENSE.amdgpu
+LICENSES/LICENSE.radeon
+LICENSES/LICENSE.i915
+LICENSES/LICENSE.xe
+LICENSES/LICENCE.nvidia

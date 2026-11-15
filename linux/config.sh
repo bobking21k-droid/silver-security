@@ -18,6 +18,7 @@ E2FSPROGS_VER="1.47.4"     # mkfs.ext4
 BEARSSL_VER="0.6"          # TLS (silver-fetch: HTTPS with certificate checking)
 LIBNL_VER="3.11.0"         # netlink library for wpa_supplicant
 WPA_VER="2.11"             # wpa_supplicant (Wi-Fi: WPA2/WPA3) and hostapd (only for the Wi-Fi test)
+BUILDROOT_VER="2026.02.3"   # builds the games layer (glibc, Mesa, Xorg) from source
 FIRMWARE_TAG="20261019"    # linux-firmware release the Wi-Fi firmware comes from (firmware/wifi.list)
 
 LINUX_URL="https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-${LINUX_VER}.tar.xz"
@@ -30,6 +31,8 @@ CACERT_URL="https://curl.se/ca/cacert.pem"     # Mozilla root certificates, as p
 LIBNL_URL="https://github.com/thom311/libnl/releases/download/libnl${LIBNL_VER//./_}/libnl-${LIBNL_VER}.tar.gz"
 WPA_URL="https://w1.fi/releases/wpa_supplicant-${WPA_VER}.tar.gz"
 HOSTAPD_URL="https://w1.fi/releases/hostapd-${WPA_VER}.tar.gz"
+FIRMWARE_TARBALL_URL="https://cdn.kernel.org/pub/linux/kernel/firmware/linux-firmware-${FIRMWARE_TAG}.tar.xz"   # GPU firmware (firmware/gpu.list)
+BUILDROOT_URL="https://buildroot.org/downloads/buildroot-${BUILDROOT_VER}.tar.xz"
 FIRMWARE_BASE="https://git.kernel.org/pub/scm/linux/kernel/git/firmware/linux-firmware.git/plain"
 REGDB_BASE="https://git.kernel.org/pub/scm/linux/kernel/git/wens/wireless-regdb.git/plain"
 E2FSPROGS_URL="https://mirrors.edge.kernel.org/pub/linux/kernel/people/tytso/e2fsprogs/v${E2FSPROGS_VER}/e2fsprogs-${E2FSPROGS_VER}.tar.xz"

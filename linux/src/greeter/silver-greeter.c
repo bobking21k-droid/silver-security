@@ -59,7 +59,7 @@ static int W, H, scale = 1, fb_w, fb_h, stride, calm, muted;
 static float U;                               /* 1% of the screen height */
 static uint32_t *fbmem, *canvas;
 static Surf fb;
-static int tty_fd = 0, req_fd = -1;
+static int tty_fd = 0, req_fd = -1, back_from_game;
 static struct termios saved_tio;
 static const char *tty_name = "tty1";
 static char user[33] = "silver", pass[129];
@@ -499,6 +499,15 @@ static void lock_loop(void)
 #endif
 
 /* ================================================================ home: input handling */
+static void request_game(const char *action, const char *app)
+{
+#ifndef RENDER
+	char m[48]; int n = snprintf(m, sizeof m, "G%s %s\n", action, app);
+	if (req_fd >= 0 && n > 0 && n < (int)sizeof m) { if (write(req_fd, m, (size_t)n) < 0) { /* parent gone */ } }
+#else
+	(void)app; steam_launch_t = ui_t; snprintf(steam_launch_what, sizeof steam_launch_what, "%s", action);
+#endif
+}
 static void request(char c)
 {
 #ifndef RENDER
@@ -751,7 +760,7 @@ static const struct { float t; int k; } SCRIPT[] = {
 	{65.0f, K_RIGHT}, {66.2f, K_RIGHT}, {67.4f, K_LEFT}, {68.4f, K_LEFT}, {69.2f, K_ENTER},                  /* SilverOS games */
 	{70.2f, K_RIGHT}, {71.0f, K_LEFT}, {71.8f, K_ENTER},                                                      /* play Snake */
 	{72.4f, K_DOWN}, {73.2f, K_RIGHT}, {74.0f, K_UP}, {74.8f, K_RIGHT}, {75.8f, K_ESC}, {76.6f, K_ESC},
-	{77.4f, K_RIGHT}, {78.2f, K_ENTER}, {79.8f, K_RIGHT}, {80.6f, K_DOWN}, {81.4f, K_ENTER}, {82.0f, 'w'}, {82.6f, K_ENTER}, {84.3f, K_ESC}, {84.7f, K_ESC}, {85.1f, K_ESC},   /* Steam: wishlist, buy */
+	{77.4f, K_RIGHT}, {78.2f, K_ENTER}, {79.8f, K_RIGHT}, {80.6f, K_DOWN}, {81.4f, K_ENTER}, {82.0f, 'w'}, {82.6f, K_ENTER}, {84.3f, K_ESC}, {84.7f, K_ESC},                   /* Steam: wishlist, install with Steam */
 	{85.8f, K_RIGHT}, {86.6f, K_ENTER}, {88.2f, K_RIGHT}, {89.0f, K_ENTER}, {91.2f, K_ESC}, {92.0f, K_ESC}, {92.8f, K_ESC},                   /* Microsoft Store */
 	{93.6f, K_RIGHT}, {94.4f, K_ENTER}, {98.0f, K_ESC}, {98.8f, K_ESC},                                       /* Me and my PC */
 };
@@ -764,7 +773,7 @@ static const struct { float t; int screen, sub, open, tab, mute; const char *wha
 	{62.5f, 3, 0, -1, -1, -1, "Apps grid"}, {64.2f, 3, 5, 0, -1, -1, "Game Store front"},
 	{69.6f, 3, 5, 1, 0, -1, "SilverOS games"}, {72.2f, 3, 6, -1, -1, -1, "playing Snake"},
 	{76.2f, 3, 5, 1, 0, -1, "back from Snake"}, {77.0f, 3, 5, 0, -1, -1, "back to the front"},
-	{78.6f, 3, 5, 1, 1, -1, "Steam"}, {83.6f, 3, 5, 1, 1, -1, "Steam Buy panel"}, {85.4f, 3, 5, 0, -1, -1, "front again"},
+	{78.6f, 3, 5, 1, 1, -1, "Steam"}, {83.6f, 3, 5, 1, 1, -1, "Steam: install"}, {85.4f, 3, 5, 0, -1, -1, "front again"},
 	{87.0f, 3, 5, 1, 2, -1, "Microsoft Store"}, {93.2f, 3, 0, -1, -1, -1, "Apps grid again"},
 	{95.0f, 3, 4, -1, -1, -1, "Me and my PC"}, {99.6f, 0, -1, -1, -1, -1, "home at the end"},
 };
@@ -844,32 +853,89 @@ static void efi_mute(int on)
 	if (fd >= 0) { if (write(fd, rec, sizeof rec) != (ssize_t)sizeof rec) { /* firmware said no: nothing more to do */ } close(fd); }
 }
 
+/* Steam: hand the screen, keyboard and sound card to the games layer's session (Xorg + the
+ * Steam app, /usr/lib/silver/steam-session), as the user, and come back to the home screen when
+ * it ends. The request is "G<action> <appid>\n" from the interface: only these actions, digits. */
+static int game_ok(const char *r)
+{
+	static const char *act[] = {"open", "install", "play", "store"};
+	for (unsigned i = 0; i < sizeof act / sizeof act[0]; i++) {
+		size_t n = strlen(act[i]);
+		if (strncmp(r, act[i], n) || (r[n] != ' ' && r[n] != 0)) continue;
+		const char *d = r[n] ? r + n + 1 : r + n;
+		if (strlen(d) > 10) return 0;
+		for (; *d; d++) if (*d < '0' || *d > '9') return 0;
+		return 1;
+	}
+	return 0;
+}
+static void run_game(struct passwd *pw, char *req)
+{
+	if (!game_ok(req) || access("/usr/lib/silver/steam-session", X_OK)) return;
+	char action[16] = "", app[16] = "";
+	if (sscanf(req, "%15s %15s", action, app) < 1) return;
+	snd('q'); if (snd_fd >= 0) { close(snd_fd); snd_fd = -1; }       /* games get the sound card */
+	char rt[64]; snprintf(rt, sizeof rt, "/run/user/%d", (int)pw->pw_uid);
+	mkdir("/run/user", 0755); mkdir(rt, 0700);
+	if (chown(rt, pw->pw_uid, pw->pw_gid)) { /* Steam will say so */ }
+	if (fchown(tty_fd, pw->pw_uid, pw->pw_gid)) { /* Xorg will say so */ }
+	tcsetattr(tty_fd, TCSANOW, &saved_tio);
+	pid_t g = fork();
+	if (g == 0) {
+		if (initgroups(pw->pw_name, pw->pw_gid) || setgid(pw->pw_gid) || setuid(pw->pw_uid)) _exit(1);
+		if (chdir(pw->pw_dir)) { /* fine */ }
+		char home[300], rtv[80], usr[80];
+		snprintf(home, sizeof home, "HOME=%s", pw->pw_dir); snprintf(rtv, sizeof rtv, "XDG_RUNTIME_DIR=%s", rt); snprintf(usr, sizeof usr, "USER=%s", pw->pw_name);
+		char *env[] = {home, rtv, usr, "PATH=/usr/bin:/bin:/usr/sbin:/sbin", "LANG=en_US.UTF-8", "TERM=linux", NULL};
+		execle("/usr/lib/silver/steam-session", "steam-session", action, app, (char *)NULL, env);
+		_exit(127);
+	}
+	if (g > 0) { int st; waitpid(g, &st, 0); }
+	if (fchown(tty_fd, 0, 0)) { /* fine */ }
+	struct termios raw = saved_tio;                                  /* back to the home screen's terminal setup */
+	raw.c_lflag &= ~(ICANON | ECHO | ISIG); raw.c_iflag &= ~(ICRNL | IXON); raw.c_cc[VMIN] = 1; raw.c_cc[VTIME] = 0;
+	tcsetattr(tty_fd, TCSANOW, &raw);
+	ioctl(tty_fd, KDSETMODE, KD_GRAPHICS);
+	tcflush(tty_fd, TCIFLUSH);
+	audio_start(calm, muted);
+}
+
 static void run_session(void)
 {
 	struct passwd *pw = getpwnam(user);
-	int pfd[2];
-	if (!pw || pipe(pfd) < 0) { restore_tty(); execl("/bin/login", "login", "-f", user, (char *)NULL); _exit(1); }
-	pid_t pid = fork();
-	if (pid == 0) {                                   /* the interface runs as the user, never as root */
-		close(pfd[0]); req_fd = pfd[1];
-		snprintf(homedir, sizeof homedir, "%s", pw->pw_dir);
-		if (initgroups(pw->pw_name, pw->pw_gid) || setgid(pw->pw_gid) || setuid(pw->pw_uid)) _exit(1);   /* keeps 'netdev' (Wi-Fi settings) */
-		if (chdir(homedir)) { /* fine */ }
-		Home h; home_init(&h);
-		home_loop(&h);
-		_exit(0);
+	for (;;) {                                        /* the home screen; again after each Steam session */
+		int pfd[2];
+		if (!pw || pipe(pfd) < 0) { restore_tty(); execl("/bin/login", "login", "-f", user, (char *)NULL); _exit(1); }
+		pid_t pid = fork();
+		if (pid == 0) {                                   /* the interface runs as the user, never as root */
+			close(pfd[0]); req_fd = pfd[1];
+			snprintf(homedir, sizeof homedir, "%s", pw->pw_dir);
+			if (initgroups(pw->pw_name, pw->pw_gid) || setgid(pw->pw_gid) || setuid(pw->pw_uid)) _exit(1);   /* keeps 'netdev' (Wi-Fi settings) */
+			if (chdir(homedir)) { /* fine */ }
+			Home h; home_init(&h);
+			if (back_from_game) { open_screen(&h, 3); h.sub = 5; gs.open = 1; gs.tab = GS_STEAM; h.fade = 0; }   /* back where you were */
+			home_loop(&h);
+			_exit(0);
+		}
+		close(pfd[1]);
+		char c = 'T', req[48]; int game = 0;
+		for (;;) {                                        /* the privileged side only does what the user's side asks */
+			ssize_t n = read(pfd[0], &c, 1);
+			if (n <= 0) { c = 'T'; break; }
+			if (c == 'T') break;
+			if (c == 'S' || c == 's') { efi_mute(c == 'S'); muted = c == 'S'; continue; }
+			if (c == 'R') { kill(1, SIGTERM); for (;;) pause(); }
+			if (c == 'P') { kill(1, SIGUSR2); for (;;) pause(); }
+			if (c == 'G') {
+				size_t k = 0;
+				while (k + 1 < sizeof req && read(pfd[0], &req[k], 1) == 1 && req[k] != '\n') k++;
+				req[k] = 0; game = 1; break;
+			}
+		}
+		kill(pid, SIGKILL); waitpid(pid, NULL, 0); close(pfd[0]);
+		if (game) { run_game(pw, req); back_from_game = 1; continue; }
+		break;
 	}
-	close(pfd[1]);
-	char c = 'T';
-	for (;;) {                                        /* the privileged side only does what the user's side asks */
-		ssize_t n = read(pfd[0], &c, 1);
-		if (n <= 0) { c = 'T'; break; }
-		if (c == 'T') break;
-		if (c == 'S' || c == 's') { efi_mute(c == 'S'); continue; }
-		if (c == 'R') { kill(1, SIGTERM); for (;;) pause(); }
-		if (c == 'P') { kill(1, SIGUSR2); for (;;) pause(); }
-	}
-	kill(pid, SIGKILL); waitpid(pid, NULL, 0);
 	restore_tty();
 	snd('q'); if (snd_fd >= 0) close(snd_fd);
 	execl("/bin/login", "login", "-f", user, (char *)NULL);

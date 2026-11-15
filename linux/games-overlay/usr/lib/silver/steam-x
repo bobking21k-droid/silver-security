@@ -1,0 +1,6 @@
+#!/bin/bash
+# The X session: Steam, full screen. When Steam quits, X ends and SilverOS comes back.
+L=$1; url=$2
+xset s off -dpms 2>/dev/null
+xsetroot -solid black 2>/dev/null
+"$L/bin_steam.sh" -gamepadui ${url:+"$url"}

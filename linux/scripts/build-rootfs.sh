@@ -16,6 +16,25 @@ grep -v '^\s*\(#\|$\)' "$TOP/firmware/wifi.list" | while read -r rel; do
   case "$rel" in intel/iwlwifi/*) cp "$fwsrc/$rel" "$fwdst/" ;; *) mkdir -p "$fwdst/$(dirname "$rel")"; cp "$fwsrc/$rel" "$fwdst/$rel" ;; esac
 done
 cp "$fwsrc/regulatory.db" "$fwsrc/regulatory.db.p7s" "$fwdst/"
+# graphics card firmware, from the linux-firmware tarball (older GSP firmware versions left out),
+# with the links its WHENCE file lists
+lf="linux-firmware-$FIRMWARE_TAG"; mapfile -t pats < <(grep -v '^\s*\(#\|$\)' "$TOP/firmware/gpu.list" | sed "s|^|$lf/|")
+tar -C "$fwdst" --strip-components=1 --wildcards --exclude='*gsp-535*' -xf "$SOURCES/$lf.tar.xz" "${pats[@]}"
+tar -xOf "$SOURCES/$lf.tar.xz" "$lf/WHENCE" | sed -n 's/^Link: \(.*\) -> \(.*\)$/\1 \2/p' | while read -r l t; do
+  top=$(echo "$l" | cut -d/ -f1-2); [[ $l == nvidia/* ]] || top=${l%%/*}
+  [[ -d "$fwdst/$top" && ! -e "$fwdst/$l" ]] || continue
+  mkdir -p "$fwdst/$(dirname "$l")"; ln -s "$t" "$fwdst/$l"
+  [[ -e "$fwdst/$l" ]] || rm "$fwdst/$l"                                # (points at something left out)
+done
+# kernel modules (Wi-Fi chips, graphics cards), each signed by this build's key
+rm -rf "$ROOTFS/lib/modules"; cp -a "$OUT/modules/lib/modules" "$ROOTFS/lib/"
+# where the games layer's programs expect things outside /usr (dangling without the layer)
+mkdir -p "$ROOTFS/lib64"
+ln -s /usr/lib/ld-linux-x86-64.so.2 "$ROOTFS/lib64/ld-linux-x86-64.so.2"
+ln -s /usr/lib32/ld-linux.so.2 "$ROOTFS/lib/ld-linux.so.2"
+ln -s /usr/lib/udev "$ROOTFS/lib/udev"
+ln -s /usr/bin/bash "$ROOTFS/bin/bash"
+for e in fonts X11 dbus-1 pulse udev xdg ld.so.conf ld.so.cache; do ln -s "/usr/etc-games/$e" "$ROOTFS/etc/$e"; done
 cp "$WORK/stage/sbin/"* "$ROOTFS/sbin/"     # init, dropbear, sfdisk, mke2fs, e2fsck, silver-efiboot
 ln -sf mke2fs "$ROOTFS/sbin/mkfs.ext4"; ln -sf e2fsck "$ROOTFS/sbin/fsck.ext4"
 ln -s sbin/init "$ROOTFS/init"   # the kernel runs /init from an initramfs

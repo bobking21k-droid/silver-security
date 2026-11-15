@@ -15,6 +15,95 @@
  * Tab switches store, typing searches it, arrows move, Enter opens (or plays), Esc goes back.
  */
 #pragma once
+static void request_game(const char *action, const char *app);   /* (silver-greeter.c) start Steam */
+static void snd(char ev);
+static float steam_launch_t = -10; static char steam_launch_what[16];   /* (the demo: Steam starting) */
+/* Steam runs right here when the games layer is in this build (Xorg, Mesa, the Steam app) */
+static int steam_ready(void)
+{
+#ifdef RENDER
+	return 1;
+#else
+	return access("/usr/lib/silver/steam-session", X_OK) == 0;
+#endif
+}
+/* The first time: get Steam's launcher from Valve (repo.steampowered.com, about 20 MB) into
+ * ~/.cache/steam_latest.deb; steam-session unpacks it, and Steam updates itself from then on. */
+#define STEAM_DEB_URL "https://repo.steampowered.com/steam/archive/stable/steam_latest.deb"
+static struct { int state; Job job; char part[400], deb[400], action[16], id[16]; } ss;   /* state: 0 idle, 1 getting it, 2 failed */
+static int steam_have_launcher(void)
+{
+#ifdef RENDER
+	return 1;
+#else
+	const char *home = getenv("HOME"); char p[400]; struct stat st;
+	snprintf(p, sizeof p, "%s/.local/lib/steam-launcher/bin_steam.sh", home ? home : "/home/silver");
+	if (access(p, X_OK) == 0) return 1;
+	snprintf(p, sizeof p, "%s/.cache/steam_latest.deb", home ? home : "/home/silver");
+	return stat(p, &st) == 0 && st.st_size > (1 << 20);
+#endif
+}
+static void steam_go(const char *action, const char *id)
+{
+	if (steam_have_launcher()) { request_game(action, id); return; }
+#ifndef RENDER
+	if (ss.state == 1) return;
+	const char *home = getenv("HOME"); if (!home) home = "/home/silver";
+	char d[400]; snprintf(d, sizeof d, "%s/.cache", home); mkdir(d, 0755);
+	snprintf(ss.deb, sizeof ss.deb, "%s/steam_latest.deb", d); snprintf(ss.part, sizeof ss.part, "%s.part", ss.deb);
+	snprintf(ss.action, sizeof ss.action, "%s", action); snprintf(ss.id, sizeof ss.id, "%s", id);
+	unlink(ss.part);
+	char *argv[] = {"/sbin/silver-fetch", "-q", "-t", "600", "-m", "200000000", "-o", ss.part, STEAM_DEB_URL, 0};
+	job_start(&ss.job, argv, 4096);
+	ss.state = ss.job.active ? 1 : 2;
+#endif
+}
+static void steam_poll(void)
+{
+#ifndef RENDER
+	if (ss.state != 1) return;
+	job_poll(&ss.job);
+	if (!ss.job.done) return;
+	struct stat st;
+	if (ss.job.ok && stat(ss.part, &st) == 0 && st.st_size > (1 << 20) && rename(ss.part, ss.deb) == 0) { ss.state = 0; job_free(&ss.job); snd('r'); request_game(ss.action, ss.id); }
+	else { ss.state = 2; job_free(&ss.job); unlink(ss.part); snd('e'); }
+#endif
+}
+/* the panel while it downloads, or when it couldn't */
+static int steam_setup_draw(float t)
+{
+	if (!ss.state) return 0;
+	sg_rect(&fb, 0, 0, W, H, BLACK, 0.55f);
+	float pw = W * 0.5f, ph = U * 18, px = (W - pw) / 2, py = (H - ph) / 2;
+	ui_frost(px, py, pw, ph, U * 2.4f, 0.78f);
+	if (ss.state == 1) {
+		struct stat st; long got = stat(ss.part, &st) == 0 ? (long)st.st_size : 0;
+		char m[80]; snprintf(m, sizeof m, "%.1f MB", got / 1048576.0);
+		sg_text(&fb, &FT, px + U * 3, py + U * 5.2f, "Getting Steam from Valve ...", U * 2.8f, WHITE, 1, 0.01f);
+		float bw = pw - U * 6, f = sg_sat(got / 21e6f);
+		sg_rrect(&fb, px + U * 3, py + U * 8.5f, bw, U * 1.2f, U * 0.6f, 0, WHITE, 0.15f);
+		sg_rrect(&fb, px + U * 3, py + U * 8.5f, sg_max(U * 1.2f, bw * f), U * 1.2f, U * 0.6f, 0, RED, 0.95f);
+		sg_text(&fb, &FT, px + U * 3, py + U * 13.4f, m, U * 1.8f, RGB(180, 180, 186), 1, 0.01f);
+		sg_text(&fb, &FT, px + U * 14, py + U * 13.4f, "Only the first time. Steam keeps itself up to date.", U * 1.6f, RGB(150, 150, 156), 0.5f + 0.5f * sg_sin(t * 2), 0.01f);
+		foot_hints("ONE MOMENT");
+	} else {
+		sg_text(&fb, &FT, px + U * 3, py + U * 5.2f, "Couldn't get Steam.", U * 2.8f, WHITE, 1, 0.01f);
+		sg_text(&fb, &FT, px + U * 3, py + U * 9.4f, "Check the network in Settings, then try again.", U * 1.9f, RGB(190, 190, 196), 1, 0.01f);
+		foot_hints("ENTER  try again      ESC  close");
+	}
+	return 1;
+}
+/* is this Steam game installed? Steam keeps a small manifest per installed game */
+static int steam_installed(const char *appid)
+{
+#ifdef RENDER
+	return !strcmp(appid, "1145360");                    /* (the demo pretends Hades is installed) */
+#else
+	char p[400]; const char *home = getenv("HOME");
+	snprintf(p, sizeof p, "%s/.local/share/Steam/steamapps/appmanifest_%s.acf", home ? home : "/home/silver", appid);
+	return access(p, F_OK) == 0;
+#endif
+}
 #include "games.h"
 #include "qr.h"
 
@@ -401,7 +490,8 @@ static void draw_gs_front(float t)
 		x += pw + gap;
 	}
 	dancer_draw(W * 0.5f, H - U * 7.6f, U * 15, t);
-	foot_hints("LEFT RIGHT  choose      ENTER  open      ESC  back");
+	if (gs.tab == GS_STEAM && steam_ready()) foot_hints("LEFT RIGHT  choose      ENTER  browse      S  open Steam      ESC  back");
+	else foot_hints("LEFT RIGHT  choose      ENTER  open      ESC  back");
 }
 
 /* ---------------------------------------------------------------- drawing */
@@ -442,7 +532,20 @@ static float price_tag(const Game *g, float x, float y, float size, int right)
 	return px + w;
 }
 
+static void draw_gstore_page(Home *h, float t);
 static void draw_gstore(Home *h, float t)
+{
+	steam_poll();
+	draw_gstore_page(h, t);
+	if (!steam_setup_draw(t) && ui_t - steam_launch_t < 2.4f) {          /* (the demo: no real Steam to hand over to) */
+		float a = sg_sat((ui_t - steam_launch_t) / 0.3f);
+		sg_rect(&fb, 0, 0, W, H, BLACK, 0.8f * a);
+		const char *m = !strcmp(steam_launch_what, "play") ? "Starting the game in Steam ..." : !strcmp(steam_launch_what, "install") ? "Opening Steam to install it ..." : !strcmp(steam_launch_what, "store") ? "Opening it in the Steam store ..." : "Opening Steam ...";
+		float w = sg_text_w(&FT, m, U * 3, 0.01f);
+		sg_text(&fb, &FT, W / 2 - w / 2, H / 2, m, U * 3, WHITE, a, 0.01f);
+	}
+}
+static void draw_gstore_page(Home *h, float t)
 {
 	gs_poll();
 	if (!gs.open) { draw_gs_front(t); (void)h; return; }
@@ -534,26 +637,38 @@ static void draw_gstore(Home *h, float t)
 		const char *desc = g->desc[0] ? g->desc : (s->dstate == 1 ? "Reading the store page..." : "");
 		char dl2[6][160]; int m = ui_wrap(desc, U * 1.8f, rw, 6, dl2);
 		for (int k = 0; k < m; k++) sg_text(&fb, &FT, rx, y + k * U * 2.7f, dl2[k], U * 1.8f, RGB(205, 205, 210), 1, 0.01f);
-		/* buy, and the wishlist */
+		/* install / play, buy, and the wishlist */
 		float boxy = bot - U * 15, boxh = U * 13;
 		ui_frost(lx, boxy, gw, boxh, U * 2, 0.62f);
-		icon(I_INFO, lx + U * 4, boxy + U * 4.4f, U * 1.6f, RGB(255, 190, 70), 1);
-		const char *l1 = gs.tab == GS_STEAM ? "Buy it through Steam: press Enter, scan the code, and it opens in the Steam app." : "Get it through the Microsoft Store: press Enter and scan the code.";
-		const char *l2 = "It's a Windows game, so it goes to your library to play when you start Windows.";
+		int here = gs.tab == GS_STEAM && steam_ready(), inst = here && steam_installed(g->id);
+		icon(here ? I_GAME : I_INFO, lx + U * 4, boxy + U * 4.4f, U * 1.6f, here ? RGB(90, 225, 140) : RGB(255, 190, 70), 1);
+		const char *l1, *l2;
+		if (here && inst) { l1 = "Installed. Press Enter to play it, right here in SilverOS."; l2 = "It runs through Steam and Proton. Quit the game and Steam to come back here."; }
+		else if (here) { l1 = "Press Enter to install it with Steam, right here in SilverOS. B buys it in Steam."; l2 = "Steam asks you to sign in the first time. Windows games run through Proton."; }
+		else if (gs.tab == GS_STEAM) { l1 = "Buy it through Steam: press Enter, scan the code, and it opens in the Steam app."; l2 = "This build has no games layer, so it plays when you start Windows."; }
+		else { l1 = "Microsoft Store games only run in Windows: their copy protection needs it."; l2 = "Press Enter and scan the code to get it there, for when you start Windows."; }
 		sg_text(&fb, &FT, lx + U * 7.5f, boxy + U * 5.0f, l1, U * 1.9f, WHITE, 1, 0.01f);
 		sg_text(&fb, &FT, lx + U * 7.5f, boxy + U * 8.6f, l2, U * 1.7f, RGB(185, 185, 190), 1, 0.01f);
 		int on = wish_has(g->key);
-		float bw = U * 20, bx = lx + gw - bw - U * 3, byy = boxy + boxh / 2 - U * 2.6f, bx2 = bx - bw - U * 1.6f;
-		sg_rrect(&fb, bx2, byy, bw, U * 5.2f, U * 2.6f, 0, RED, 0.95f);                      /* BUY */
+		float bw = U * 20, bx = lx + gw - bw - U * 3, byy = boxy + boxh / 2 - U * 2.6f, bx2 = bx - bw - U * 1.6f, bx3 = bx2 - bw - U * 1.6f;
 		char bl[48]; snprintf(bl, sizeof bl, "BUY  %s", g->price[0] && strcmp(g->price, "Free") ? g->price : "");
 		if (!strcmp(g->price, "Free")) snprintf(bl, sizeof bl, "GET FREE");
 		if (!strcmp(g->price, "Game Pass")) snprintf(bl, sizeof bl, "GET");
+		if (here) {                                                       /* PLAY / INSTALL first, then BUY */
+			const char *pl = inst ? "PLAY" : "INSTALL";
+			sg_rrect(&fb, bx3, byy, bw, U * 5.2f, U * 2.6f, 0, inst ? RGB(40, 170, 90) : RED, 0.95f);
+			float pw2 = sg_text_w(&FC, pl, U * 1.05f, 0.2f);
+			sg_text(&fb, &FC, bx3 + bw / 2 - pw2 / 2, byy + U * 3.0f, pl, U * 1.05f, WHITE, 1, 0.2f);
+			sg_rrect(&fb, bx2, byy, bw, U * 5.2f, U * 2.6f, 0, WHITE, 0.14f);
+		} else sg_rrect(&fb, bx2, byy, bw, U * 5.2f, U * 2.6f, 0, RED, 0.95f);
 		float bww = sg_text_w(&FC, bl, U * 1.05f, 0.2f);
 		sg_text(&fb, &FC, bx2 + bw / 2 - bww / 2, byy + U * 3.0f, bl, U * 1.05f, WHITE, 1, 0.2f);
 		sg_rrect(&fb, bx, byy, bw, U * 5.2f, U * 2.6f, 0, WHITE, on ? 0.95f : 0.14f);       /* WISHLIST */
 		const char *wl = on ? "ON WISHLIST" : "WISHLIST";
 		float ww = sg_text_w(&FC, wl, U * 1.05f, 0.2f);
 		sg_text(&fb, &FC, bx + bw / 2 - ww / 2, byy + U * 3.0f, wl, U * 1.05f, on ? INK : WHITE, 1, 0.2f);
+		if (here) { foot_hints(on ? (inst ? "ENTER  play      B  buy      W  remove from wishlist      ESC  back" : "ENTER  install      B  buy      W  remove from wishlist      ESC  back")
+		                          : (inst ? "ENTER  play      B  buy      W  add to wishlist      ESC  back" : "ENTER  install      B  buy      W  add to wishlist      ESC  back")); return; }
 		if (s->buying) {                                                  /* the Buy panel: scan with your phone */
 			sg_rect(&fb, 0, 0, W, H, BLACK, 0.55f);
 			char url[200];
@@ -629,11 +744,14 @@ static void draw_gstore(Home *h, float t)
 static int gstore_key(int k, int *playing)
 {
 	GStore *s = &gs.s[gs.tab];
+	if (ss.state == 1) return 0;                                         /* getting Steam: wait */
+	if (ss.state == 2) { if (k == K_ENTER) { ss.state = 0; steam_go(ss.action, ss.id); } else if (k == K_ESC || k == K_BACK) ss.state = 0; return 0; }
 	if (!gs.open) {                                                      /* the three-way front screen */
 		if (k == K_ESC || k == K_BACK) return 1;
 		if (k == K_LEFT && gs.tab > 0) gs.tab--;
 		else if (k == K_RIGHT && gs.tab < GS_N - 1) gs.tab++;
 		else if (k == K_ENTER) { gs.open = 1; gs.focus = 1; }
+		else if ((k == 's' || k == 'S') && gs.tab == GS_STEAM && steam_ready()) steam_go("open", "");   /* all of Steam: library, store, friends */
 		return 0;
 	}
 	if (gs.tab == GS_SILVER) {
@@ -647,6 +765,13 @@ static int gstore_key(int k, int *playing)
 	if (s->detail) {
 		if (s->buying) { if (k == K_ESC || k == K_BACK || k == K_ENTER) s->buying = 0; return 0; }
 		if (k == K_ESC || k == K_BACK || k == K_LEFT) s->detail = 0;
+		else if (gs.tab == GS_STEAM && steam_ready() && s->g[s->sel].id[0]) {        /* Steam runs here: it installs, plays and sells */
+			const char *id = s->g[s->sel].id;
+			if (k == K_ENTER) steam_go(steam_installed(id) ? "play" : "install", id);
+			else if (k == 'b' || k == 'B') steam_go("store", id);
+			else if (k == 'w' || k == 'W') wish_toggle(&s->g[s->sel]);
+			return 0;
+		}
 		else if (k == K_ENTER || k == 'b' || k == 'B') s->buying = 1;
 		else if (k == 'w' || k == 'W') wish_toggle(&s->g[s->sel]);
 		return 0;

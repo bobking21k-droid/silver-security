@@ -5,6 +5,7 @@ source "$(dirname "$0")/../config.sh"
 iso="$WORK/iso"
 rm -rf "$iso"; mkdir -p "$iso/boot/grub"
 cp "$OUT/vmlinuz" "$OUT/rootfs.cpio.xz" "$iso/boot/"
+[[ -f "$OUT/games.sqfs" ]] && cp "$OUT/games.sqfs" "$iso/boot/"      # the games layer (scripts/build-games.sh), if built
 mkdir -p "$iso/boot/grub/themes" "$iso/boot/silver"
 cp -r "$WORK/theme" "$iso/boot/grub/themes/silver"
 cp "$OUT/grubx64.efi" "$OUT/silverboot.efi" "$iso/boot/silver/"   # installed to the ESP by silver-install

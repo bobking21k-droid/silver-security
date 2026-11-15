@@ -151,6 +151,7 @@ mount -t ext4 "$PART" "$TARGET"
 mkdir -p "$TARGET/dev" "$TARGET/proc" "$TARGET/sys" "$TARGET/run" "$TARGET/tmp" "$TARGET/mnt" "$TARGET/boot"
 chmod 1777 "$TARGET/tmp"
 cp "$MEDIA/boot/vmlinuz" "$TARGET/boot/vmlinuz"
+[ -f "$MEDIA/boot/games.sqfs" ] && cp "$MEDIA/boot/games.sqfs" "$TARGET/boot/games.sqfs"     # the games layer (Steam)
 cat > "$TARGET/etc/silver-installed" <<EOF
 disk=$DEV
 root=PARTUUID=$PARTUUID

@@ -1,0 +1,38 @@
+#!/bin/bash
+# SilverOS: one Steam session, started by the home screen (silver-greeter) as the user.
+#   steam-session <open|install|play|store> [appid]
+# Runs Xorg with Steam full screen (Big Picture), and returns when you quit Steam: the home
+# screen then comes back. Nothing restarts. Log: ~/.local/state/silver/steam-session.log
+set -u
+action=${1:-open}; app=${2:-}
+case $action in
+  install) url="steam://install/$app" ;;
+  play)    url="steam://rungameid/$app" ;;
+  store)   url="steam://store/$app" ;;
+  *)       url="" ;;
+esac
+state="$HOME/.local/state/silver"; mkdir -p "$state" "$HOME/.local/share" "$HOME/.cache"
+exec >"$state/steam-session.log" 2>&1
+echo "steam-session: $action $app ($(date))"
+
+# Steam's launcher comes from Valve (repo.steampowered.com), fetched by the home screen into
+# ~/.cache/steam_latest.deb the first time; Steam keeps itself up to date after that.
+L="$HOME/.local/lib/steam-launcher"
+if [ ! -x "$L/bin_steam.sh" ]; then
+  deb="$HOME/.cache/steam_latest.deb"
+  [ -s "$deb" ] || { echo "no Steam launcher yet"; exit 3; }
+  t=$(mktemp -d) && (cd "$t" && ar x "$deb" && tar -xJf data.tar.xz ./usr/lib/steam) || { echo "bad steam_latest.deb"; exit 3; }
+  mkdir -p "$L" && cp -a "$t/usr/lib/steam/." "$L/" && rm -rf "$t"
+  rm -f "$L/steamdeps" "$L/bin_steamdeps.py"     # (installs Ubuntu packages: not here)
+fi
+
+# the session's message bus and sound server, for this session only
+export XDG_SESSION_TYPE=x11 XDG_CURRENT_DESKTOP=SilverOS DISPLAY=:0
+export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
+dbus-daemon --session --address="$DBUS_SESSION_BUS_ADDRESS" --fork --nopidfile --print-pid >"$XDG_RUNTIME_DIR/dbus.pid"
+pulseaudio --start --exit-idle-time=-1 --log-target=stderr
+xinit /usr/lib/silver/steam-x "$L" "$url" -- /usr/bin/Xorg :0 vt1 -keeptty -novtswitch -nolisten tcp -noreset
+echo "steam-session: Xorg ended ($?)"
+pulseaudio --kill
+kill "$(cat "$XDG_RUNTIME_DIR/dbus.pid")" 2>/dev/null
+exit 0

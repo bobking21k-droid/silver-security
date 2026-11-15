@@ -5,6 +5,19 @@ grep -qw quiet /proc/cmdline && exec >/run/boot.log 2>&1
 chown -R silver:silver /home/silver; chmod 700 /home/silver
 echo "  * loopback";   ip link set lo up
 echo "  * random seed"; [ -f /var/lib/random-seed ] && cat /var/lib/random-seed > /dev/urandom
+echo "  * drivers for this computer's Wi-Fi and graphics (signed modules)"
+# load the module for each device present, then keep listening for devices plugged in later
+for a in $(cat /sys/bus/pci/devices/*/modalias /sys/bus/usb/devices/*/modalias 2>/dev/null | sort -u); do
+  modprobe "$a" 2>/dev/null
+done
+echo "  * games layer"
+/sbin/silver-games-mount
+if [ -x /usr/sbin/udevd ]; then                       # (from the games layer) devices for Xorg and Steam
+  /usr/sbin/udevd --daemon && udevadm trigger --action=add && udevadm settle -t 10
+else
+  uevent mdev >/dev/null 2>&1 &
+fi
+sleep 1                                   # let new network interfaces and the graphics card settle
 echo "  * network: wired (DHCP, background)"
 for dev in /sys/class/net/*; do
   n=${dev##*/}; [ "$n" = lo ] && continue

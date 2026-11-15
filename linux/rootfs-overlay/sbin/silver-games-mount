@@ -1,0 +1,20 @@
+#!/bin/sh
+# Mount the games layer (games.sqfs: Mesa, Vulkan, Xorg, PulseAudio, the 32-bit libraries the
+# Steam app needs) underneath /usr, read-only. Installed systems keep it in /boot; the live USB
+# has it on the stick. Without it SilverOS works as before, and the Game Store says so.
+img=/boot/games.sqfs
+if [ ! -f "$img" ]; then
+  mkdir -p /run/silver-media
+  for dev in /dev/sr* /dev/sd? /dev/nvme?n? /dev/vd? /dev/mmcblk?; do
+    [ -b "$dev" ] || continue
+    if mount -o ro -t iso9660 "$dev" /run/silver-media 2>/dev/null; then
+      [ -f /run/silver-media/boot/silver/SILVEROS_MEDIA ] && [ -f /run/silver-media/boot/games.sqfs ] && { img=/run/silver-media/boot/games.sqfs; break; }
+      umount /run/silver-media
+    fi
+  done
+fi
+[ -f "$img" ] || exit 0
+mkdir -p /run/games
+mount -t squashfs -o ro,loop "$img" /run/games || exit 1
+mount -t overlay overlay -o lowerdir=/usr:/run/games /usr || { umount /run/games; exit 1; }
+echo "games layer: $img"

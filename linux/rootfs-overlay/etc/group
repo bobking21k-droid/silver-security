@@ -3,4 +3,8 @@ tty:x:5:
 wheel:x:10:silver
 silver:x:1000:
 netdev:x:30:silver
+audio:x:29:silver
+video:x:44:silver
+input:x:101:silver
+render:x:102:silver
 nogroup:x:65534:

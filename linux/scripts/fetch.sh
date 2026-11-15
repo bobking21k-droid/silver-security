@@ -6,7 +6,7 @@ mkdir -p "$SOURCES"
 SUMS="$TOP/checksums.sha256"
 touch "$SUMS"
 
-for url in "$LINUX_URL" "$MUSL_URL" "$BUSYBOX_URL" "$DROPBEAR_URL" "$UTIL_LINUX_URL" "$E2FSPROGS_URL" "$BEARSSL_URL" "$CACERT_URL" "$LIBNL_URL" "$WPA_URL" "$HOSTAPD_URL"; do
+for url in "$LINUX_URL" "$MUSL_URL" "$BUSYBOX_URL" "$DROPBEAR_URL" "$UTIL_LINUX_URL" "$E2FSPROGS_URL" "$BEARSSL_URL" "$CACERT_URL" "$LIBNL_URL" "$WPA_URL" "$HOSTAPD_URL" "$BUILDROOT_URL" "$FIRMWARE_TARBALL_URL"; do
   f="$(basename "$url")"
   if [[ ! -f "$SOURCES/$f" ]]; then
     echo ">> fetching $f"

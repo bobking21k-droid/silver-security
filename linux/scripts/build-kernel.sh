@@ -23,7 +23,10 @@ while IFS= read -r line; do
     grep -qx "CONFIG_$name=$want" .config || echo "   note: CONFIG_$name!=$want ($(grep -E "CONFIG_$name[= ]" .config || echo unset))"
   fi
 done < "$TOP/kernel/silver.config"
-make ARCH=x86_64 -j"$JOBS" bzImage
+make ARCH=x86_64 -j"$JOBS" bzImage modules
+rm -rf "$OUT/modules"
+make ARCH=x86_64 INSTALL_MOD_PATH="$OUT/modules" INSTALL_MOD_STRIP=1 modules_install >/dev/null
+rm -f "$OUT"/modules/lib/modules/*/build "$OUT"/modules/lib/modules/*/source
 make ARCH=x86_64 INSTALL_HDR_PATH="$SYSROOT/usr" headers_install >/dev/null
 mkdir -p "$OUT"
 cp arch/x86/boot/bzImage "$OUT/vmlinuz"
