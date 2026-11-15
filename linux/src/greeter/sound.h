@@ -321,7 +321,7 @@ static pid_t audio_start(int quiet, int muted)
 				if (ev[i] == 'I') {
 					if (!intro.n) { int16_t *s = 0; intro.n = intro_track(&s, INTRO_TIMES, quiet); intro.s = s; }
 					if (!muted) sfx_play(&pl, &intro, 1, 0);
-				} else if (ev[i] == 'x') sfx_stop(&pl, &intro);
+				} else if (ev[i] == 'x') { sfx_stop(&pl, &intro); free(intro.s); intro.s = 0; intro.n = 0; }   /* skipped: the track's memory goes back */
 				else if (ev[i] == 'q') open_pipe = 0;
 				else if (ev[i] == 'M') { muted = 1; sfx_stop(&pl, 0); }
 				else if (ev[i] == 'U') muted = 0;

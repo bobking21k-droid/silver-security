@@ -120,6 +120,8 @@ static size_t frost_cap;
 static int frost_static;                                /* set per frame: the background under panels is still */
 #define FROST_CACHE 48
 static struct { int x0, y0, bw, bh, key; uint32_t *px; unsigned used; } frost_cache[FROST_CACHE];
+static size_t frost_bytes;                              /* what the cache holds; capped at 1.5 screens */
+static void frost_drop(int i) { if (frost_cache[i].px) { frost_bytes -= (size_t)frost_cache[i].bw * frost_cache[i].bh * 4; free(frost_cache[i].px); frost_cache[i].px = 0; } }
 static unsigned frost_clock;
 
 static void ui_frost(float x, float y, float w, float h, float r, float dark)
@@ -180,8 +182,15 @@ static void ui_frost(float x, float y, float w, float h, float r, float dark)
 	if (frost_static) {                                                    /* keep it for next time (oldest out) */
 		int slot = 0;
 		for (int i = 0; i < FROST_CACHE; i++) { if (!frost_cache[i].px) { slot = i; break; } if (frost_cache[i].used < frost_cache[slot].used) slot = i; }
-		if (frost_cache[slot].px && (frost_cache[slot].bw * frost_cache[slot].bh < bw * bh)) { free(frost_cache[slot].px); frost_cache[slot].px = 0; }
-		if (!frost_cache[slot].px) frost_cache[slot].px = malloc((size_t)bw * bh * 4);
+		if (frost_cache[slot].px && (frost_cache[slot].bw != bw || frost_cache[slot].bh != bh)) frost_drop(slot);   /* (the bytes are counted by size) */
+		size_t cap = (size_t)W * H * 6, need = (size_t)bw * bh * 4;      /* 1.5 screens of 4-byte pixels */
+		while (!frost_cache[slot].px && frost_bytes + need > cap) {       /* make room: drop the least recently used */
+			int old = -1;
+			for (int i = 0; i < FROST_CACHE; i++) if (frost_cache[i].px && (old < 0 || frost_cache[i].used < frost_cache[old].used)) old = i;
+			if (old < 0) break;
+			frost_drop(old);
+		}
+		if (!frost_cache[slot].px && frost_bytes + need <= cap && (frost_cache[slot].px = malloc(need))) frost_bytes += need;
 		if (frost_cache[slot].px) {
 			frost_cache[slot].x0 = x0; frost_cache[slot].y0 = y0; frost_cache[slot].bw = bw; frost_cache[slot].bh = bh; frost_cache[slot].key = key; frost_cache[slot].used = frost_clock;
 			for (int j = 0; j < bh; j++) memcpy(frost_cache[slot].px + j * bw, fb.px + (y0 + j) * W + x0, (size_t)bw * 4);

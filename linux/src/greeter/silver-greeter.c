@@ -107,6 +107,23 @@ static int buffers(void)
 	qmap = malloc((size_t)W * H); bg_dark = malloc((size_t)W * H * 4); bg_light = malloc((size_t)W * H * 4); bg_sec = malloc((size_t)W * H * 4);
 	return fb.px && canvas && qmap && bg_dark && bg_light && bg_sec && !sg_font_load(&FD, font_scrawl) && !sg_font_load(&FT, font_text) && !sg_font_load(&FC, font_caption) ? 0 : -1;
 }
+/* The privileged parent only waits for requests while the home screen (a child) runs, so it gives
+ * its copies of the screen buffers back: they would otherwise sit in memory twice. The child has
+ * its own. (After a Steam session a fresh child needs them again: ui_again.) */
+static void ui_release(void)
+{
+	free(fb.px); fb.px = NULL; free(canvas); canvas = NULL; free(qmap); qmap = NULL;
+	free(bg_dark); free(bg_light); free(bg_sec); bg_dark = bg_light = bg_sec = NULL;
+	free(bk_dark); free(bk_light); bk_dark = bk_light = NULL;
+}
+static int ui_again(void)
+{
+	fb = sg_surf(malloc((size_t)W * H * 4), W, H);
+	qmap = malloc((size_t)W * H); bg_dark = malloc((size_t)W * H * 4); bg_light = malloc((size_t)W * H * 4); bg_sec = malloc((size_t)W * H * 4);
+	if (!fb.px || !qmap || !bg_dark || !bg_light || !bg_sec) return -1;
+	gen_cracks(); bake_home();
+	return 0;
+}
 static int fb_open(void)
 {
 	int fd = open("/dev/fb0", O_RDWR);
@@ -722,6 +739,7 @@ static void sample_sys(Home *h, float t)
 
 static void home_frame(Home *h, float t, float dt)
 {
+	if (bk_light && bg_dark) { free(bg_dark); free(bg_light); bg_dark = bg_light = NULL; }   /* the baked copies replace them */
 	for (int q = 0; q < 4; q++) h->blend[q] += (((h->screen == 0 && q == h->sel) ? 1.f : 0.f) - h->blend[q]) * sg_min(1, dt * 11);
 	h->fade = sg_min(1, h->fade + dt * 6);
 	frost_static = h->screen == 1 || h->screen == 3 || h->screen == 4;   /* these screens sit on still glass */
@@ -897,8 +915,9 @@ static void run_game(struct passwd *pw, char *req)
 static void run_session(void)
 {
 	struct passwd *pw = getpwnam(user);
-	for (;;) {                                        /* the home screen; again after each Steam session */
+	for (int round = 0;; round++) {                   /* the home screen; again after each Steam session */
 		int pfd[2];
+		if (round && ui_again() < 0) { restore_tty(); execl("/bin/login", "login", "-f", user, (char *)NULL); _exit(1); }
 		if (!pw || pipe(pfd) < 0) { restore_tty(); execl("/bin/login", "login", "-f", user, (char *)NULL); _exit(1); }
 		pid_t pid = fork();
 		if (pid == 0) {                                   /* the interface runs as the user, never as root */
@@ -912,6 +931,7 @@ static void run_session(void)
 			_exit(0);
 		}
 		close(pfd[1]);
+		ui_release();                                 /* (the child keeps its own copies) */
 		char c = 'T', req[48]; int game = 0;
 		for (;;) {                                        /* the privileged side only does what the user's side asks */
 			ssize_t n = read(pfd[0], &c, 1);
@@ -1011,6 +1031,7 @@ int main(int argc, char **argv)
 	sg_clear(&fb, BLACK); flip();
 	gen_cracks(); bake_home();
 	if (mkdir("/run/silver-greeter", 0700) == 0) { Home h; home_init(&h); intro(&h); }     /* the full intro plays once per boot */
+	free(canvas); canvas = NULL;                      /* (the intro's screen-shake scratch buffer) */
 	tcflush(tty_fd, TCIFLUSH);
 	if (!account_open(user)) lock_loop();
 	run_session();

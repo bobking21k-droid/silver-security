@@ -8,16 +8,11 @@ cp -a "$TOP/rootfs-overlay/." "$ROOTFS/"
 find "$ROOTFS" -name .keep -delete
 cp "$WORK/stage/bin/busybox" "$ROOTFS/bin/busybox"
 mkdir -p "$ROOTFS/etc/ssl"; cp "$SOURCES/cacert.pem" "$ROOTFS/etc/ssl/cacert.pem"
-if [[ -f "$WORK/assets/search-bg.svid" ]]; then mkdir -p "$ROOTFS/usr/share/silver"; cp "$WORK/assets/search-bg.svid" "$ROOTFS/usr/share/silver/"; fi   # optional, see make-search-bg.sh
-if [[ -f "$WORK/assets/dancer.sprite" ]]; then mkdir -p "$ROOTFS/usr/share/silver"; cp "$WORK/assets/dancer.sprite" "$ROOTFS/usr/share/silver/"; fi   # optional, see make-dancer.py
-# Wi-Fi firmware (Intel's flattened, as the kernel asks for it) and the regulatory database
-fwsrc="$SOURCES/firmware"; fwdst="$ROOTFS/lib/firmware"; mkdir -p "$fwdst"
-grep -v '^\s*\(#\|$\)' "$TOP/firmware/wifi.list" | while read -r rel; do
-  case "$rel" in intel/iwlwifi/*) cp "$fwsrc/$rel" "$fwdst/" ;; *) mkdir -p "$fwdst/$(dirname "$rel")"; cp "$fwsrc/$rel" "$fwdst/$rel" ;; esac
-done
-cp "$fwsrc/regulatory.db" "$fwsrc/regulatory.db.p7s" "$fwdst/"
-# kernel modules (Wi-Fi chips, graphics cards), each signed by this build's key
-rm -rf "$ROOTFS/lib/modules"; cp -a "$OUT/modules/lib/modules" "$ROOTFS/lib/"
+# Wi-Fi / Bluetooth / graphics firmware and kernel modules, and the big media files, live in
+# games.sqfs (scripts/build-pack.sh) so they stay on the stick or disk instead of in memory
+mkdir -p "$ROOTFS/lib"
+ln -s /usr/lib/modules "$ROOTFS/lib/modules"; ln -s /usr/lib/firmware "$ROOTFS/lib/firmware"
+[[ -f "$OUT/games.sqfs" ]] || echo "!! no games.sqfs: this image will have no Wi-Fi, Bluetooth, graphics or Steam (run scripts/build-games.sh)"
 # where the games layer's programs expect things outside /usr (dangling without the layer)
 mkdir -p "$ROOTFS/lib64"
 ln -s /usr/lib/ld-linux-x86-64.so.2 "$ROOTFS/lib64/ld-linux-x86-64.so.2"

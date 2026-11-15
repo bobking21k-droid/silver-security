@@ -27,6 +27,16 @@ static int steam_ready(void)
 	return access("/usr/lib/silver/steam-session", X_OK) == 0;
 #endif
 }
+/* On the live USB, the home folder is in memory: whatever Steam downloads (its own ~1 GB, then the
+ * games) would fill RAM. An installed SilverOS keeps it on the disk. */
+static int silver_live(void)
+{
+#ifdef RENDER
+	return 0;
+#else
+	return access("/etc/silver-installed", F_OK) != 0;
+#endif
+}
 /* The first time: get Steam's launcher from Valve (repo.steampowered.com, about 20 MB) into
  * ~/.cache/steam_latest.deb; steam-session unpacks it, and Steam updates itself from then on. */
 #define STEAM_DEB_URL "https://repo.steampowered.com/steam/archive/stable/steam_latest.deb"
@@ -406,15 +416,20 @@ static void dancer_load(void)
 	dancer.tried = 1;
 	const char *path = getenv("SILVER_DANCER");
 	if (!path) path = "/usr/share/silver/dancer.sprite";
-	FILE *f = fopen(path, "rb");
-	if (!f) return;
-	unsigned char hd[12];
-	if (fread(hd, 1, 12, f) == 12 && !memcmp(hd, "SPRT", 4)) {
+	/* mapped, not copied (see clip_load): the 4 MB of frames stay on the stick or disk until used */
+	int fd = open(path, O_RDONLY);
+	if (fd < 0) return;
+	struct stat st; void *m = MAP_FAILED;
+	if (fstat(fd, &st) == 0 && st.st_size >= 12 && st.st_size < (64L << 20)) m = mmap(NULL, (size_t)st.st_size, PROT_READ, MAP_PRIVATE, fd, 0);
+	close(fd);
+	if (m == MAP_FAILED) return;
+	const unsigned char *hd = m;
+	if (!memcmp(hd, "SPRT", 4)) {
 		dancer.w = hd[4] | hd[5] << 8; dancer.h = hd[6] | hd[7] << 8; dancer.n = hd[8] | hd[9] << 8; dancer.fps = hd[10] | hd[11] << 8;
 		size_t sz = (size_t)dancer.w * dancer.h * 4 * dancer.n;
-		if (dancer.w && dancer.h && dancer.n && dancer.fps && sz < (64u << 20) && (dancer.px = malloc(sz)) && fread(dancer.px, 1, sz, f) != sz) { free(dancer.px); dancer.px = 0; }
+		if (dancer.w && dancer.h && dancer.n && dancer.fps && 12 + sz <= (size_t)st.st_size) { dancer.px = (uint8_t *)m + 12; return; }
 	}
-	fclose(f);
+	munmap(m, (size_t)st.st_size);
 }
 /* draw the dancer with its feet on y, centred on x, `hgt` pixels tall (blocky, like the original) */
 static void dancer_draw(float x, float y, float hgt, float t)
@@ -644,6 +659,7 @@ static void draw_gstore_page(Home *h, float t)
 		icon(here ? I_GAME : I_INFO, lx + U * 4, boxy + U * 4.4f, U * 1.6f, here ? RGB(90, 225, 140) : RGB(255, 190, 70), 1);
 		const char *l1, *l2;
 		if (here && inst) { l1 = "Installed. Press Enter to play it, right here in SilverOS."; l2 = "It runs through Steam and Proton. Quit the game and Steam to come back here."; }
+		else if (here && silver_live()) { l1 = "You're running from the USB stick: Steam's files would fill your memory."; l2 = "Install SilverOS first (su -c silver-install), then games go on the disk. ENTER tries anyway."; }
 		else if (here) { l1 = "Press Enter to install it with Steam, right here in SilverOS. B buys it in Steam."; l2 = "Steam asks you to sign in the first time. Windows games run through Proton."; }
 		else if (gs.tab == GS_STEAM) { l1 = "Buy it through Steam: press Enter, scan the code, and it opens in the Steam app."; l2 = "This build has no games layer, so it plays when you start Windows."; }
 		else { l1 = "Microsoft Store games only run in Windows: their copy protection needs it."; l2 = "Press Enter and scan the code to get it there, for when you start Windows."; }

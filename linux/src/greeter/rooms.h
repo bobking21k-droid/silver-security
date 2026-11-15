@@ -21,15 +21,19 @@ static void clip_load(void)
 	clip.tried = 1;
 	const char *path = getenv("SILVER_SEARCH_BG");
 	if (!path) path = "/usr/share/silver/search-bg.svid";
-	FILE *f = fopen(path, "rb");
-	if (!f) return;
-	fseek(f, 0, SEEK_END); long n = ftell(f); fseek(f, 0, SEEK_SET);
-	if (n < 12 || n > 64L << 20 || !(clip.blob = malloc((size_t)n))) { fclose(f); return; }
-	if (fread(clip.blob, 1, (size_t)n, f) != (size_t)n || memcmp(clip.blob, "SVID", 4)) { fclose(f); free(clip.blob); clip.blob = 0; return; }
-	fclose(f);
+	/* the file is mapped, not copied: the pages come from the stick or disk as they are needed and
+	 * can be dropped again, so the 14 MB clip does not sit in memory */
+	int fd = open(path, O_RDONLY);
+	if (fd < 0) return;
+	struct stat st; void *m = MAP_FAILED;
+	if (fstat(fd, &st) == 0 && st.st_size >= 12 && st.st_size <= (64L << 20)) m = mmap(NULL, (size_t)st.st_size, PROT_READ, MAP_PRIVATE, fd, 0);
+	close(fd);
+	if (m == MAP_FAILED) return;
+	long n = st.st_size; clip.blob = m;
+	if (memcmp(clip.blob, "SVID", 4)) { munmap(m, (size_t)n); clip.blob = 0; return; }
 	clip.w = clip.blob[4] | clip.blob[5] << 8; clip.h = clip.blob[6] | clip.blob[7] << 8;
 	clip.n = clip.blob[8] | clip.blob[9] << 8; clip.fps = clip.blob[10] | clip.blob[11] << 8;
-	if (clip.w < 2 || clip.h < 2 || !clip.n || !clip.fps || 12 + (long)clip.w * clip.h * clip.n > n) { free(clip.blob); clip.blob = 0; clip.n = 0; return; }
+	if (clip.w < 2 || clip.h < 2 || !clip.n || !clip.fps || 12 + (long)clip.w * clip.h * clip.n > n) { munmap(m, (size_t)n); clip.blob = 0; clip.n = 0; return; }
 	clip.frames = clip.blob + 12;
 	for (int v = 0; v < 256; v++) {                         /* grey -> deep black, a clean red, then pale highlights */
 		float x = v / 255.0f, s = sg_smooth((x - 0.10f) / 0.80f), hi = s * s * s * s;
