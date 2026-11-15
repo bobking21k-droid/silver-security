@@ -31,8 +31,17 @@ if [[ -d "$t64/usr/lib" && -d "$t32/usr/lib" ]]; then
       t=$(readlink "$l"); case "$t" in ../usr/*) ln -sfn "../${t#../usr/}" "$l"; [[ -e "$l" ]] || ln -sfn "${t#../usr/}" "$l" ;; esac
     done
   done
+  # links written for Buildroot's layout, fixed for this one: "../../../usr/share/x" under /etc becomes
+  # "/usr/share/x"; "../../lib/libx.so.1" next to the libraries becomes "libx.so.1"
+  find "$g/usr/etc-games" "$g/usr/lib" "$g/usr/lib32" -type l 2>/dev/null | while read -r l; do
+    t=$(readlink "$l")
+    case "$t" in
+      ../*usr/*) ln -sfn "/usr/${t#*usr/}" "$l" ;;
+      ../../lib/*) ln -sfn "${t#../../lib/}" "$l" ;;
+    esac
+  done || true
   # links into /usr/bin from usr/sbin etc. that now sit in the same tree stay valid; report any that don't
-  find "$g/usr" -xtype l | head -5 | sed 's/^/   (dangling, ignored) /'
+  find "$g/usr" -xtype l | grep -v -E '/usr/(bin|sbin)/udev|/etc-games/|^/usr/' | head -5 | sed 's/^/   (dangling) /' || true
   mkdir -p "$g/usr/lib32"; cp -a "$t32/usr/lib/." "$g/usr/lib32/"           # the 32-bit libraries the Steam app needs
   for f in "$t32"/lib/*.so*; do [[ -e "$f" ]] && cp -a "$f" "$g/usr/lib32/"; done
   # its /etc pieces live in /usr/etc-games; SilverOS's /etc links to them
