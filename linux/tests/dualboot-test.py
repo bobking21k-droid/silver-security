@@ -30,7 +30,7 @@ class VM:
         VM.runs += 1
         self.mon = os.path.join(outdir, "mon.sock")
         if os.path.exists(self.mon): os.unlink(self.mon)
-        args = ["qemu-system-x86_64", "-m", "1024", "-smp", "2", "-machine", "q35",
+        args = ["qemu-system-x86_64", "-m", "2048", "-smp", "2", "-machine", "q35", "-cpu", "max",
                 "-drive", f"if=pflash,format=raw,readonly=on,file={CODE}",
                 "-drive", f"if=pflash,format=raw,file={vars_fd}",
                 "-drive", f"file={disk},format=raw,if=none,id=d0", "-device", "nvme,drive=d0,serial=WIN11",

@@ -9,4 +9,6 @@ input:x:101:silver
 render:x:102:silver
 dbus:x:81:
 bluetooth:x:103:silver
+pulse:x:82:silver
+pulse-access:x:83:silver
 nogroup:x:65534:
