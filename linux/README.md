@@ -84,18 +84,28 @@ reference, not its content.)
      networks (WPA2 and WPA2/WPA3 mixed ones work), work/school sign-in networks (802.1X), and
      Broadcom chips. The firmware is Intel's, Realtek's, MediaTek's and Qualcomm's own (kept
      under their licences in `/lib/firmware`, listed in `firmware/wifi.list`).
+   - **Settings > Bluetooth** pairs headphones, speakers, game controllers (Xbox, PlayStation
+     DualSense, Switch Pro, Steam Controller), keyboards and mice: devices nearby, battery
+     level, Enter pairs / connects / disconnects, F forgets, R looks again. BlueZ 5.79 does the
+     work (built from source in the games layer, with PulseAudio's Bluetooth audio); the
+     adapter's firmware (Intel, Realtek, MediaTek, Qualcomm, Broadcom USB) is in the image.
+     Not done: Bluetooth audio in the home screen's own sounds (games and Steam use it).
    - **Apps**: a grid of apps: Terminal (a shell on the console; `exit` returns here), the
      **Game Store**, **Me and my PC**, a live System Monitor and About.
      - **Game Store** (`src/greeter/gstore.h`): opens on three panels side by side, picked with
        the arrows: **SilverOS** (games that play right here: Snake, 2048 and Shatter, a brick
        breaker made of glass, written for SilverOS in `games.h`, best scores kept), **Steam**
        (top sellers and new releases, or search, from Steam's public store API, with art) and **Microsoft Store** (its catalogue and search, from the public
-       storefront API), with **prices, discounts and deals**. Steam and Microsoft Store games are
-       Windows games, so they are bought, downloaded and played in Windows. **Buy** opens a panel
-       with a code for your phone: scanning it opens that game in the Steam app (or Microsoft
-       Store), where you buy it with your own account; it is then in your library, to play on
-       Windows. SilverOS never asks for your Steam password or card: logging in to Steam and
-       paying happen only in Steam itself. A wishlist (W) is kept in `~/.config/silver/wishlist`.
+       storefront API), with **prices, discounts and deals**. **Steam runs right here**:
+       on a Steam game's page, Enter **installs** it (or **plays** it once installed) and **B**
+       buys it: SilverOS hands the screen to the real Steam app (Big Picture), as your user, and
+       brings the home screen back when you quit Steam. No restart. The first time, SilverOS
+       fetches Steam's launcher from Valve (about 20 MB; Steam updates itself after that) and
+       Steam asks you to sign in to your own Steam account: SilverOS never sees your password
+       or card. Windows games run through Steam's Proton (Valve's, downloaded by Steam). See
+       "The games layer" below. **Microsoft Store games cannot run outside Windows** (their
+       copy protection needs it), so that tab is look-only, with a code to get them in Windows.
+       A wishlist (W) is kept in `~/.config/silver/wishlist`.
        A little figure dances along the bottom, from a clip you
        supply: `scripts/make-dancer.py <clip> <start> <end> <x> <y> <w> <h>` (kept in `work/`,
        not in git).
@@ -139,7 +149,7 @@ building needs neither the font files nor that script's dependencies.
 | Layer | What | Source |
 |---|---|---|
 | Bootloader | GRUB, branded menu, BIOS + UEFI hybrid image | `boot/grub.cfg` |
-| Kernel | Linux 6.18 LTS, hardened, no loadable modules | `kernel/silver.config` |
+| Kernel | Linux 6.18 LTS, hardened; only Wi-Fi, Bluetooth and graphics drivers are modules, and every module must be signed with this build's own key | `kernel/silver.config` |
 | C library | musl, everything statically linked | `scripts/build-musl.sh` |
 | PID 1 | **silver-init**, written from scratch: mounts, sysctl, service supervision, shutdown | `src/init/init.c` |
 | Userland | BusyBox (shell + core utils; telnet/ftp/http daemons removed) | `scripts/build-userland.sh` |
@@ -150,6 +160,7 @@ building needs neither the font files nor that script's dependencies.
 | Login | **silver-greeter**: framebuffer intro + "press Enter" sign-in (asks for a password only if the account has one) | `src/greeter/` |
 | Installer | **silver-install** (dual boot) + **silver-efiboot** (UEFI boot entries) | `rootfs-overlay/sbin/`, `src/tools/` |
 | Wi-Fi | wpa_supplicant 2.11 + libnl 3.11, static; firmware from linux-firmware; regulatory database | `scripts/build-userland.sh`, `firmware/wifi.list` |
+| Games layer | glibc, Mesa (AMD radeonsi + RADV, Intel iris/ANV, Nvidia nouveau, virtual and software GPUs), Vulkan, Xorg, PulseAudio, D-Bus, BlueZ, 32-bit libraries; built from source with Buildroot, packed as `games.sqfs`, mounted under `/usr` | `buildroot/`, `scripts/build-games.sh`, `games-overlay/` |
 | Disk tools | sfdisk (util-linux), mkfs.ext4/e2fsck (e2fsprogs), static | `scripts/build-userland.sh` |
 
 Rebrand everything by editing `config.sh` (`OS_NAME`, `OS_HOSTNAME`, colours, ...).
@@ -241,10 +252,42 @@ Undo it with `bcdedit /set {bootmgr} path \EFI\Microsoft\Boot\bootmgfw.efi`.
 Hold **Shift** while SilverOS starts loading (after you pick it in the chooser) to get a plain
 text menu: SilverOS, SilverOS (verbose boot), Windows, Firmware setup.
 
+## The games layer
+
+SilverOS itself is small and static (musl). Steam and Windows games need the opposite: glibc,
+graphics drivers, a display server. So those live in a second layer, `games.sqfs` (about 280 MB
+compressed, with the GPU and Bluetooth firmware), built from source with Buildroot
+(`scripts/build-games.sh`, 64-bit and 32-bit halves; plan on a few hours on 4 cores and 30 GB of
+disk) and mounted read-only on top of `/usr` at boot. Without it SilverOS works as before and
+the Game Store says Steam isn't available.
+
+What works and what is untested, plainly:
+
+- Verified in the virtual PC: the layer mounts, drivers load, Xorg starts with glamor and DRI3,
+  OpenGL 4.5 and the Vulkan loader work (software rendering there), Steam's 32-bit client starts
+  in Big Picture mode and runs its updater, the home screen comes back afterwards.
+- **Not verified, because it needs a real internet connection, a Steam account and a real GPU:**
+  Steam's update download, sign-in, installing a game, Proton, and speed on real graphics hardware.
+  Expect rough edges; the session log is `~/.local/state/silver/steam-session.log` and Xorg's is
+  `Xorg.log` beside it, Steam's own `~/.local/share/Steam/logs/`.
+- **Graphics cards:** AMD (Radeon HD 7000 and newer) and Intel (Ivy Bridge and newer) are the
+  good case. **Nvidia uses the open nouveau driver**: it works for the desktop, but is slow for
+  games on most cards, and Vulkan games (Proton) need NVK, which this build does not include.
+  Nvidia's own driver can't be included in an all-from-source system. Plan for AMD or Intel.
+- **Needs a PC from about 2009 on** (the layer is built for x86-64-v2), and **at least 4 GB of
+  RAM on the live USB**, which keeps its system in memory. An installed SilverOS boots from its
+  own partition. Steam games are big: shrink C: in Windows to leave 60 GB or more.
+- **Microsoft Store games and games with anti-cheat that needs Windows cannot run here.**
+- Security trade-offs this adds: the X server runs as root (there is no login manager to hand it
+  the screen and keyboard; it listens only on its local socket and only for your user's cookie),
+  the kernel's 32-bit program support is on (Steam's client is 32-bit), and unprivileged user
+  namespaces are on (Steam's game sandbox needs them).
+
 ## Security defaults
 
-- Kernel: KASLR, lockdown (integrity), no modules, no `/dev/mem`, no kexec, no
-  hibernation, no 32-bit syscall ABI, zeroed allocations and stacks, hardened usercopy,
+- Kernel: KASLR, lockdown (integrity), signed-only modules (only the Wi-Fi, Bluetooth and
+  graphics drivers are modules), no `/dev/mem`, no kexec, no
+  hibernation, 32-bit programs allowed only because Steam needs them, zeroed allocations and stacks, hardened usercopy,
   freelist hardening, panic on oops.
 - Runtime: kptr/dmesg restricted, ptrace restricted (Yama 2), unprivileged BPF off,
   SysRq off, protected links/fifos, network anti-spoofing / no redirects.

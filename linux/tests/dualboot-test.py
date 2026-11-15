@@ -145,7 +145,7 @@ vm.changed("settings", "settings-sound-off", 0.002); vm.changed("apps", "game-st
 vm.changed("game-snake", "game-steam"); vm.changed("apps", "me-and-my-pc")
 vm.key("ret"); time.sleep(5); vm.shot("terminal")                                  # Terminal: a shell on tty1, as the user
 vm.send("silver"); vm.expect(r"~\$ ")                                              # text console: no password either
-for c in ["od -An -tx1 /sys/firmware/efi/efivars/SilverMute-6c5c3c2e-6b0a-4f3c-9a7e-2f1d0c9b8a71", "ls ~/.config/silver", "cat /etc/silver-installed", "mount | grep ' / '", "echo persist-check > ~/note.txt; sync", "ps | grep -c '[s]ilver-greeter' || true", "id -un"]:
+for c in ["mount | grep -E 'games|/usr ' ; ls -la /boot/games.sqfs; ls /usr/lib/firmware | head -3; ls /dev/dri", "od -An -tx1 /sys/firmware/efi/efivars/SilverMute-6c5c3c2e-6b0a-4f3c-9a7e-2f1d0c9b8a71", "ls ~/.config/silver", "cat /etc/silver-installed", "mount | grep ' / '", "echo persist-check > ~/note.txt; sync", "ps | grep -c '[s]ilver-greeter' || true", "id -un"]:
     vm.send(c); print(strip(vm.expect(r"~\$ ")))
 print("== 3b. Wi-Fi: join the test access point from Settings > Network")
 vm.send("su -c 'mkdir -p /run/ap; mount -o ro $(findfs LABEL=TESTAP) /run/ap && /run/ap/ap.sh'"); vm.expect("Password:"); vm.send("Admin#Test12")
