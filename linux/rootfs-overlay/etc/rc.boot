@@ -21,7 +21,8 @@ sleep 1                                   # let new network interfaces and the g
 if [ -x /usr/bin/dbus-daemon ]; then                  # the system message bus, and Bluetooth on it
   echo "  * Bluetooth"
   mkdir -p /run/dbus /var/lib/dbus /var/lib/bluetooth; chmod 700 /var/lib/bluetooth
-  dbus-uuidgen --ensure 2>/dev/null; dbus-daemon --system --fork
+  dbus-uuidgen --ensure 2>/dev/null; [ -e /etc/machine-id ] || cp /var/lib/dbus/machine-id /etc/machine-id 2>/dev/null   # (Steam wants one)
+  dbus-daemon --system --fork
   for r in /sys/class/rfkill/rfkill*; do [ "$(cat "$r/type" 2>/dev/null)" = bluetooth ] && echo 0 > "$r/soft"; done
   for b in /usr/libexec/bluetooth/bluetoothd /usr/lib/bluetooth/bluetoothd; do [ -x "$b" ] && { "$b" >/dev/null 2>&1 & break; }; done
 fi

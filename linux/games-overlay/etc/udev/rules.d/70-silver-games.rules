@@ -1,0 +1,6 @@
+# SilverOS: let the signed-in user use game controllers and Steam Input.
+# Controllers and the virtual-input device are in the "input" group (the user is a member).
+KERNEL=="uinput", SUBSYSTEM=="misc", MODE="0660", GROUP="input", OPTIONS+="static_node=uinput"
+KERNEL=="uhid", SUBSYSTEM=="misc", MODE="0660", GROUP="input"
+SUBSYSTEM=="hidraw", MODE="0660", GROUP="input"
+SUBSYSTEM=="input", ENV{ID_INPUT_JOYSTICK}=="1", MODE="0660", GROUP="input"
