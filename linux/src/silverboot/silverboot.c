@@ -224,8 +224,14 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE *st)
 	static Chooser c;
 	c.windows_found = find_volume(WINDOWS_LOADER) != 0;
 	chooser_init(&c);
-	bootsfx_build(&snd, 1, calm);                            /* all the sounds, made now (well under a second) */
-	if (hda_start()) sfx_play(&hda_player, &snd.amb, 0.7f, 1);
+	/* sound, unless "Sound effects" is off in SilverOS Settings (it leaves a firmware variable) */
+	static EFI_GUID muteg = { 0x6c5c3c2e, 0x6b0a, 0x4f3c, { 0x9a, 0x7e, 0x2f, 0x1d, 0x0c, 0x9b, 0x8a, 0x71 } };
+	uint8_t mv = 0; UINTN ms = 1; uint32_t mattr;
+	int sound = !(((EFI_RUNTIME_SERVICES *)st->RuntimeServices)->GetVariable(u"SilverMute", &muteg, &mattr, &ms, &mv) == EFI_SUCCESS && mv);
+	if (sound) {
+		bootsfx_build(&snd, 1, calm);                          /* all the sounds, made now (well under a second) */
+		if (hda_start()) sfx_play(&hda_player, &snd.amb, 0.7f, 1);
+	}
 	int last_sel = c.sel, last_count = (int)(c.countdown + 0.999f);
 	uint64_t last = rdtsc();
 	for (;;) {
@@ -282,7 +288,7 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE *st)
 			chooser_draw(&fb, &c);
 			const char *err = launch(go == 0 ? SILVER_LOADER : WINDOWS_LOADER, go == 0);
 			chooser_init(&c);                                 /* we are back: show why, wait for a choice */
-			if (hda_start()) sfx_play(&hda_player, &snd.amb, 0.7f, 1);
+			if (sound && hda_start()) sfx_play(&hda_player, &snd.amb, 0.7f, 1);
 			c.err = err; c.counting = 0; c.real_t = 1;
 			last = rdtsc();
 		}

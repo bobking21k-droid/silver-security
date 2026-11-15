@@ -294,7 +294,7 @@ static int pcm_open(void)
  * Forked once, as root, before anything else: it opens the sound card, makes every sound, drops
  * root, then mixes and plays forever, taking one-byte requests from a pipe (see snd()). Both the
  * intro and the unprivileged home screen send requests; nobody waits for it. */
-static pid_t audio_start(int quiet)
+static pid_t audio_start(int quiet, int muted)
 {
 	int p[2];
 	if (pipe(p) < 0) return -1;
@@ -320,10 +320,12 @@ static pid_t audio_start(int quiet)
 			for (ssize_t i = 0; i < r; i++) {
 				if (ev[i] == 'I') {
 					if (!intro.n) { int16_t *s = 0; intro.n = intro_track(&s, INTRO_TIMES, quiet); intro.s = s; }
-					sfx_play(&pl, &intro, 1, 0);
+					if (!muted) sfx_play(&pl, &intro, 1, 0);
 				} else if (ev[i] == 'x') sfx_stop(&pl, &intro);
 				else if (ev[i] == 'q') open_pipe = 0;
-				else ui_sfx_play(&pl, &ui, ev[i]);
+				else if (ev[i] == 'M') { muted = 1; sfx_stop(&pl, 0); }
+				else if (ev[i] == 'U') muted = 0;
+				else if (!muted) ui_sfx_play(&pl, &ui, ev[i]);
 			}
 		}
 		if (r == 0) open_pipe = 0;

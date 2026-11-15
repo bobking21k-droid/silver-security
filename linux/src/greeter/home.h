@@ -267,7 +267,8 @@ static void bake_home(void)
 }
 
 /* ================================================================ icons */
-enum { I_SETTINGS, I_SEARCH, I_APPS, I_FILES, I_FOLDER, I_FILE, I_TERM, I_MONITOR, I_INFO, I_POWER };
+enum { I_SETTINGS, I_SEARCH, I_APPS, I_FILES, I_FOLDER, I_FILE, I_TERM, I_MONITOR, I_INFO, I_POWER,
+       I_STORE, I_PC, I_CHIP, I_RAM, I_DISK, I_SCREEN, I_NET, I_BATTERY, I_SOUND, I_DOWNLOAD, I_USER };
 static void icon(int kind, float cx, float cy, float r, uint32_t c, float a)
 {
 	float sw = sg_max(1.6f, r * 0.15f);
@@ -321,6 +322,74 @@ static void icon(int kind, float cx, float cy, float r, uint32_t c, float a)
 		sg_ring(&fb, cx, cy + r * 0.08f, r * 0.7f, sw, c, a);
 		sg_rect(&fb, cx - sw * 0.9f, cy - r * 0.95f, sw * 1.8f, r * 0.9f, BLACK, 0);   /* (gap handled by the line below) */
 		sg_line(&fb, (V2){cx, cy - r * 0.9f}, (V2){cx, cy - r * 0.1f}, sw * 1.2f, c, a);
+		break;
+	case I_STORE:                                                         /* a shopping bag with a handle */
+		sg_rrect(&fb, cx - r * 0.78f, cy - r * 0.30f, r * 1.56f, r * 1.15f, r * 0.16f, 0, c, a);
+		sg_ring(&fb, cx, cy - r * 0.32f, r * 0.42f, sw, c, a);
+		sg_rect(&fb, cx - r * 0.5f, cy - r * 0.30f, r * 1.0f, r * 0.45f, BLACK, 0);
+		sg_disc(&fb, cx - r * 0.36f, cy + r * 0.05f, r * 0.09f, BLACK, a * 0.6f); sg_disc(&fb, cx + r * 0.36f, cy + r * 0.05f, r * 0.09f, BLACK, a * 0.6f);
+		break;
+	case I_PC:                                                            /* a monitor on a stand */
+		sg_rrect(&fb, cx - r * 0.95f, cy - r * 0.75f, r * 1.9f, r * 1.2f, r * 0.12f, sw, c, a);
+		sg_rect(&fb, cx - r * 0.08f, cy + r * 0.45f, r * 0.16f, r * 0.3f, c, a);
+		sg_rrect(&fb, cx - r * 0.45f, cy + r * 0.72f, r * 0.9f, r * 0.14f, r * 0.07f, 0, c, a);
+		break;
+	case I_CHIP:
+		sg_rrect(&fb, cx - r * 0.55f, cy - r * 0.55f, r * 1.1f, r * 1.1f, r * 0.12f, sw, c, a);
+		sg_rrect(&fb, cx - r * 0.25f, cy - r * 0.25f, r * 0.5f, r * 0.5f, r * 0.06f, 0, c, a);
+		for (int i = 0; i < 3; i++) {
+			float o = (i - 1) * r * 0.32f;
+			sg_line(&fb, (V2){cx + o, cy - r * 0.9f}, (V2){cx + o, cy - r * 0.55f}, sw * 0.8f, c, a); sg_line(&fb, (V2){cx + o, cy + r * 0.55f}, (V2){cx + o, cy + r * 0.9f}, sw * 0.8f, c, a);
+			sg_line(&fb, (V2){cx - r * 0.9f, cy + o}, (V2){cx - r * 0.55f, cy + o}, sw * 0.8f, c, a); sg_line(&fb, (V2){cx + r * 0.55f, cy + o}, (V2){cx + r * 0.9f, cy + o}, sw * 0.8f, c, a);
+		}
+		break;
+	case I_RAM:
+		sg_rrect(&fb, cx - r * 0.95f, cy - r * 0.42f, r * 1.9f, r * 0.7f, r * 0.08f, sw, c, a);
+		for (int i = 0; i < 4; i++) sg_rect(&fb, cx - r * 0.72f + i * r * 0.4f, cy - r * 0.24f, r * 0.24f, r * 0.32f, c, a);
+		for (int i = 0; i < 7; i++) sg_rect(&fb, cx - r * 0.8f + i * r * 0.26f, cy + r * 0.32f, r * 0.12f, r * 0.2f, c, a);
+		break;
+	case I_DISK:
+		sg_rrect(&fb, cx - r * 0.95f, cy - r * 0.5f, r * 1.9f, r * 1.0f, r * 0.16f, sw, c, a);
+		sg_disc(&fb, cx + r * 0.55f, cy, r * 0.12f, c, a);
+		sg_line(&fb, (V2){cx - r * 0.65f, cy}, (V2){cx + r * 0.15f, cy}, sw, c, a);
+		break;
+	case I_SCREEN:
+		sg_rrect(&fb, cx - r * 0.95f, cy - r * 0.62f, r * 1.9f, r * 1.24f, r * 0.12f, sw, c, a);
+		sg_line(&fb, (V2){cx - r * 0.5f, cy + r * 0.88f}, (V2){cx + r * 0.5f, cy + r * 0.88f}, sw, c, a);
+		break;
+	case I_NET:                                                           /* wifi waves */
+		for (int k = 0; k < 3; k++) {
+			float rr = r * (0.35f + 0.3f * k);
+			for (int j = 0; j < 7; j++) {
+				float a0 = -SG_PI * 0.75f + j * SG_PI * 0.5f / 7, a1 = a0 + SG_PI * 0.5f / 7;
+				sg_line(&fb, (V2){cx + sg_cos(a0) * rr, cy + r * 0.45f + sg_sin(a0) * rr}, (V2){cx + sg_cos(a1) * rr, cy + r * 0.45f + sg_sin(a1) * rr}, sw, c, a);
+			}
+		}
+		sg_disc(&fb, cx, cy + r * 0.45f, r * 0.12f, c, a);
+		break;
+	case I_BATTERY:
+		sg_rrect(&fb, cx - r * 0.95f, cy - r * 0.45f, r * 1.7f, r * 0.9f, r * 0.12f, sw, c, a);
+		sg_rect(&fb, cx + r * 0.78f, cy - r * 0.2f, r * 0.17f, r * 0.4f, c, a);
+		sg_rect(&fb, cx - r * 0.75f, cy - r * 0.25f, r * 0.9f, r * 0.5f, c, a);
+		break;
+	case I_SOUND:
+		{ V2 q[4] = {{cx - r * 0.85f, cy - r * 0.28f}, {cx - r * 0.35f, cy - r * 0.28f}, {cx - r * 0.35f, cy + r * 0.28f}, {cx - r * 0.85f, cy + r * 0.28f}}; sg_poly(&fb, q, 4, c, a, 0.3f);
+		  V2 cone[4] = {{cx - r * 0.35f, cy - r * 0.28f}, {cx + r * 0.1f, cy - r * 0.7f}, {cx + r * 0.1f, cy + r * 0.7f}, {cx - r * 0.35f, cy + r * 0.28f}}; sg_poly(&fb, cone, 4, c, a, 0.3f); }
+		for (int k = 0; k < 2; k++) {
+			float rr = r * (0.42f + 0.3f * k);
+			for (int j = 0; j < 6; j++) { float a0 = -0.8f + j * 1.6f / 6, a1 = a0 + 1.6f / 6;
+				sg_line(&fb, (V2){cx + r * 0.1f + sg_cos(a0) * rr, cy + sg_sin(a0) * rr}, (V2){cx + r * 0.1f + sg_cos(a1) * rr, cy + sg_sin(a1) * rr}, sw * 0.9f, c, a); }
+		}
+		break;
+	case I_DOWNLOAD:
+		sg_line(&fb, (V2){cx, cy - r * 0.85f}, (V2){cx, cy + r * 0.25f}, sw * 1.2f, c, a);
+		sg_line(&fb, (V2){cx - r * 0.42f, cy - r * 0.15f}, (V2){cx, cy + r * 0.28f}, sw * 1.2f, c, a);
+		sg_line(&fb, (V2){cx + r * 0.42f, cy - r * 0.15f}, (V2){cx, cy + r * 0.28f}, sw * 1.2f, c, a);
+		sg_line(&fb, (V2){cx - r * 0.8f, cy + r * 0.75f}, (V2){cx + r * 0.8f, cy + r * 0.75f}, sw * 1.2f, c, a);
+		break;
+	case I_USER:
+		sg_disc(&fb, cx, cy - r * 0.35f, r * 0.38f, c, a);
+		sg_rrect(&fb, cx - r * 0.75f, cy + r * 0.15f, r * 1.5f, r * 0.75f, r * 0.37f, 0, c, a);
 		break;
 	}
 }
@@ -487,7 +556,9 @@ typedef struct {
 	float blend[4];
 	int row;                                /* current row in a list */
 	int top;                                /* first visible row */
-	int sub;                                /* 0 list, 1 monitor, 2 about */
+	int sub;                                /* apps: 0 grid, 1 monitor, 2 about, 3 store, 4 me and my pc */
+	int sub_from;                           /* the grid tile a sub-screen was opened from */
+	int mute_on;                            /* sound effects off */
 	Search sr; int sr_ready;                 /* the file search engine (Files only) */
 	int fs, fs_scope;                        /* Files: searching, and what in (0 names, 1 text) */
 	int focus;                               /* YouTube search: 0 box, 1 results */
@@ -603,10 +674,6 @@ static void draw_files(Home *h, float t)
 #include "ytui.h"
 
 /* ---------------------------------------------------------------- apps */
-static const char *APPNAME[3] = {"Terminal", "System Monitor", "About SilverOS"};
-static const char *APPDESC[3] = {"A command line. Type exit to come back.", "Live CPU and memory", "Version and install notes"};
-static const int APPICON[3] = {I_TERM, I_MONITOR, I_INFO};
-
 static void draw_monitor(Home *h, float t)
 {
 	memcpy(fb.px, bg_sec, (size_t)W * H * 4);
@@ -667,45 +734,41 @@ static void draw_about(Home *h)
 	foot_hints("ESC  BACK TO APPS");
 }
 
-static void draw_apps(Home *h, float t)
-{
-	if (h->sub == 1) { draw_monitor(h, t); return; }
-	if (h->sub == 2) { draw_about(h); return; }
-	memcpy(fb.px, bg_sec, (size_t)W * H * 4);
-	title_block("APPS", "TERMINAL  MONITOR  ABOUT", I_APPS);
-	float lx = U * 6, lw = W - U * 12, ly = U * 25, rh = U * 12.5f;
-	ui_frost(lx - U * 1.2f, ly - U * 1.2f, lw + U * 2.4f, 3 * (rh + U * 1.4f) + U * 1.0f, U * 2.2f, 0.55f);
-	for (int i = 0; i < 3; i++) {
-		float y = ly + i * (rh + U * 1.4f); int sel = i == h->row;
-		if (sel) { sg_rrect(&fb, lx, y, lw, rh, U * 1.6f, 0, WHITE, 0.95f); sg_rrect(&fb, lx + U * 0.8f, y + rh * 0.25f, U * 0.5f, rh * 0.5f, U * 0.25f, 0, RED, 1); }
-		else if (i) sg_rect(&fb, lx + U * 3, y - U * 0.7f, lw - U * 6, sg_max(1, U * 0.08f), WHITE, 0.08f);
-		icon(APPICON[i], lx + U * 7, y + rh / 2, U * 3.6f, sel ? INK : WHITE, 1);
-		sg_text(&fb, &FD, lx + U * 14, y + rh * 0.50f, APPNAME[i], U * 4.6f, sel ? INK : WHITE, 1, 0);
-		sg_text(&fb, &FT, lx + U * 14, y + rh * 0.82f, APPDESC[i], U * 2.0f, sel ? RGB(70, 70, 78) : RGB(160, 160, 166), 1, 0.01f);
-	}
-	foot_hints("UP DOWN  MOVE      ENTER  OPEN      ESC  HOME");
-}
+static float ui_t;                              /* seconds on the home screen clock */
+#include "apps.h"
 
 /* ---------------------------------------------------------------- settings */
 static void draw_settings(Home *h, float t)
 {
 	memcpy(fb.px, bg_sec, (size_t)W * H * 4);
-	title_block("SETTINGS", "NETWORK  DISPLAY  POWER", I_SETTINGS);
+	title_block("SETTINGS", "NETWORK  DISPLAY  SOUND  POWER", I_SETTINGS);
 	char net[80]; net_text(net, sizeof net);
 	char disp[48]; snprintf(disp, sizeof disp, "%d x %d", W * scale, H * scale);
-	static const char *name[6] = {"Network", "Display", "Calm mode", "About", "Restart", "Shut down"};
-	static const int ic[6] = {I_SETTINGS, I_SETTINGS, I_SETTINGS, I_INFO, I_POWER, I_POWER};
-	char val[6][80];
+	static const char *name[7] = {"Network", "Display", "Calm mode", "Sound effects", "About", "Restart", "Shut down"};
+	static const int ic[7] = {I_NET, I_SCREEN, I_SETTINGS, I_SOUND, I_INFO, I_POWER, I_POWER};
+	char val[7][80];
 	snprintf(val[0], 80, "%s", net); snprintf(val[1], 80, "%s", disp); snprintf(val[2], 80, "%s", h->calm_on ? "ON  -  no strobing or shaking" : "OFF");
-	snprintf(val[3], 80, "SilverOS 0.1.0"); snprintf(val[4], 80, "%s", h->confirm == 4 ? "PRESS ENTER AGAIN TO RESTART" : "Restart the computer");
-	snprintf(val[5], 80, "%s", h->confirm == 5 ? "PRESS ENTER AGAIN TO SHUT DOWN" : "Turn the computer off");
-	float lx = U * 6, lw = W - U * 12, ly = U * 24, rh = U * 7.4f;
-	ui_frost(lx - U * 1.2f, ly - U * 1.2f, lw + U * 2.4f, 6 * (rh + U * 0.8f) + U * 1.6f, U * 2.2f, 0.55f);
-	for (int i = 0; i < 6; i++) {
-		float y = ly + i * (rh + U * 0.8f); int sel = i == h->row, danger = i >= 4;
+	snprintf(val[3], 80, "%s", h->mute_on ? "OFF  -  muted" : "ON");
+	snprintf(val[4], 80, "SilverOS 0.1.0"); snprintf(val[5], 80, "%s", h->confirm == 5 ? "PRESS ENTER AGAIN TO RESTART" : "Restart the computer");
+	snprintf(val[6], 80, "%s", h->confirm == 6 ? "PRESS ENTER AGAIN TO SHUT DOWN" : "Turn the computer off");
+	float lx = U * 6, lw = W - U * 12, ly = U * 23, rh = U * 7.0f;
+	ui_frost(lx - U * 1.2f, ly - U * 1.2f, lw + U * 2.4f, 7 * (rh + U * 0.6f) + U * 1.6f, U * 2.2f, 0.55f);
+	for (int i = 0; i < 7; i++) {
+		float y = ly + i * (rh + U * 0.6f); int sel = i == h->row, danger = i >= 5;
 		if (sel) { sg_rrect(&fb, lx, y, lw, rh, U * 1.4f, 0, WHITE, 0.95f); sg_rrect(&fb, lx + U * 0.7f, y + rh * 0.25f, U * 0.45f, rh * 0.5f, U * 0.22f, 0, RED, 1); }
-		else if (i) sg_rect(&fb, lx + U * 3, y - U * 0.4f, lw - U * 6, sg_max(1, U * 0.08f), WHITE, 0.08f);
+		else if (i) sg_rect(&fb, lx + U * 3, y - U * 0.3f, lw - U * 6, sg_max(1, U * 0.08f), WHITE, 0.08f);
 		uint32_t fg = sel ? INK : WHITE;
+		if (i == 2 || i == 3) {                                              /* on/off switches */
+			int on = i == 2 ? h->calm_on : !h->mute_on;
+			float sw = U * 5.4f, shh = U * 2.8f, sx = lx + lw - U * 3 - sw, sy = y + rh / 2 - shh / 2;
+			sg_rrect(&fb, sx, sy, sw, shh, shh / 2, 0, on ? RED : (sel ? RGB(170, 170, 176) : RGB(70, 70, 76)), 1);
+			sg_disc(&fb, on ? sx + sw - shh / 2 : sx + shh / 2, sy + shh / 2, shh * 0.38f, WHITE, 1);
+			icon(ic[i], lx + U * 4.2f, y + rh / 2, U * 2.0f, fg, 1);
+			sg_text(&fb, &FT, lx + U * 9, y + rh / 2 + U * 0.9f, name[i], U * 2.6f, fg, 1, 0.01f);
+			float vw = sg_text_w(&FT, val[i], U * 2.0f, 0.01f);
+			sg_text(&fb, &FT, sx - U * 2 - vw, y + rh / 2 + U * 0.7f, val[i], U * 2.0f, sel ? RGB(70, 70, 78) : RGB(160, 160, 166), 1, 0.01f);
+			continue;
+		}
 		icon(ic[i], lx + U * 4.2f, y + rh / 2, U * 2.0f, danger && !sel ? RGB(255, 120, 110) : fg, 1);
 		sg_text(&fb, &FT, lx + U * 9, y + rh / 2 + U * 0.9f, name[i], U * 2.6f, fg, 1, 0.01f);
 		uint32_t vc = sel ? RGB(70, 70, 78) : RGB(160, 160, 166);
@@ -719,7 +782,7 @@ static void draw_settings(Home *h, float t)
 
 /* ================================================================ the home screen itself */
 static const char *TILE_NAME[4] = {"SETTINGS", "SEARCH", "APPS", "FILES"};
-static const char *TILE_CAP[4] = {"NETWORK  DISPLAY  POWER", "THE WEB  VIDEOS", "TERMINAL  MONITOR", "BROWSE YOUR HOME"};
+static const char *TILE_CAP[4] = {"NETWORK  DISPLAY  SOUND", "THE WEB  VIDEOS", "APP STORE  MY PC", "BROWSE YOUR HOME"};
 static const int TILE_ICON[4] = {I_SETTINGS, I_SEARCH, I_APPS, I_FILES};
 
 static void tile_content(int q, float a, float blend, float beat)

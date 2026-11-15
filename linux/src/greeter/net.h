@@ -255,3 +255,71 @@ static void yt_mock(Yt *y)
 		snprintf(v->desc, sizeof v->desc, "%s", M[i].desc); v->live = !M[i].len[0];
 	}
 }
+
+/* ---------------------------------------------------------------- downloading a file to ~/Downloads */
+enum { DL_IDLE, DL_RUN, DL_DONE, DL_FAIL };
+typedef struct { int state; Job job; char path[400], name[128]; double t0; } Dl;
+static Dl dl;
+
+/* a safe file name from the last part of a web address */
+static void dl_name(const char *url, char *out, size_t n)
+{
+	const char *p = strstr(url, "://"); p = p ? p + 3 : url;
+	const char *host = p, *slash = strchr(p, '/'), *last = slash ? slash : 0;
+	for (const char *q = p; *q && *q != '?' && *q != '#'; q++) if (*q == '/' && q[1] && q[1] != '/' && q[1] != '?' && q[1] != '#') last = q;   /* the last non-empty part */
+	size_t o = 0;
+	if (last && last[1] && last[1] != '?' && last[1] != '#')
+		for (const char *q = last + 1; *q && *q != '/' && *q != '?' && *q != '#' && o + 1 < n; q++) {
+			char c = *q;
+			out[o++] = (char)(((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '.' || c == '-' || c == '_') ? c : '_');
+		}
+	if (!o) for (const char *q = host; *q && *q != '/' && o + 6 < n; q++) out[o++] = (char)(*q == '.' || *q == '-' ? *q : ((*q >= 'a' && *q <= 'z') || (*q >= '0' && *q <= '9') ? *q : '_'));
+	out[o] = 0;
+	if (!strchr(out, '.') || out[0] == '.') { if (o + 6 < n) strcat(out, ".html"); }
+	if (out[0] == '.') out[0] = '_';
+}
+static void dl_start(const char *url)
+{
+	if (dl.state == DL_RUN) return;
+	memset(&dl, 0, sizeof dl);
+	dl.t0 = now();
+	dl_name(url, dl.name, sizeof dl.name);
+#ifdef RENDER
+	dl.state = DL_RUN;
+	snprintf(dl.path, sizeof dl.path, "%s/Downloads/%s", homedir, dl.name);
+#else
+	char dir[300]; snprintf(dir, sizeof dir, "%s/Downloads", homedir); mkdir(dir, 0755);
+	snprintf(dl.path, sizeof dl.path, "%s/%s", dir, dl.name);
+	for (int k = 1; access(dl.path, F_OK) == 0 && k < 100; k++) {        /* never overwrite: name (2).ext */
+		char base[128]; snprintf(base, sizeof base, "%s", dl.name);
+		char *dot = strrchr(base, '.'); char ext[32] = "";
+		if (dot) { snprintf(ext, sizeof ext, "%s", dot); *dot = 0; }
+		snprintf(dl.path, sizeof dl.path, "%s/%s (%d)%s", dir, base, k + 1, ext);
+	}
+	const char *sl = strrchr(dl.path, '/'); snprintf(dl.name, sizeof dl.name, "%s", sl ? sl + 1 : dl.path);
+	char *argv[] = {"/sbin/silver-fetch", "-q", "-t", "1800", "-m", "2147483647", "-o", dl.path, (char *)url, 0};
+	job_start(&dl.job, argv, 4096);
+	dl.state = dl.job.active ? DL_RUN : DL_FAIL;
+#endif
+}
+static long dl_bytes(void)
+{
+#ifdef RENDER
+	return (long)((now() - dl.t0) * 180000);
+#else
+	struct stat st; return stat(dl.path, &st) == 0 ? (long)st.st_size : 0;
+#endif
+}
+static void dl_poll(void)
+{
+	if (dl.state != DL_RUN) return;
+#ifdef RENDER
+	if (now() - dl.t0 > 1.6) dl.state = DL_DONE;
+#else
+	job_poll(&dl.job);
+	if (!dl.job.done) return;
+	dl.state = dl.job.ok ? DL_DONE : DL_FAIL;
+	if (!dl.job.ok) unlink(dl.path);
+	job_free(&dl.job);
+#endif
+}

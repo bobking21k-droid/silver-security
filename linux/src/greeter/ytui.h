@@ -139,8 +139,24 @@ static void draw_page(Home *h, float t)
 	cap_text(cx, sy + m * U * 3.2f + U * 4, "ADDRESS", U * 0.95f, RGB(150, 150, 156), 1, 0);
 	char uf[200]; fit(w->url, U * 2.0f, cw, uf, sizeof uf);
 	sg_text(&fb, &FT, cx, sy + m * U * 3.2f + U * 7.6f, uf, U * 2.0f, WHITE, 1, 0.01f);
-	ui_chip(lx, H - U * 10.6f, "THERE IS NO WEB BROWSER YET - THIS PAGE SHOWS THE RESULT ONLY", U * 0.85f, RGB(255, 190, 70), BLACK, 0.55f);
-	{ static const char *kv[] = {"ESC", "back to results"}; search_footer(h, kv, 1); }
+	/* downloading this page (or file) into Downloads */
+	{
+		float dy = H - U * 22.5f;
+		if (dl.state == DL_RUN || dl.state == DL_DONE || dl.state == DL_FAIL) {
+			char sz[32], line[300];
+			long b = dl_bytes();
+			if (b >= 1000000) snprintf(sz, sizeof sz, "%.1f MB", b / 1e6); else snprintf(sz, sizeof sz, "%ld KB", b / 1000);
+			if (dl.state == DL_RUN) snprintf(line, sizeof line, "Downloading %s  -  %s", dl.name, sz);
+			else if (dl.state == DL_DONE) snprintf(line, sizeof line, "Saved to Downloads:  %s  (%s)", dl.name, sz);
+			else snprintf(line, sizeof line, "That download did not work. Check your network.");
+			icon(dl.state == DL_FAIL ? I_INFO : I_DOWNLOAD, cx + U * 1.4f, dy - U * 0.6f, U * 1.3f, dl.state == DL_FAIL ? RGB(255, 120, 110) : dl.state == DL_DONE ? RGB(170, 220, 170) : WHITE, 1);
+			char lf[300]; fit(line, U * 1.8f, cw - U * 4, lf, sizeof lf);
+			sg_text(&fb, &FT, cx + U * 4, dy, lf, U * 1.8f, WHITE, 1, 0.01f);
+			if (dl.state == DL_RUN) { float ph = sg_fract((float)now() * 0.8f); sg_rrect(&fb, cx, dy + U * 2.0f, cw, U * 0.5f, U * 0.25f, 0, WHITE, 0.12f); sg_rrect(&fb, cx + (cw - cw * 0.25f) * ph, dy + U * 2.0f, cw * 0.25f, U * 0.5f, U * 0.25f, 0, RED, 1); }
+		}
+	}
+	ui_chip(lx, H - U * 10.6f, "NO WEB BROWSER YET  -  PRESS D TO DOWNLOAD IT TO YOUR DOWNLOADS FOLDER", U * 0.85f, RGB(255, 190, 70), BLACK, 0.55f);
+	{ static const char *kv[] = {"D", "download", "ESC", "back to results"}; search_footer(h, kv, 2); }
 	(void)h; (void)t;
 }
 

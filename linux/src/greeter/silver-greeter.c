@@ -55,7 +55,7 @@
 #define BLOOD RGB(232, 16, 24)
 
 static Font FD, FT, FC;                       /* Silver Scrawl, Inter, Michroma */
-static int W, H, scale = 1, fb_w, fb_h, stride, calm;
+static int W, H, scale = 1, fb_w, fb_h, stride, calm, muted;
 static float U;                               /* 1% of the screen height */
 static uint32_t *fbmem, *canvas;
 static Surf fb;
@@ -288,6 +288,7 @@ static void home_init(Home *h)
 	memset(h, 0, sizeof *h);
 	h->blend[0] = 1;
 	h->calm_on = calm;
+	h->mute_on = muted;
 }
 
 #define T_DOT 0.25f
@@ -535,6 +536,22 @@ static void calm_toggle(Home *h)
 #endif
 	calm = h->calm_on;
 }
+/* sound effects on/off: remembered in ~/.config/silver/mute, and (through the privileged parent)
+ * in a firmware variable, so the boot chooser stays quiet too */
+static void mute_toggle(Home *h)
+{
+	h->mute_on ^= 1;
+#ifndef RENDER
+	char p[256];
+	snprintf(p, sizeof p, "%s/.config", homedir); mkdir(p, 0755);
+	snprintf(p, sizeof p, "%s/.config/silver", homedir); mkdir(p, 0755);
+	snprintf(p, sizeof p, "%s/.config/silver/mute", homedir);
+	if (h->mute_on) { int fd = open(p, O_WRONLY | O_CREAT, 0644); if (fd >= 0) close(fd); } else unlink(p);
+#endif
+	if (h->mute_on) snd('M'); else { snd('U'); snd('o'); }
+	request(h->mute_on ? 'S' : 's');
+	muted = h->mute_on;
+}
 static void files_up(Home *h)
 {
 #ifdef RENDER
@@ -563,15 +580,20 @@ static void handle_key(Home *h, int k)
 	case 1:                                                                     /* settings */
 		if (k == K_ESC || k == K_LEFT || k == K_BACK) { h->screen = 0; h->fade = 0; }
 		else if (k == K_UP && h->row > 0) { h->row--; h->confirm = 0; }
-		else if (k == K_DOWN && h->row < 5) { h->row++; h->confirm = 0; }
+		else if (k == K_DOWN && h->row < 6) { h->row++; h->confirm = 0; }
 		else if (k == K_ENTER) {
 			if (h->row == 2) calm_toggle(h);
-			else if (h->row == 4 || h->row == 5) { if (h->confirm == h->row) request(h->row == 4 ? 'R' : 'P'); else h->confirm = h->row; }
+			else if (h->row == 3) mute_toggle(h);
+			else if (h->row == 5 || h->row == 6) { if (h->confirm == h->row) request(h->row == 5 ? 'R' : 'P'); else h->confirm = h->row; }
 		}
 		break;
 	case 2: {                                                                   /* search: YouTube */
 		Yt *y = &yt;
-		if (y->state == Y_WATCH) { if (k == K_ESC || k == K_BACK || k == K_LEFT) y->state = Y_RESULTS; break; }
+		if (y->state == Y_WATCH) {
+			if (k == K_ESC || k == K_BACK || k == K_LEFT) y->state = Y_RESULTS;
+			else if ((k == 'd' || k == 'D') && !y->mode) dl_start(y->web[y->watch].url);
+			break;
+		}
 		if (k == K_ESC) { h->screen = 0; h->fade = 0; break; }
 		if (h->focus == 2) { if (k == K_UP) { h->focus = yt_count(y) ? 1 : 0; break; } else if (k == K_ENTER) { open_screen(h, 1); break; } else h->focus = 0; if (h->focus == 2) break; }
 		if (k == K_DOWN && h->focus == 0 && y->state == Y_RESULTS) { h->focus = 1; break; }
@@ -597,11 +619,7 @@ static void handle_key(Home *h, int k)
 		break;
 	}
 	case 3:                                                                     /* apps */
-		if (h->sub) { if (k == K_ESC || k == K_BACK || k == K_LEFT) h->sub = 0; break; }
-		if (k == K_ESC || k == K_LEFT || k == K_BACK) { h->screen = 0; h->fade = 0; }
-		else if (k == K_UP && h->row > 0) h->row--;
-		else if (k == K_DOWN && h->row < 2) h->row++;
-		else if (k == K_ENTER) { if (h->row == 0) request('T'); else h->sub = h->row; }
+		apps_key(h, k, ui_t);
 		break;
 	case 4:                                                                     /* files */
 		if (h->fs) {
@@ -672,12 +690,15 @@ static void home_frame(Home *h, float t, float dt)
 	h->fade = sg_min(1, h->fade + dt * 6);
 	{ int before = yt.state; yt_poll(&yt); if (before == Y_LOADING && yt.state == Y_RESULTS) snd('r'); else if (before == Y_LOADING && yt.state == Y_ERROR) snd('e'); }
 	s_age += dt;
+	ui_t = t;
+	inst_poll(t);
+	{ int was = dl.state; dl_poll(); if (was == DL_RUN && dl.state == DL_DONE) snd('r'); else if (was == DL_RUN && dl.state == DL_FAIL) snd('e'); }
 	if (h->fs) search_tick(&h->sr, 0.004);
 	switch (h->screen) {
 	case 0: home_draw(h, 1, t, 99); break;
 	case 1: draw_settings(h, t); break;
 	case 2: draw_search(h, t); break;
-	case 3: if (h->sub == 1) sample_sys(h, t); draw_apps(h, t); break;
+	case 3: if (h->sub == 1 || h->sub == 4) sample_sys(h, t); draw_apps(h, t); break;
 	case 4: if (h->fs) draw_files_search(h, t); else draw_files(h, t); break;
 	}
 	if (h->screen && h->fade < 1) sg_rect(&fb, 0, 0, W, H, BLACK, 1 - h->fade);
@@ -693,15 +714,18 @@ static const struct { float t; int k; } SCRIPT[] = {
 	{11.2f, '/'}, {12.0f, 'r'}, {12.4f, 'e'}, {12.8f, 'p'}, {14.0f, K_DOWN}, {15.0f, K_ESC}, {15.8f, K_ESC},  /* search inside Files */
 	{16.6f, K_UP}, {17.3f, K_ENTER},                                                                          /* Search = YouTube */
 	{18.2f, 'l'}, {18.5f, 'o'}, {18.8f, 'f'}, {19.1f, 'i'}, {20.0f, K_ENTER},                                /* web results */
-	{22.0f, K_DOWN}, {22.8f, K_DOWN}, {23.6f, K_ENTER}, {25.6f, K_ESC},                                       /* a result */
-	{26.4f, 9}, {28.4f, K_DOWN}, {29.4f, K_DOWN}, {30.4f, K_DOWN}, {31.6f, K_ENTER}, {35.0f, K_ESC},          /* videos, a watch page */
-	{36.5f, K_DOWN}, {38.0f, K_DOWN}, {40.0f, K_UP}, {42.0f, K_UP}, {44.0f, K_ESC},                           /* linger: the rooms loop behind */
-	{44.8f, K_LEFT}, {45.5f, K_ENTER},                                                                        /* Settings */
-	{46.8f, K_DOWN}, {47.4f, K_DOWN}, {48.0f, K_ENTER}, {49.0f, K_ENTER}, {49.8f, K_ESC},
-	{50.6f, K_DOWN}, {51.2f, K_ENTER},                                                                        /* Apps */
-	{52.0f, K_DOWN}, {52.6f, K_ENTER}, {56.9f, K_ESC}, {57.5f, K_ESC},
+	{22.0f, K_DOWN}, {22.8f, K_DOWN}, {23.6f, K_ENTER}, {24.8f, 'd'}, {27.4f, K_ESC},                          /* a result, downloaded */
+	{28.2f, 9}, {30.2f, K_DOWN}, {31.2f, K_RIGHT}, {32.2f, K_ENTER}, {35.4f, K_ESC},                          /* videos, a watch page */
+	{36.4f, K_DOWN}, {37.9f, K_RIGHT}, {39.4f, K_UP}, {40.9f, K_UP}, {42.2f, K_ESC},                          /* linger: the rooms loop behind */
+	{43.0f, K_LEFT}, {43.7f, K_ENTER},                                                                        /* Settings */
+	{44.8f, K_DOWN}, {45.4f, K_DOWN}, {46.0f, K_DOWN}, {46.9f, K_ENTER}, {48.4f, K_ENTER}, {49.4f, K_ESC},     /* sound effects off, on */
+	{50.2f, K_DOWN}, {50.9f, K_ENTER},                                                                        /* Apps */
+	{52.0f, K_RIGHT}, {52.8f, K_ENTER}, {54.0f, K_ENTER},                                                     /* App Store: get btop */
+	{58.4f, K_DOWN}, {59.0f, K_DOWN}, {60.4f, K_ESC},                                                         /* micro is installed */
+	{61.4f, K_RIGHT}, {62.2f, K_ENTER}, {67.6f, K_ESC},                                                       /* Me and my PC */
+	{68.6f, K_DOWN}, {69.8f, K_ESC},
 };
-#define SCRIPT_END 59.0f
+#define SCRIPT_END 71.0f
 #endif
 
 static void home_loop(Home *h)
@@ -731,6 +755,28 @@ static void home_loop(Home *h)
 
 /* ================================================================ session */
 #ifndef RENDER
+#include <linux/fs.h>
+#include <sys/mount.h>
+/* Tell the boot chooser to stay quiet (or not): a small firmware variable it reads at start.
+ * Runs in the privileged parent. Quietly does nothing on BIOS machines. */
+#define MUTE_VAR "/sys/firmware/efi/efivars/SilverMute-6c5c3c2e-6b0a-4f3c-9a7e-2f1d0c9b8a71"
+static void efi_mute(int on)
+{
+	if (access("/sys/firmware/efi", F_OK)) return;
+	if (access("/sys/firmware/efi/efivars/SecureBoot-8be4df61-93ca-11d2-aa0d-00e098032b8c", F_OK) &&
+	    access("/sys/firmware/efi/efivars/BootOrder-8be4df61-93ca-11d2-aa0d-00e098032b8c", F_OK))
+		mount("efivarfs", "/sys/firmware/efi/efivars", "efivarfs", MS_NOSUID | MS_NODEV | MS_NOEXEC, NULL);
+	int fd = open(MUTE_VAR, O_RDONLY);
+	if (fd >= 0) {                                    /* existing variables are immutable until told otherwise */
+		int flags = 0;
+		if (ioctl(fd, FS_IOC_GETFLAGS, &flags) == 0 && (flags & FS_IMMUTABLE_FL)) { flags &= ~FS_IMMUTABLE_FL; ioctl(fd, FS_IOC_SETFLAGS, &flags); }
+		close(fd);
+	}
+	unsigned char rec[5] = {7, 0, 0, 0, (unsigned char)(on ? 1 : 0)};   /* non-volatile, boot + runtime access */
+	fd = open(MUTE_VAR, O_WRONLY | O_CREAT, 0644);
+	if (fd >= 0) { if (write(fd, rec, sizeof rec) != (ssize_t)sizeof rec) { /* firmware said no: nothing more to do */ } close(fd); }
+}
+
 static void run_session(void)
 {
 	struct passwd *pw = getpwnam(user);
@@ -752,6 +798,7 @@ static void run_session(void)
 		ssize_t n = read(pfd[0], &c, 1);
 		if (n <= 0) { c = 'T'; break; }
 		if (c == 'T') break;
+		if (c == 'S' || c == 's') { efi_mute(c == 'S'); continue; }
 		if (c == 'R') { kill(1, SIGTERM); for (;;) pause(); }
 		if (c == 'P') { kill(1, SIGUSR2); for (;;) pause(); }
 	}
@@ -796,7 +843,9 @@ int main(int argc, char **argv)
 			if (until > at) { sfx_render(&pl, out + at * 2, until - at); at = until; }
 			if (i == snd_nlog) break;
 			char ev = snd_log[i].ev;
-			if (ev == 'I') sfx_play(&pl, &intro, 1, 0); else if (ev == 'x') sfx_stop(&pl, &intro); else ui_sfx_play(&pl, &ui, ev);
+			static int mu;
+			if (ev == 'M') { mu = 1; sfx_stop(&pl, 0); } else if (ev == 'U') mu = 0;
+			else if (ev == 'I') { if (!mu) sfx_play(&pl, &intro, 1, 0); } else if (ev == 'x') sfx_stop(&pl, &intro); else if (!mu) ui_sfx_play(&pl, &ui, ev);
 		}
 		if (out) wav_write(wav, out, n);
 	}
@@ -817,6 +866,8 @@ int main(int argc, char **argv)
 			snprintf(homedir, sizeof homedir, "%s", pw->pw_dir);
 			char p[256]; snprintf(p, sizeof p, "%s/.config/silver/calm", homedir);
 			if (access(p, F_OK) == 0) calm = 1;
+			snprintf(p, sizeof p, "%s/.config/silver/mute", homedir);
+			if (access(p, F_OK) == 0) muted = 1;
 		}
 	}
 	tcgetattr(tty_fd, &saved_tio);
@@ -827,7 +878,7 @@ int main(int argc, char **argv)
 	tcsetattr(tty_fd, TCSANOW, &raw);
 	ioctl(tty_fd, KDSETMODE, KD_GRAPHICS);            /* stop the text console drawing over us */
 	signal(SIGPIPE, SIG_IGN);
-	audio_start(calm);                                /* the sound process: it opens the card as root, then drops root */
+	audio_start(calm, muted);                                /* the sound process: it opens the card as root, then drops root */
 	sg_clear(&fb, BLACK); flip();
 	gen_cracks(); bake_home();
 	if (mkdir("/run/silver-greeter", 0700) == 0) { Home h; home_init(&h); intro(&h); }     /* the full intro plays once per boot */

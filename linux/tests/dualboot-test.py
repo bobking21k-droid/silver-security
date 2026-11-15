@@ -107,10 +107,16 @@ vm.key("ret"); time.sleep(2.5); vm.shot("files")
 vm.key("down"); time.sleep(1.5); vm.shot("files-2"); vm.key("esc"); time.sleep(1.5)
 vm.key("up"); time.sleep(0.8); vm.key("ret"); time.sleep(2); vm.key("l"); time.sleep(0.5); vm.key("o"); time.sleep(0.5); vm.key("f"); time.sleep(0.5); vm.key("i"); time.sleep(0.5); vm.key("ret"); time.sleep(6); vm.shot("search")
 vm.key("esc"); time.sleep(1.5); vm.key("left"); time.sleep(0.8); vm.key("ret"); time.sleep(2.5); vm.shot("settings")
+for k in ["down", "down", "down"]: vm.key(k); time.sleep(0.5)
+vm.key("ret"); time.sleep(1.5); vm.shot("settings-sound-off")                      # Sound effects off (also for the boot chooser)
 vm.key("esc"); time.sleep(1.5); vm.key("down"); time.sleep(0.8); vm.key("ret"); time.sleep(2.5); vm.shot("apps")
+vm.key("right"); time.sleep(0.5); vm.key("right"); time.sleep(0.5); vm.key("ret"); time.sleep(3); vm.shot("me-and-my-pc")
+vm.key("esc"); time.sleep(1); vm.key("left"); time.sleep(0.5); vm.key("ret"); time.sleep(2); vm.shot("app-store")
+vm.key("ret"); time.sleep(12); vm.shot("app-store-get")                            # no internet in this test: it must fail cleanly
+vm.key("esc"); time.sleep(1); vm.key("left"); time.sleep(0.8)
 vm.key("ret"); time.sleep(5); vm.shot("terminal")                                  # Terminal: a shell on tty1, as the user
 vm.send("silver"); vm.expect(r"~\$ ")                                              # text console: no password either
-for c in ["cat /etc/silver-installed", "mount | grep ' / '", "echo persist-check > ~/note.txt; sync", "ps | grep -c '[s]ilver-greeter' || true", "id -un"]:
+for c in ["od -An -tx1 /sys/firmware/efi/efivars/SilverMute-6c5c3c2e-6b0a-4f3c-9a7e-2f1d0c9b8a71", "ls ~/.config/silver", "cat /etc/silver-installed", "mount | grep ' / '", "echo persist-check > ~/note.txt; sync", "ps | grep -c '[s]ilver-greeter' || true", "id -un"]:
     vm.send(c); print(strip(vm.expect(r"~\$ ")))
 vm.send("su -c reboot"); vm.expect("Password:"); vm.send("Admin#Test12")
 print("== 4. reboot, choose Windows")

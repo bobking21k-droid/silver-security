@@ -1,7 +1,7 @@
 /*
  * silver-fetch -- HTTPS GET for SilverOS, with real certificate checking.
  *
- *   silver-fetch [-o file] [-m maxbytes] [-H "Name: value"]... https://host/path
+ *   silver-fetch [-o file] [-m maxbytes] [-t seconds] [-H "Name: value"]... https://host/path
  *
  * Writes the response body to stdout (or -o file). TLS is BearSSL; the server's certificate
  * chain must lead to one of the root certificates in /etc/ssl/cacert.pem (or $SILVER_CA_FILE)
@@ -213,6 +213,7 @@ static int fetch_one(const Url *u, char *location, size_t locn)
 	}
 	/* headers */
 	static char hd[16384]; size_t hn = 0;
+	memset(hd, 0, sizeof hd);
 	while (hn < sizeof hd - 1) {
 		unsigned char c;
 		if (br_sslio_read(&ioc, &c, 1) != 1) die(3, "connection ended during the headers%s", "");
@@ -222,7 +223,7 @@ static int fetch_one(const Url *u, char *location, size_t locn)
 	int status = atoi(hd + 9);
 	long clen = -1; int chunked = 0;
 	location[0] = 0;
-	for (char *line = strchr(hd, '\n'); line; line = strchr(line + 1, '\n')) {
+	for (char *line = hd; (line = strchr(line, '\n')) && line[1];) {            /* stop at the end: never read old headers */
 		line++;
 		if (!strncasecmp(line, "content-length:", 15)) clen = atol(line + 15);
 		else if (!strncasecmp(line, "transfer-encoding:", 18) && strcasestr(line, "chunked")) chunked = 1;
@@ -269,18 +270,20 @@ static void on_alarm(int s) { (void)s; _exit(6); }
 
 int main(int argc, char **argv)
 {
+	int timeout = 40;
 	const char *url = NULL, *out = NULL;
 	for (int i = 1; i < argc; i++) {
 		if (!strcmp(argv[i], "-o") && i + 1 < argc) out = argv[++i];
 		else if (!strcmp(argv[i], "-m") && i + 1 < argc) maxbytes = atol(argv[++i]);
 		else if (!strcmp(argv[i], "-H") && i + 1 < argc && nheaders < 8) headers[nheaders++] = argv[++i];
 		else if (!strcmp(argv[i], "-q")) quiet = 1;
+		else if (!strcmp(argv[i], "-t") && i + 1 < argc) timeout = atoi(argv[++i]);
 		else if (argv[i][0] != '-') url = argv[i];
 		else die(2, "unknown option %s", argv[i]);
 	}
-	if (!url) die(2, "usage: silver-fetch [-o file] [-m bytes] [-H header] https://host/path%s", "");
+	if (!url) die(2, "usage: silver-fetch [-o file] [-m bytes] [-t seconds] [-H header] https://host/path%s", "");
 	signal(SIGALRM, on_alarm); signal(SIGPIPE, SIG_IGN);
-	alarm(40);
+	alarm(timeout > 0 ? (unsigned)timeout : 40);
 	if (out) { outfd = open(out, O_WRONLY | O_CREAT | O_TRUNC, 0600); if (outfd < 0) die(2, "cannot write %s", out); }
 	const char *ca = getenv("SILVER_CA_FILE");
 	load_anchors(ca && *ca ? ca : "/etc/ssl/cacert.pem");

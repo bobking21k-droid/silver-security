@@ -1,3 +1,14 @@
 export PATH=/usr/sbin:/usr/bin:/sbin:/bin
 export PS1='\[\033[1;37m\]\u@\h\[\033[0m\]:\w\$ '
 umask 027
+export PATH="$HOME/.local/bin:$PATH"
+# An app opened from the SilverOS home screen (Apps, App Store): run it full screen, and when it
+# quits the session ends and the home screen comes back. Only names of installed apps are run.
+if [ -n "$PS1" ] && [ -f "$HOME/.config/silver/launch" ]; then
+  _app=$(head -n 1 "$HOME/.config/silver/launch"); rm -f "$HOME/.config/silver/launch"
+  case "$_app" in
+    ""|*[!a-z0-9_-]*) ;;
+    *) [ -x "$HOME/.local/bin/$_app" ] && { clear; exec "$HOME/.local/bin/$_app"; } ;;
+  esac
+  unset _app
+fi

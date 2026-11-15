@@ -65,9 +65,23 @@ reference, not its content.)
      it, a turning dark-red swirl plays instead.
    - **Files** also searches: press `/`, type part of a name (letters may be spread out) or
      switch with Tab to search inside text files; Enter shows the result in its folder.
-   - **Apps**: a Terminal (a shell on the console; `exit` returns here), a live System Monitor
-     (CPU graph, memory, uptime) and an About page.
-   - **Settings**: network address, display size, Calm mode, About, Restart and Shut down
+   - **Apps**: a grid of apps: Terminal (a shell on the console; `exit` returns here), the
+     **App Store**, **Me and my PC**, a live System Monitor and About, then every app you install.
+     - **App Store** (`src/greeter/apps.h`): free command-line apps, each one statically linked
+       program from its own project's releases (btop, bottom, micro, Yazi, gdu, Glow, fzf,
+       ripgrep, fd, bat, eza). Get downloads it with `silver-fetch`, checks its **SHA-256**
+       against the catalog (a changed or tampered file is thrown away), unpacks it into
+       `~/.local/share/silver-apps` and links it into `~/.local/bin`. No root, nothing outside
+       your home folder. Open runs it full screen; quitting it brings you back. U removes it.
+       The catalog (`src/greeter/catalog.h`) is made by `scripts/make-app-catalog.py`, which
+       downloads every app, checks the program is inside and records its checksum.
+     - **Me and my PC**: you, and the computer: maker and model, processor (cores, threads,
+       speed, how busy), memory, storage, graphics and display, network, battery, temperature,
+       kernel, uptime, UEFI/BIOS and Secure Boot. All read live from `/proc` and `/sys`.
+   - **Downloads**: on a web result, D downloads it into your Downloads folder (never
+     overwriting: a second copy is saved as `name (2).ext`). Big files are fine.
+   - **Settings**: network address, display size, Calm mode, **Sound effects** (on/off: also
+     silences the boot chooser, through a small firmware variable), About, Restart and Shut down
      (Enter twice to confirm).
 
    Signing in is passwordless by default; an account with a password gets a card over the
