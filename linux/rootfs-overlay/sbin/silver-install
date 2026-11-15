@@ -14,7 +14,8 @@ set -eu
 
 LINUX_ROOT_TYPE=4F68BCE3-E8CD-4DB1-96E7-FBCAF984B709   # GPT: Linux root (x86-64)
 ESP_TYPE=C12A7328-F81F-11D2-BA4B-00A0C93EC93B           # GPT: EFI System Partition
-MIN_MB=4096
+MIN_MB=4096          # SilverOS itself (with the games layer); games want far more: see GAMES_MB
+GAMES_MB=65536       # below this, warn that there is little room for Steam games
 LOADER='\EFI\SilverOS\silverboot.efi'
 MEDIA=/run/silver-media ESP=/run/silver-esp TARGET=/run/silver-target
 
@@ -118,6 +119,8 @@ echo "   New partition:   SilverOS, ext4, $(human $((FSECT * SSZ / 512))) of una
 echo "   Boot chooser:    $LOADER on $ESPDEV (Windows files untouched)"
 echo "   Firmware entry:  'SilverOS' first in boot order -> split screen: SilverOS | Windows"
 echo "   Not touched:     Windows partitions, recovery partition, \\EFI\\Microsoft"
+[ -f "$MEDIA/boot/games.sqfs" ] && [ "$FREE_MB" -lt "$GAMES_MB" ] && \
+  warn "That leaves little room for Steam games (most need 20-150 GB). Shrink C: further for more."
 echo
 [ "$WINDOWS" = yes ] || warn "No Windows Boot Manager found on $ESPDEV. The chooser will only offer SilverOS."
 if [ "$BITLOCKER" = yes ]; then
