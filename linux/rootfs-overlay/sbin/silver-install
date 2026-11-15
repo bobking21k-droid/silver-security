@@ -150,7 +150,12 @@ FSUUID=$(blkid "$PART" | sed -n 's/.* UUID="\([^"]*\)".*/\1/p')
 
 b "  [3/5] Copying SilverOS"
 mount -t ext4 "$PART" "$TARGET"
-( cd / && tar -cf - bin sbin usr etc root home var init ) | ( cd "$TARGET" && tar -xpf - )
+( cd / && tar -cf - bin sbin lib etc root home var init ) | ( cd "$TARGET" && tar -xpf - )
+# /usr: SilverOS's own files. On the live system the games layer sits on top of /usr, and the
+# original is kept at /run/usr-base; the installed system gets the games layer from /boot/games.sqfs.
+mkdir -p "$TARGET/usr"
+( cd "$( [ -d /run/usr-base ] && echo /run/usr-base || echo /usr )" && tar -cf - . ) | ( cd "$TARGET/usr" && tar -xpf - )
+[ -e /lib64 ] && ( cd / && tar -cf - lib64 ) | ( cd "$TARGET" && tar -xpf - )
 mkdir -p "$TARGET/dev" "$TARGET/proc" "$TARGET/sys" "$TARGET/run" "$TARGET/tmp" "$TARGET/mnt" "$TARGET/boot"
 chmod 1777 "$TARGET/tmp"
 cp "$MEDIA/boot/vmlinuz" "$TARGET/boot/vmlinuz"

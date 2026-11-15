@@ -17,5 +17,7 @@ fi
 [ -f "$img" ] || exit 0
 mkdir -p /run/games
 mount -t squashfs -o ro,loop "$img" /run/games || exit 1
-mount -t overlay overlay -o lowerdir=/run/games:/usr /usr || { umount /run/games; exit 1; }
+# keep SilverOS's own /usr reachable (the installer copies it, not the games layer on top of it)
+mkdir -p /run/usr-base; mount --bind /usr /run/usr-base || { umount /run/games; exit 1; }
+mount -t overlay overlay -o lowerdir=/run/games:/run/usr-base /usr || { umount /run/usr-base; umount /run/games; exit 1; }
 echo "games layer: $img"
