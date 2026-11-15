@@ -10,6 +10,8 @@ cd "$src"
 sed -i 's/^static int radios = 2;/static int radios;/' drivers/net/wireless/virtual/mac80211_hwsim.c
 make ARCH=x86_64 x86_64_defconfig >/dev/null
 scripts/kconfig/merge_config.sh -m .config "$TOP/kernel/silver.config" >/dev/null
+# the Wi-Fi regulatory database goes inside the kernel: Wi-Fi starts before the disk is mounted
+scripts/config --set-str EXTRA_FIRMWARE "regulatory.db regulatory.db.p7s" --set-str EXTRA_FIRMWARE_DIR "$SOURCES/firmware"
 make ARCH=x86_64 olddefconfig >/dev/null
 # Report fragment options the kernel silently dropped (renamed / unmet deps).
 while IFS= read -r line; do

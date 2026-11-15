@@ -18,7 +18,7 @@ while :; do
     [ -S "/run/wpa_supplicant/$n" ] && continue
     grep -qx "$n" /run/silver-wifi.skip 2>/dev/null && continue          # (the automated test's access point)
     ip link set "$n" up 2>/dev/null
-    wpa_supplicant -B -s -i "$n" -c "$CONF" -P "/run/wpa_supplicant.$n.pid" >/dev/null 2>&1 || continue
+    wpa_supplicant -B -i "$n" -c "$CONF" -P "/run/wpa_supplicant.$n.pid" >/dev/null 2>&1 || continue
     sleep 1
     wpa_cli -B -p /run/wpa_supplicant -i "$n" -a /etc/wpa_action.sh >/dev/null 2>&1
   done
