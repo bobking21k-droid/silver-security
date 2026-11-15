@@ -1,38 +1,75 @@
 #!/bin/bash
-# SilverOS: one Steam session, started by the home screen (silver-greeter) as the user.
-#   steam-session <open|install|play|store> [appid]
-# Runs Xorg with Steam full screen (Big Picture), and returns when you quit Steam: the home
-# screen then comes back. Nothing restarts. Log: ~/.local/state/silver/steam-session.log
+# SilverOS: one Steam session. Started as root by the home screen's privileged side
+# (silver-greeter), which has checked the arguments:
+#     steam-session <user> <open|install|play|store> [appid]
+# The X server runs as root (there is no login manager to hand it the screen and the input
+# devices), listening only on its local socket and only for this user's cookie. Steam, its
+# games, the sound server and the message bus all run as the user. When Steam quits, X ends
+# and the home screen comes back. Nothing restarts. Log: ~/.local/state/silver/steam-session.log
 set -u
-action=${1:-open}; app=${2:-}
+user=${1:-silver}; action=${2:-open}; app=${3:-}
+case $action in open|install|play|store) ;; *) exit 2 ;; esac
+case $app in ''|*[!0-9]*) [ -z "$app" ] || exit 2 ;; esac
+uid=$(awk -F: -v u="$user" '$1==u{print $3}' /etc/passwd); home=$(awk -F: -v u="$user" '$1==u{print $6}' /etc/passwd)
+[ -n "$uid" ] && [ -d "$home" ] || exit 2
 case $action in
   install) url="steam://install/$app" ;;
   play)    url="steam://rungameid/$app" ;;
   store)   url="steam://store/$app" ;;
   *)       url="" ;;
 esac
-state="$HOME/.local/state/silver"; mkdir -p "$state" "$HOME/.local/share" "$HOME/.cache"
+state="$home/.local/state/silver"; mkdir -p "$state" "$home/.local/share" "$home/.cache" "$home/.local/lib"
+chown -R "$user:$user" "$home/.local" "$home/.cache" 2>/dev/null
 exec >"$state/steam-session.log" 2>&1
-echo "steam-session: $action $app ($(date))"
+echo "steam-session: $user $action $app ($(date))"
+export PATH=/usr/bin:/bin:/usr/sbin:/sbin LANG=en_US.UTF-8
 
 # Steam's launcher comes from Valve (repo.steampowered.com), fetched by the home screen into
 # ~/.cache/steam_latest.deb the first time; Steam keeps itself up to date after that.
-L="$HOME/.local/lib/steam-launcher"
+L="$home/.local/lib/steam-launcher"
 if [ ! -x "$L/bin_steam.sh" ]; then
-  deb="$HOME/.cache/steam_latest.deb"
+  deb="$home/.cache/steam_latest.deb"
   [ -s "$deb" ] || { echo "no Steam launcher yet"; exit 3; }
-  t=$(mktemp -d) && (cd "$t" && ar x "$deb" && tar -xJf data.tar.xz ./usr/lib/steam) || { echo "bad steam_latest.deb"; exit 3; }
+  # a .deb is an "ar" archive: 8 bytes of magic, then members (60-byte header, data, padded to even)
+  ar_get() {    # ar_get <archive> <member-name-prefix>  -> the member's bytes on stdout
+    local f=$1 want=$2 off=8 size name
+    while :; do
+      name=$(dd if="$f" bs=1 skip=$off count=16 2>/dev/null) || return 1
+      [ -n "$name" ] || return 1
+      size=$(dd if="$f" bs=1 skip=$((off + 48)) count=10 2>/dev/null | tr -d ' ')
+      case "$name" in "$want"*) tail -c +$((off + 61)) "$f" | head -c "$size"; return 0 ;; esac
+      off=$((off + 60 + size + size % 2))
+    done
+  }
+  t=$(mktemp -d) && ar_get "$deb" data.tar | tar -xJf - -C "$t" ./usr/lib/steam || { echo "bad steam_latest.deb"; exit 3; }
   mkdir -p "$L" && cp -a "$t/usr/lib/steam/." "$L/" && rm -rf "$t"
   rm -f "$L/steamdeps" "$L/bin_steamdeps.py"     # (installs Ubuntu packages: not here)
+  chown -R "$user:$user" "$L"
 fi
 
-# the session's message bus and sound server, for this session only
-export XDG_SESSION_TYPE=x11 XDG_CURRENT_DESKTOP=SilverOS DISPLAY=:0
-export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
-dbus-daemon --session --address="$DBUS_SESSION_BUS_ADDRESS" --fork --nopidfile --print-pid >"$XDG_RUNTIME_DIR/dbus.pid"
-pulseaudio --start --exit-idle-time=-1 --log-target=stderr
-xinit /usr/lib/silver/steam-x "$L" "$url" -- /usr/bin/Xorg :0 vt1 -keeptty -novtswitch -nolisten tcp -noreset
-echo "steam-session: Xorg ended ($?)"
-pulseaudio --kill
-kill "$(cat "$XDG_RUNTIME_DIR/dbus.pid")" 2>/dev/null
+# the user's runtime folder, session bus and sound server
+umask 022; mkdir -p /run/user; chmod 755 /run/user
+rt="/run/user/$uid"; mkdir -p "$rt"; chown "$user:$user" "$rt"; chmod 700 "$rt"
+as_user() { su "$user" -c "$*"; }
+uenv="HOME=$home USER=$user XDG_RUNTIME_DIR=$rt XDG_SESSION_TYPE=x11 XDG_CURRENT_DESKTOP=SilverOS DBUS_SESSION_BUS_ADDRESS=unix:path=$rt/bus"
+as_user "env $uenv dbus-daemon --session --address=unix:path=$rt/bus --fork --nopidfile"
+as_user "env $uenv pulseaudio --start --exit-idle-time=-1 --log-target=stderr"
+
+# the X server (root), with a cookie only this user can read
+auth="$rt/Xauthority"; cookie=$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')
+: >"$auth"; xauth -f "$auth" add :0 . "$cookie"; chown "$user:$user" "$auth"; chmod 600 "$auth"
+# (Buildroot's X server build leaves libgbm out of its display driver, which glamor needs: preload it)
+LD_PRELOAD=libgbm.so.1 Xorg :0 vt1 -keeptty -novtswitch -nolisten tcp -noreset -auth "$auth" -logfile "$state/Xorg.log" &
+xpid=$!
+for i in $(seq 1 50); do [ -S /tmp/.X11-unix/X0 ] && break; kill -0 "$xpid" 2>/dev/null || break; sleep 0.2; done
+if [ -S /tmp/.X11-unix/X0 ]; then
+  as_user "env $uenv DISPLAY=:0 XAUTHORITY=$auth /usr/lib/silver/steam-x '$L' '$url'"
+  echo "steam-session: Steam ended ($?)"
+else
+  echo "steam-session: the X server did not start"; tail -20 "$state/Xorg.log"
+fi
+kill "$xpid" 2>/dev/null; wait "$xpid" 2>/dev/null
+as_user "env $uenv pulseaudio --kill"
+as_user "env $uenv dbus-send --session --dest=org.freedesktop.DBus --type=method_call /org/freedesktop/DBus org.freedesktop.DBus.ReleaseName string:none" 2>/dev/null
+pkill -u "$uid" dbus-daemon 2>/dev/null
 exit 0

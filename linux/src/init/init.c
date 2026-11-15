@@ -202,12 +202,39 @@ static void do_shutdown(int sig)
 		pause();
 }
 
+/* The live USB starts with its files in the kernel's initial RAM disk ("rootfs"). Linux can't
+ * pivot_root away from that, and Steam's game sandbox (bubblewrap) needs to. So the first thing
+ * we do is move the whole system into an ordinary in-memory filesystem and carry on from there
+ * (what switch_root is for). An installed SilverOS boots from its real disk and skips this. */
+#include <sys/vfs.h>
+static void leave_initramfs(void)
+{
+	struct statfs sf;
+	if (getenv("SILVER_SWITCHED") || statfs("/", &sf) != 0) return;
+	if (sf.f_type != 0x858458f6 /* ramfs */ && sf.f_type != 0x01021994 /* tmpfs */) return;
+	mkdir("/newroot", 0755);
+	if (mount("tmpfs", "/newroot", "tmpfs", 0, "size=85%,mode=0755") < 0) return;
+	pid_t p = fork();
+	if (p == 0) {
+		execl("/bin/sh", "sh", "-c",
+		      "for e in /*; do case $e in /newroot|/proc|/sys|/dev|/run) ;; *) cp -a $e /newroot/ || exit 1 ;; esac; done;"
+		      " mkdir -p /newroot/proc /newroot/sys /newroot/dev /newroot/run", (char *)NULL);
+		_exit(127);
+	}
+	int st = 1;
+	if (p > 0) waitpid(p, &st, 0);
+	if (st != 0) { umount("/newroot"); return; }                  /* copy failed (no memory?): carry on as before */
+	setenv("SILVER_SWITCHED", "1", 1);
+	execl("/bin/busybox", "switch_root", "/newroot", "/sbin/init", (char *)NULL);
+}
+
 int main(void)
 {
 	if (getpid() != 1) {
 		fprintf(stderr, "silver-init must run as PID 1\n");
 		return 1;
 	}
+	leave_initramfs();
 	umask(022);
 	early_mounts();
 	{

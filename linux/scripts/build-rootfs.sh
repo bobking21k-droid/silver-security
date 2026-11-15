@@ -23,7 +23,7 @@ mkdir -p "$ROOTFS/lib64"
 ln -s /usr/lib/ld-linux-x86-64.so.2 "$ROOTFS/lib64/ld-linux-x86-64.so.2"
 ln -s /usr/lib32/ld-linux.so.2 "$ROOTFS/lib/ld-linux.so.2"
 ln -s /usr/lib/udev "$ROOTFS/lib/udev"
-ln -s /usr/bin/bash "$ROOTFS/bin/bash"
+ln -s /usr/bin/bash "$ROOTFS/bin/bash"; ln -s /usr/sbin/ldconfig "$ROOTFS/sbin/ldconfig"
 mkdir -p "$ROOTFS/etc/ssl/certs"; ln -s ../cacert.pem "$ROOTFS/etc/ssl/certs/ca-certificates.crt"   # Steam's downloads check certificates
 for e in fonts X11 dbus-1 pulse udev xdg bluetooth libinput ld.so.conf ld.so.cache; do ln -s "/usr/etc-games/$e" "$ROOTFS/etc/$e"; done
 cp "$WORK/stage/sbin/"* "$ROOTFS/sbin/"     # init, dropbear, sfdisk, mke2fs, e2fsck, silver-efiboot

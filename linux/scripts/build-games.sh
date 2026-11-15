@@ -49,6 +49,7 @@ if [[ -d "$t64/usr/lib" && -d "$t32/usr/lib" ]]; then
   for e in fonts X11 dbus-1 pulse udev xdg bluetooth libinput; do [[ -e "$t64/etc/$e" ]] && cp -a "$t64/etc/$e" "$g/usr/etc-games/"; done
   printf '/usr/lib\n/usr/lib32\n/usr/lib32/dri\n' > "$g/usr/etc-games/ld.so.conf"
   cp -a "$TOP/games-overlay/usr/." "$g/usr/"
+  cp "$BUILD/games-x86_64/host/x86_64-buildroot-linux-gnu/sysroot/sbin/ldconfig" "$g/usr/sbin/ldconfig"   # Steam's runtime check calls /sbin/ldconfig
   # graphics card and Bluetooth firmware (firmware/gpu.list), from the linux-firmware tarball
   # (older GSP versions left out), with the links its WHENCE file lists; rc.boot points the
   # kernel's firmware search here before it loads those drivers

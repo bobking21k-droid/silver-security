@@ -878,23 +878,14 @@ static void run_game(struct passwd *pw, char *req)
 	char action[16] = "", app[16] = "";
 	if (sscanf(req, "%15s %15s", action, app) < 1) return;
 	snd('q'); if (snd_fd >= 0) { close(snd_fd); snd_fd = -1; }       /* games get the sound card */
-	char rt[64]; snprintf(rt, sizeof rt, "/run/user/%d", (int)pw->pw_uid);
-	mkdir("/run/user", 0755); mkdir(rt, 0700);
-	if (chown(rt, pw->pw_uid, pw->pw_gid)) { /* Steam will say so */ }
-	if (fchown(tty_fd, pw->pw_uid, pw->pw_gid)) { /* Xorg will say so */ }
 	tcsetattr(tty_fd, TCSANOW, &saved_tio);
 	pid_t g = fork();
-	if (g == 0) {
-		if (initgroups(pw->pw_name, pw->pw_gid) || setgid(pw->pw_gid) || setuid(pw->pw_uid)) _exit(1);
-		if (chdir(pw->pw_dir)) { /* fine */ }
-		char home[300], rtv[80], usr[80];
-		snprintf(home, sizeof home, "HOME=%s", pw->pw_dir); snprintf(rtv, sizeof rtv, "XDG_RUNTIME_DIR=%s", rt); snprintf(usr, sizeof usr, "USER=%s", pw->pw_name);
-		char *env[] = {home, rtv, usr, "PATH=/usr/bin:/bin:/usr/sbin:/sbin", "LANG=en_US.UTF-8", "TERM=linux", NULL};
-		execle("/usr/lib/silver/steam-session", "steam-session", action, app, (char *)NULL, env);
+	if (g == 0) {                                     /* the session script runs as root: it starts the X server, then Steam as the user */
+		char *env[] = {"PATH=/usr/bin:/bin:/usr/sbin:/sbin", "LANG=en_US.UTF-8", "TERM=linux", NULL};
+		execle("/usr/lib/silver/steam-session", "steam-session", pw->pw_name, action, app, (char *)NULL, env);
 		_exit(127);
 	}
 	if (g > 0) { int st; waitpid(g, &st, 0); }
-	if (fchown(tty_fd, 0, 0)) { /* fine */ }
 	struct termios raw = saved_tio;                                  /* back to the home screen's terminal setup */
 	raw.c_lflag &= ~(ICANON | ECHO | ISIG); raw.c_iflag &= ~(ICRNL | IXON); raw.c_cc[VMIN] = 1; raw.c_cc[VTIME] = 0;
 	tcsetattr(tty_fd, TCSANOW, &raw);
