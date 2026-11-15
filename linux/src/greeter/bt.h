@@ -243,6 +243,7 @@ static void draw_bluetooth(Home *h, float t)
 		sg_text(&fb, &FC, lx + lw - U * 3 - rw, ry + rh / 2 + U * 0.5f, right, U * 1.2f, d->connected ? blue : sub, busy ? 0.5f + 0.5f * sg_sin(t * 6) : 1, 0.22f);
 	}
 	if (!bt.n && bt.have) { float a = 0.5f + 0.5f * sg_sin(t * 3); sg_text(&fb, &FT, lx + U * 2, ly + U * 3, "Looking for devices ... put yours in pairing mode.", U * 2.2f, WHITE, a, 0.01f); }
-	if (bt.sel < bt.n && bt.d[bt.sel].paired) foot_hints(bt.d[bt.sel].connected ? "UP DOWN  MOVE      ENTER  DISCONNECT      F  FORGET      R  LOOK AGAIN      ESC  SETTINGS" : "UP DOWN  MOVE      ENTER  CONNECT      F  FORGET      R  LOOK AGAIN      ESC  SETTINGS");
+	if (!bt.have) foot_hints("ESC  SETTINGS");
+	else if (bt.sel < bt.n && bt.d[bt.sel].paired) foot_hints(bt.d[bt.sel].connected ? "UP DOWN  MOVE      ENTER  DISCONNECT      F  FORGET      R  LOOK AGAIN      ESC  SETTINGS" : "UP DOWN  MOVE      ENTER  CONNECT      F  FORGET      R  LOOK AGAIN      ESC  SETTINGS");
 	else foot_hints("UP DOWN  MOVE      ENTER  PAIR      R  LOOK AGAIN      ESC  SETTINGS");
 }
