@@ -688,10 +688,10 @@ static void home_frame(Home *h, float t, float dt)
 {
 	for (int q = 0; q < 4; q++) h->blend[q] += (((h->screen == 0 && q == h->sel) ? 1.f : 0.f) - h->blend[q]) * sg_min(1, dt * 11);
 	h->fade = sg_min(1, h->fade + dt * 6);
+	frost_static = h->screen == 1 || h->screen == 3 || h->screen == 4;   /* these screens sit on still glass */
 	{ int before = yt.state; yt_poll(&yt); if (before == Y_LOADING && yt.state == Y_RESULTS) snd('r'); else if (before == Y_LOADING && yt.state == Y_ERROR) snd('e'); }
 	s_age += dt;
 	ui_t = t;
-	inst_poll(t);
 	{ int was = dl.state; dl_poll(); if (was == DL_RUN && dl.state == DL_DONE) snd('r'); else if (was == DL_RUN && dl.state == DL_FAIL) snd('e'); }
 	if (h->fs) search_tick(&h->sr, 0.004);
 	switch (h->screen) {
@@ -720,17 +720,28 @@ static const struct { float t; int k; } SCRIPT[] = {
 	{43.0f, K_LEFT}, {43.7f, K_ENTER},                                                                        /* Settings */
 	{44.8f, K_DOWN}, {45.4f, K_DOWN}, {46.0f, K_DOWN}, {46.9f, K_ENTER}, {48.4f, K_ENTER}, {49.4f, K_ESC},     /* sound effects off, on */
 	{50.2f, K_DOWN}, {50.9f, K_ENTER},                                                                        /* Apps */
-	{52.0f, K_RIGHT}, {52.8f, K_ENTER}, {54.0f, K_ENTER},                                                     /* App Store: get btop */
-	{58.4f, K_DOWN}, {59.0f, K_DOWN}, {60.4f, K_ESC},                                                         /* micro is installed */
-	{61.2f, K_RIGHT}, {62.0f, K_ENTER},                                                                       /* Game Store: three stores */
-	{63.2f, K_RIGHT}, {64.4f, K_RIGHT}, {65.6f, K_LEFT}, {66.6f, K_LEFT}, {67.4f, K_ENTER},                  /* SilverOS games */
-	{68.4f, K_RIGHT}, {69.2f, K_LEFT}, {70.0f, K_ENTER},                                                      /* play Snake */
-	{70.6f, K_DOWN}, {71.4f, K_RIGHT}, {72.2f, K_UP}, {73.0f, K_RIGHT}, {74.0f, K_ESC}, {74.8f, K_ESC},
-	{75.6f, K_RIGHT}, {76.4f, K_ENTER}, {78.0f, K_RIGHT}, {78.8f, K_DOWN}, {79.6f, K_ENTER}, {80.8f, 'w'}, {82.4f, K_ESC}, {83.2f, K_ESC},   /* Steam */
-	{84.0f, K_RIGHT}, {84.8f, K_ENTER}, {86.4f, K_RIGHT}, {87.2f, K_ENTER}, {89.4f, K_ESC}, {90.2f, K_ESC}, {91.0f, K_ESC},                   /* Microsoft Store */
-	{91.8f, K_RIGHT}, {92.6f, K_ENTER}, {96.2f, K_ESC}, {97.0f, K_ESC},                                       /* Me and my PC */
+	{52.0f, K_RIGHT}, {52.8f, K_ENTER},                                                                       /* Game Store: three stores */
+	{54.0f, K_RIGHT}, {55.2f, K_RIGHT}, {56.4f, K_LEFT}, {57.4f, K_LEFT}, {58.2f, K_ENTER},                  /* SilverOS games */
+	{59.2f, K_RIGHT}, {60.0f, K_LEFT}, {60.8f, K_ENTER},                                                      /* play Snake */
+	{61.4f, K_DOWN}, {62.2f, K_RIGHT}, {63.0f, K_UP}, {63.8f, K_RIGHT}, {64.8f, K_ESC}, {65.6f, K_ESC},
+	{66.4f, K_RIGHT}, {67.2f, K_ENTER}, {68.8f, K_RIGHT}, {69.6f, K_DOWN}, {70.4f, K_ENTER}, {71.6f, 'w'}, {73.2f, K_ESC}, {74.0f, K_ESC},   /* Steam */
+	{74.8f, K_RIGHT}, {75.6f, K_ENTER}, {77.2f, K_RIGHT}, {78.0f, K_ENTER}, {80.2f, K_ESC}, {81.0f, K_ESC}, {81.8f, K_ESC},                   /* Microsoft Store */
+	{82.6f, K_RIGHT}, {83.4f, K_ENTER}, {87.0f, K_ESC}, {87.8f, K_ESC},                                       /* Me and my PC */
 };
-#define SCRIPT_END 98.5f
+#define SCRIPT_END 89.3f
+/* where the script must have got to (-1: don't care); the demo fails if any is wrong */
+static const struct { float t; int screen, sub, open, tab, mute; const char *what; } EXPECT[] = {
+	{5.6f, 4, -1, -1, -1, -1, "Files opens"}, {16.2f, 0, -1, -1, -1, -1, "back home from Files"},
+	{17.8f, 2, -1, -1, -1, -1, "Search opens"}, {44.2f, 1, -1, -1, -1, -1, "Settings opens"},
+	{47.5f, 1, -1, -1, -1, 1, "Sound effects off"}, {49.0f, 1, -1, -1, -1, 0, "Sound effects on"},
+	{51.5f, 3, 0, -1, -1, -1, "Apps grid"}, {53.2f, 3, 5, 0, -1, -1, "Game Store front"},
+	{58.6f, 3, 5, 1, 0, -1, "SilverOS games"}, {61.2f, 3, 6, -1, -1, -1, "playing Snake"},
+	{65.2f, 3, 5, 1, 0, -1, "back from Snake"}, {66.0f, 3, 5, 0, -1, -1, "back to the front"},
+	{67.6f, 3, 5, 1, 1, -1, "Steam"}, {74.4f, 3, 5, 0, -1, -1, "front again"},
+	{76.0f, 3, 5, 1, 2, -1, "Microsoft Store"}, {82.2f, 3, 0, -1, -1, -1, "Apps grid again"},
+	{84.0f, 3, 4, -1, -1, -1, "Me and my PC"}, {88.6f, 0, -1, -1, -1, -1, "home at the end"},
+};
+static int expect_failed;
 #endif
 
 static void home_loop(Home *h)
@@ -745,12 +756,36 @@ static void home_loop(Home *h)
 		last = tn;
 #ifdef RENDER
 		while (si < sizeof SCRIPT / sizeof SCRIPT[0] && SCRIPT[si].t <= t) handle_key_snd(h, SCRIPT[si++].k);
+		static unsigned ei;
+		while (ei < sizeof EXPECT / sizeof EXPECT[0] && EXPECT[ei].t <= t) {
+			int ok = (EXPECT[ei].screen < 0 || h->screen == EXPECT[ei].screen) && (EXPECT[ei].sub < 0 || h->sub == EXPECT[ei].sub) &&
+				 (EXPECT[ei].open < 0 || gs.open == EXPECT[ei].open) && (EXPECT[ei].tab < 0 || gs.tab == EXPECT[ei].tab) && (EXPECT[ei].mute < 0 || h->mute_on == EXPECT[ei].mute);
+			if (!ok) { fprintf(stderr, "CHECK FAILED at %.1fs: %s (screen %d sub %d open %d tab %d mute %d)\n", EXPECT[ei].t, EXPECT[ei].what, h->screen, h->sub, gs.open, gs.tab, h->mute_on); expect_failed = 1; }
+			ei++;
+		}
 		if (t > SCRIPT_END) return;
 #else
 		int k;
 		while ((k = read_key(0)) != -1) handle_key_snd(h, k);
 #endif
+#ifdef RENDER
+		static const char *prof_env; static int prof_init; if (!prof_init) { prof_env = getenv("SILVER_PROFILE"); prof_init = 1; }
+		struct timespec p0, p1; if (prof_env) clock_gettime(CLOCK_MONOTONIC, &p0);
+#endif
 		home_frame(h, t, dt > 0.2f ? 0.2f : dt);
+#ifdef RENDER
+		if (prof_env) {                                   /* how long each kind of screen takes to draw */
+			clock_gettime(CLOCK_MONOTONIC, &p1);
+			double ms = (p1.tv_sec - p0.tv_sec) * 1e3 + (p1.tv_nsec - p0.tv_nsec) / 1e6;
+			static const char *nm[] = {"home", "settings", "search", "apps", "files"};
+			char key[48]; snprintf(key, sizeof key, "%s%s%d", nm[h->screen], h->screen == 3 ? "/sub" : "", h->screen == 3 ? h->sub * 10 + gs.open : 0);
+			static struct { char k[48]; double sum, max; int n; } st[32]; static int ns;
+			int i; for (i = 0; i < ns && strcmp(st[i].k, key); i++) {}
+			if (i == ns && ns < 32) { snprintf(st[ns].k, sizeof st[ns].k, "%s", key); ns++; }
+			if (i < 32) { st[i].sum += ms; st[i].n++; if (ms > st[i].max) st[i].max = ms; }
+			if (t + 0.04f > SCRIPT_END) for (int k = 0; k < ns; k++) fprintf(stderr, "%-16s frames %4d  avg %6.1f ms  max %6.1f ms\n", st[k].k, st[k].n, st[k].sum / st[k].n, st[k].max);
+		}
+#endif
 		flip();
 #ifndef RENDER
 		if (!key_waiting()) usleep(24000);
@@ -834,6 +869,8 @@ int main(int argc, char **argv)
 	intro(&h);
 	home_loop(&h);
 	pclose(outpipe);
+	if (expect_failed) { fprintf(stderr, "the demo did not do what it should: see CHECK FAILED above\n"); return 3; }
+	fprintf(stderr, "all %d checks passed\n", (int)(sizeof EXPECT / sizeof EXPECT[0]));
 	const char *wav = getenv("SILVER_SOUND_OUT");
 	if (wav) {                                         /* the sound of the whole demo, from what was asked for */
 		UiSfx ui; ui_sfx_build(&ui, 0);

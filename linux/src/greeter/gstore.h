@@ -2,13 +2,13 @@
  * The Game Store, in three tabs:
  *
  *   SilverOS         games that play right here (games.h)
- *   Steam            Steam's real store: top sellers, new releases and deals, or search, read
- *                    from store.steampowered.com's public API, with prices and art
+ *   Steam            Steam's real store: top sellers and new releases, or search, read from
+ *                    store.steampowered.com's public API, with art
  *   Microsoft Store  the Microsoft Store's real catalogue, read from its public storefront API
  *
  * Steam and Microsoft Store games are Windows games, and SilverOS can't run them, so those
- * tabs are for looking: art, price, ratings, what it is, and a wishlist (W) kept in
- * ~/.config/silver/wishlist. Nothing here buys anything or signs in to anything.
+ * tabs are for looking: art, ratings, what it is, and a wishlist (W) kept in
+ * ~/.config/silver/wishlist. There is no buying here, and nothing signs in to anything.
  *
  * Tab switches store, typing searches it, arrows move, Enter opens (or plays), Esc goes back.
  */
@@ -19,8 +19,8 @@ enum { GS_SILVER, GS_STEAM, GS_MS, GS_N };
 static const char *GS_NAME[GS_N] = {"SILVEROS", "STEAM", "MICROSOFT STORE"};
 
 typedef struct {
-	char id[16], key[20], name[120], price[24], was[24], publisher[64], rating[16], tag[48], img[400], desc[400];
-	int discount, win, mac, lin;
+	char id[16], key[20], name[120], publisher[64], rating[16], tag[48], img[400], desc[400];
+	int win, mac, lin;
 } Game;
 #define MAXGAME 32
 #define GSC 5                                   /* cards across */
@@ -65,7 +65,6 @@ static void wish_toggle(const Game *g)
 }
 
 /* ---------------------------------------------------------------- reading the stores */
-static void money(long cents, char *out, size_t n) { if (cents <= 0) snprintf(out, n, "Free"); else snprintf(out, n, "$%ld.%02ld", cents / 100, cents % 100); }
 static long json_num(const char *obj, const char *lim, const char *key)
 {
 	const char *p = json_find(obj, lim, key);
@@ -83,14 +82,14 @@ static void json_s(const char *obj, const char *lim, const char *key, char *out,
 	if (p) json_str(p - 1, out, n);
 }
 
-/* Steam: featuredcategories (top sellers, new releases, deals) */
+/* Steam: featuredcategories (top sellers, new releases) */
 static int steam_featured(const char *js, size_t len, Game *g, int max)
 {
 	int n = 0;
-	static const char *sec[3] = {"\"top_sellers\":", "\"specials\":", "\"new_releases\":"};
-	static const char *tags[3] = {"TOP SELLER", "DEAL", "NEW"};
+	static const char *sec[2] = {"\"top_sellers\":", "\"new_releases\":"};
+	static const char *tags[2] = {"TOP SELLER", "NEW"};
 	const char *lim = js + len;
-	for (int s = 0; s < 3 && n < max; s++) {
+	for (int s = 0; s < 2 && n < max; s++) {
 		const char *p = json_find(js, lim, sec[s]);
 		if (!p) continue;
 		const char *items = json_find(p, lim, "\"items\":[");
@@ -107,10 +106,6 @@ static int steam_featured(const char *js, size_t len, Game *g, int max)
 			int dup = 0; for (int i = 0; i < n; i++) if (g[i].id[0] && atol(g[i].id) == id) dup = 1;
 			if (id > 0 && x.name[0] && !dup && strncmp(x.name, "Steam ", 6)) {                      /* (skip Steam's own hardware) */
 				snprintf(x.id, sizeof x.id, "%ld", id); snprintf(x.key, sizeof x.key, "s%ld", id);
-				long fin = json_num(o, oe, "\"final_price\":"), orig = json_num(o, oe, "\"original_price\":");
-				money(fin, x.price, sizeof x.price);
-				x.discount = (int)json_num(o, oe, "\"discount_percent\":");
-				if (x.discount > 0 && orig > 0) money(orig, x.was, sizeof x.was);
 				x.win = json_bool(o, oe, "\"windows_available\":"); x.mac = json_bool(o, oe, "\"mac_available\":"); x.lin = json_bool(o, oe, "\"linux_available\":");
 				json_s(o, oe, "\"header_image\":\"", x.img, sizeof x.img);
 				snprintf(x.tag, sizeof x.tag, "%s", tags[s]);
@@ -138,13 +133,6 @@ static int steam_search(const char *js, size_t len, Game *g, int max)
 		json_s(o, oe, "\"name\":\"", x.name, sizeof x.name);
 		if (id > 0 && x.name[0]) {
 			snprintf(x.id, sizeof x.id, "%ld", id); snprintf(x.key, sizeof x.key, "s%ld", id);
-			const char *pr = json_find(o, oe, "\"price\":{");
-			if (pr) {
-				const char *pe = json_end(pr - 1, oe);
-				long fin = json_num(pr, pe, "\"final\":"), ini = json_num(pr, pe, "\"initial\":");
-				money(fin, x.price, sizeof x.price);
-				if (ini > fin && ini > 0) { money(ini, x.was, sizeof x.was); x.discount = (int)(100 - fin * 100 / ini); }
-			} else snprintf(x.price, sizeof x.price, "Free");
 			x.win = json_bool(o, oe, "\"windows\":"); x.mac = json_bool(o, oe, "\"mac\":"); x.lin = json_bool(o, oe, "\"linux\":");
 			snprintf(x.img, sizeof x.img, "https://cdn.akamai.steamstatic.com/steam/apps/%ld/header.jpg", id);
 			char ms[16]; json_s(o, oe, "\"metascore\":\"", ms, sizeof ms);
@@ -173,8 +161,6 @@ static int ms_parse(const char *js, size_t len, Game *g, int max)
 		for (int i = 0; i < n; i++) if (!strcmp(g[i].id, x.id)) dup = 1;
 		if (x.id[0] && x.name[0] && !strcmp(fam, "Games") && !addon && !dup) {
 			snprintf(x.key, sizeof x.key, "m%s", x.id);
-			json_s(o, oe, "\"DisplayPrice\":\"", x.price, sizeof x.price);
-			if (!strcmp(x.price, "Included")) snprintf(x.price, sizeof x.price, "Game Pass");
 			json_s(o, oe, "\"PublisherName\":\"", x.publisher, sizeof x.publisher);
 			const char *ar = json_find(o, oe, "\"AverageRating\":");
 			if (ar && atof(ar) > 0) snprintf(x.rating, sizeof x.rating, "%.1f stars", atof(ar));
@@ -199,13 +185,37 @@ static int ms_parse(const char *js, size_t len, Game *g, int max)
 	return n;
 }
 
+#ifdef RENDER
+/* the demo, without a network: a few sample entries so it still walks through every screen */
+static void gs_mock(int tab)
+{
+	GStore *s = &gs.s[tab];
+	static const char *steam[6][3] = {{"1145360", "Hades", "Supergiant Games"}, {"620", "Portal 2", "Valve"}, {"413150", "Stardew Valley", "ConcernedApe"},
+					  {"1794680", "Vampire Survivors", "poncle"}, {"367520", "Hollow Knight", "Team Cherry"}, {"105600", "Terraria", "Re-Logic"}};
+	static const char *ms[6][3] = {{"9NBLGGH2JHXJ", "Minecraft for Windows", "Mojang Studios"}, {"9WZDNCRFHWD2", "Microsoft Solitaire Collection", "Xbox Game Studios"},
+				       {"BT5P2X999VH2", "Fortnite", "Epic Games Inc."}, {"9NBLGGH537BL", "Forza Horizon 5", "Xbox Game Studios"},
+				       {"9P2N57MC619K", "Sea of Thieves", "Xbox Game Studios"}, {"9MZ11KT5KLP6", "Halo Infinite", "Xbox Game Studios"}};
+	s->n = 0;
+	for (int i = 0; i < 6; i++) {
+		Game *x = &s->g[s->n++]; memset(x, 0, sizeof *x);
+		const char *(*e)[3] = tab == GS_STEAM ? steam : ms;
+		snprintf(x->id, sizeof x->id, "%s", e[i][0]); snprintf(x->key, sizeof x->key, "%c%s", tab == GS_STEAM ? 's' : 'm', e[i][0]);
+		snprintf(x->name, sizeof x->name, "%s", e[i][1]); snprintf(x->publisher, sizeof x->publisher, "%s", e[i][2]);
+		snprintf(x->desc, sizeof x->desc, "A sample entry: this demo was made without a network, so the real store could not be read.");
+		x->win = 1; snprintf(x->tag, sizeof x->tag, "%s", tab == GS_STEAM ? "TOP SELLER" : "Action & adventure");
+	}
+	s->state = Y_RESULTS;
+}
+#endif
+
+static void gs_poll(void);
 static void gs_load(int tab)
 {
 	GStore *s = &gs.s[tab];
 	if (tab == GS_SILVER) return;
 	job_free(&s->job);
 	s->n = 0; s->sel = 0; s->top = 0; s->err[0] = 0; s->detail = 0;
-	snprintf(s->shown_q, sizeof s->shown_q, "%s", s->q);
+	memcpy(s->shown_q, s->q, sizeof s->shown_q); s->shown_q[sizeof s->shown_q - 1] = 0;
 	char enc[200], url[500];
 	url_encode(s->q, enc, sizeof enc);
 	if (tab == GS_STEAM) {
@@ -214,13 +224,15 @@ static void gs_load(int tab)
 	} else snprintf(url, sizeof url, "https://storeedgefd.dsx.mp.microsoft.com/v9.0/search?market=US&locale=en-us&deviceFamily=Windows.Desktop&mediaType=games&query=%s", s->q[0] ? enc : "popular+games");
 	const char *fetch = yt.fetch[0] ? yt.fetch : FETCH_BIN;
 #ifdef RENDER
-	if (access(fetch, X_OK)) { s->state = Y_ERROR; snprintf(s->err, sizeof s->err, "No network in this demo."); return; }
+	if (access(fetch, X_OK)) { gs_mock(tab); return; }
 #endif
 	char *argv[] = {(char *)fetch, "-q", "-m", "4000000", url, 0};
 	job_start(&s->job, argv, 4000000);
 	s->state = s->job.active ? Y_LOADING : Y_ERROR;
 #ifdef RENDER
 	job_wait(&s->job);
+	gs_poll();
+	if (s->state != Y_RESULTS) gs_mock(tab);
 #endif
 }
 static void gs_poll(void)
@@ -323,8 +335,8 @@ static void draw_gs_front(float t)
 	float top = U * 22, bot = H - U * 22, lx = U * 6, gap = U * 2.4f, total = W - U * 12 - gap * 2, sum = 0;
 	for (int i = 0; i < GS_N; i++) { gs.wide[i] += ((i == gs.tab ? 1.5f : 1.0f) - gs.wide[i]) * 0.2f; if (gs.wide[i] < 0.5f) gs.wide[i] = 1; sum += gs.wide[i]; }
 	static const char *title[GS_N] = {"SILVEROS", "STEAM", "MICROSOFT"};
-	static const char *sub[GS_N] = {"Games that play right here", "Top sellers, deals and new games", "Popular games from the Microsoft Store"};
-	static const char *foot[GS_N] = {"PLAY FREE", "BROWSE  -  WISHLIST", "BROWSE  -  WISHLIST"};
+	static const char *sub[GS_N] = {"Games that play right here", "Top sellers and new games", "Popular games from the Microsoft Store"};
+	static const char *foot[GS_N] = {"PLAY", "BROWSE  -  WISHLIST", "BROWSE  -  WISHLIST"};
 	float x = lx;
 	for (int i = 0; i < GS_N; i++) {
 		float pw = total * gs.wide[i] / sum, ph = bot - top; int sel = i == gs.tab;
@@ -390,31 +402,13 @@ static void gs_tabs(float x, float cy)
 	}
 }
 
-static float price_tag(const Game *g, float x, float y, float size, int right)
-{
-	char p[48]; snprintf(p, sizeof p, "%s", g->price[0] ? g->price : "--");
-	float w = sg_text_w(&FT, p, size, 0);
-	float px = right ? x - w : x;
-	if (g->discount > 0) {
-		char d[8]; snprintf(d, sizeof d, "-%d%%", g->discount);
-		float dw = sg_text_w(&FC, d, size * 0.55f, 0.1f) + size * 0.8f;
-		float dx = right ? px - dw - size * 0.4f : px + w + size * 0.4f;
-		sg_rrect(&fb, dx, y - size * 0.95f, dw, size * 1.25f, size * 0.25f, 0, RED, 1);
-		sg_text(&fb, &FC, dx + size * 0.4f, y - size * 0.15f, d, size * 0.55f, WHITE, 1, 0.1f);
-		sg_text(&fb, &FT, px, y, p, size, WHITE, 1, 0);
-		return right ? px + w : dx + dw;
-	}
-	sg_text(&fb, &FT, px, y, p, size, WHITE, 1, 0);
-	return px + w;
-}
-
 static void draw_gstore(Home *h, float t)
 {
 	gs_poll();
 	if (!gs.open) { draw_gs_front(t); (void)h; return; }
 	memcpy(fb.px, bg_sec, (size_t)W * H * 4);
 	static const char *store_title[GS_N] = {"SILVEROS GAMES", "STEAM", "MICROSOFT STORE"};
-	static const char *store_cap[GS_N] = {"PLAYS RIGHT HERE  -  FREE", "BROWSE  -  SEARCH  -  WISHLIST", "BROWSE  -  SEARCH  -  WISHLIST"};
+	static const char *store_cap[GS_N] = {"PLAYS RIGHT HERE", "BROWSE  -  SEARCH  -  WISHLIST", "BROWSE  -  SEARCH  -  WISHLIST"};
 	title_block(store_title[gs.tab], store_cap[gs.tab], gs.tab == GS_SILVER ? I_GAME : I_STORE);
 	GStore *s = &gs.s[gs.tab];
 	float top = U * 21.5f, lx = U * 6;
@@ -458,7 +452,7 @@ static void draw_gstore(Home *h, float t)
 			  for (int k = 0; k < m; k++) sg_text(&fb, &FT, x + U * 3, gy + bh * 0.68f + U * 6.6f + k * U * 2.0f, dl3[k], U * 1.35f, RGB(150, 150, 156), 1, 0.01f); }
 			char bs[48]; snprintf(bs, sizeof bs, "BEST  %d", best[i]);
 			cap_text(x + U * 3, gy + bh - U * 3, bs, U * 1.0f, RGB(170, 170, 176), 1, 0);
-			ui_chip(x + bw - U * 12, gy + bh - U * 3.3f, "PLAY  FREE", U * 0.95f, WHITE, RED, 1);
+			ui_chip(x + bw - U * 8, gy + bh - U * 3.3f, "PLAY", U * 0.95f, WHITE, RED, 1);
 		}
 		dancer_draw(W * 0.5f, H - U * 8.2f, U * 13, t);
 		foot_hints("TAB  store      LEFT RIGHT  choose      ENTER  play      ESC  back");
@@ -481,15 +475,12 @@ static void draw_gstore(Home *h, float t)
 		float aw = W * 0.5f, ah = aw * 9 / 16, ax = lx, ay = gy;
 		sg_blob(&fb, ax + aw / 2, ay + ah / 2 + U * 2, aw * 0.56f, ah * 0.65f, BLACK, 0.6f);
 		thumb_draw_url(g->key, g->img, 1, yt.fetch[0] ? yt.fetch : FETCH_BIN, ax, ay, aw, ah, U * 1.6f);
-		if (g->discount > 0) { char d[16]; snprintf(d, sizeof d, "-%d%%", g->discount); ui_chip(ax + U * 1.6f, ay + U * 3, d, U * 1.1f, WHITE, RED, 1); }
 		float rx = ax + aw + U * 4, rw = W - U * 6 - rx;
 		char ln[3][160]; int n = ui_wrap(g->name, U * 3.6f, rw, 3, ln);
 		for (int k = 0; k < n; k++) sg_text(&fb, &FT, rx, ay + U * 3.8f + k * U * 4.6f, ln[k], U * 3.6f, WHITE, 1, 0);
 		float y = ay + U * 3.8f + n * U * 4.6f + U * 0.8f;
 		if (g->publisher[0]) { sg_text(&fb, &FT, rx, y, g->publisher, U * 1.8f, RGB(190, 190, 196), 1, 0.01f); y += U * 3.4f; }
-		float pend = price_tag(g, rx, y + U * 2.6f, U * 3.4f, 0);
-		if (g->was[0]) { float wx = pend + U * 1.4f; sg_text(&fb, &FT, wx, y + U * 2.4f, g->was, U * 1.8f, RGB(150, 150, 156), 1, 0); sg_rect(&fb, wx, y + U * 1.75f, sg_text_w(&FT, g->was, U * 1.8f, 0), sg_max(1, U * 0.15f), RGB(150, 150, 156), 1); }
-		y += U * 6.0f;
+		y += U * 1.4f;
 		float cx = rx;
 		if (g->tag[0]) cx = ui_chip(cx, y, g->tag, U * 0.9f, WHITE, WHITE, 0.12f) + U * 0.8f;
 		if (g->rating[0]) cx = ui_chip(cx, y, g->rating, U * 0.9f, WHITE, WHITE, 0.12f) + U * 0.8f;
@@ -525,7 +516,7 @@ static void draw_gstore(Home *h, float t)
 		s->top = trow;
 		char hd[120];
 		if (s->shown_q[0]) snprintf(hd, sizeof hd, "RESULTS FOR  \"%s\"", s->shown_q);
-		else snprintf(hd, sizeof hd, gs.tab == GS_STEAM ? "TOP SELLERS  -  DEALS  -  NEW ON STEAM" : "POPULAR ON THE MICROSOFT STORE");
+		else snprintf(hd, sizeof hd, gs.tab == GS_STEAM ? "TOP SELLERS  -  NEW ON STEAM" : "POPULAR ON THE MICROSOFT STORE");
 		cap_text(lx, gy - U * 1.4f, hd, U * 1.0f, RGB(200, 200, 206), 1, 0);
 		for (int i = trow * GSC; i < s->n && i < (trow + rows) * GSC; i++) {
 			Game *g = &s->g[i];
@@ -540,9 +531,8 @@ static void draw_gstore(Home *h, float t)
 			if (sel) sg_rrect(&fb, x - U * 0.2f, y - U * 0.2f, cw + U * 0.4f, ch + U * 0.4f, U * 1.6f, sg_max(2, U * 0.28f), WHITE, 0.95f);
 			char nm[2][160]; int n = ui_wrap(g->name, U * 1.7f, cw - U * 3, 2, nm);
 			for (int k = 0; k < n; k++) sg_text(&fb, &FT, x + U * 1.5f, y + th + U * 2.9f + k * U * 2.3f, nm[k], U * 1.7f, WHITE, in, 0.01f);
-			price_tag(g, x + cw - U * 1.5f, y + ch - U * 1.6f, U * 1.9f, 1);
 			char sub[96]; snprintf(sub, sizeof sub, "%s", g->publisher[0] ? g->publisher : g->rating[0] ? g->rating : (g->lin ? "Windows - Linux" : "Windows"));
-			char sf[96]; fit(sub, U * 1.3f, cw * 0.55f, sf, sizeof sf);
+			char sf[96]; fit(sub, U * 1.3f, cw - U * 3, sf, sizeof sf);
 			sg_text(&fb, &FT, x + U * 1.5f, y + ch - U * 1.6f, sf, U * 1.3f, RGB(160, 160, 166), in, 0.01f);
 		}
 		int total_rows = (s->n + GSC - 1) / GSC;

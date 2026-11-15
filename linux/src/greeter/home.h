@@ -788,7 +788,7 @@ static void draw_settings(Home *h, float t)
 
 /* ================================================================ the home screen itself */
 static const char *TILE_NAME[4] = {"SETTINGS", "SEARCH", "APPS", "FILES"};
-static const char *TILE_CAP[4] = {"NETWORK  DISPLAY  SOUND", "THE WEB  VIDEOS", "APP STORE  MY PC", "BROWSE YOUR HOME"};
+static const char *TILE_CAP[4] = {"NETWORK  DISPLAY  SOUND", "THE WEB  VIDEOS", "GAMES  MY PC", "BROWSE YOUR HOME"};
 static const int TILE_ICON[4] = {I_SETTINGS, I_SEARCH, I_APPS, I_FILES};
 
 static void tile_content(int q, float a, float blend, float beat)
@@ -810,19 +810,40 @@ static void tile_content(int q, float a, float blend, float beat)
 }
 
 /* open: 0 = glass not yet shown .. 1 = fully open */
+static uint32_t *bk_dark, *bk_light;                /* the glass with the finished cracks baked in */
 static void home_draw(const Home *h, float open, float t, float cracks_t)
 {
 	int n = W * H;
 	float a = sg_smooth(open), beat = sg_heart(t, 0.9f);
+	if (a >= 1 && cracks_t > 3) {
+		/* after the intro nothing about the cracks changes: draw them once, then just copy */
+		if (!bk_dark && (bk_dark = malloc((size_t)n * 4)) && (bk_light = malloc((size_t)n * 4))) {
+			memcpy(bk_dark, bg_dark, (size_t)n * 4); memcpy(bk_light, bg_light, (size_t)n * 4);
+			Surf sd = sg_surf(bk_dark, W, H), sl = sg_surf(bk_light, W, H);
+			for (int i = 0; i < nck; i++) { crack_draw(&sd, &ck[i], 99, i < nmain ? 1.0f : 0.28f); crack_draw(&sl, &ck[i], 99, i < nmain ? 1.0f : 0.28f); }
+			impact_draw(&sd, 99, 1); impact_draw(&sl, 99, 1);
+		}
+		if (bk_light) {
+			int mode[4];                                       /* per pane: all dark, all light, or between */
+			for (int q = 0; q < 4; q++) mode[q] = h->blend[q] < 0.002f ? 0 : h->blend[q] > 0.998f ? 1 : 2;
+			if (mode[0] == mode[1] && mode[1] == mode[2] && mode[2] == mode[3] && mode[0] < 2) memcpy(fb.px, mode[0] ? bk_light : bk_dark, (size_t)n * 4);
+			else for (int i = 0; i < n; i++) {
+				int q = qmap[i];
+				fb.px[i] = mode[q] == 0 ? bk_dark[i] : mode[q] == 1 ? bk_light[i] : sg_mix(bk_dark[i], bk_light[i], h->blend[q]);
+			}
+			goto tiles;
+		}
+	}
 	if (a > 0.003f)
 		for (int i = 0; i < n; i++) {
 			uint32_t base = sg_mix(bg_dark[i], bg_light[i], h->blend[qmap[i]]);
 			fb.px[i] = a >= 1 ? base : sg_mix(fb.px[i], base, a);
 		}
 	for (int i = 0; i < nck; i++) crack_draw(&fb, &ck[i], cracks_t, i < nmain ? 1.0f : 1 - 0.72f * a);
+	impact_draw(&fb, cracks_t, 1);
+tiles:;
 	float ca = sg_sat((open - 0.35f) / 0.5f);
 	if (ca > 0) for (int q = 0; q < 4; q++) tile_content(q, ca, h->blend[q], beat);
-	impact_draw(&fb, cracks_t, 1);
 	glints_draw(&fb, t, sg_sat(cracks_t * 2));
 	if (ca > 0.5f) {
 		if (ca > 0.95f) foot_hints("ARROWS  select      ENTER  open");

@@ -571,7 +571,8 @@ static void search_run(Search *s)
 
 static void search_set(Search *s, const char *q, int scope)
 {
-	snprintf(s->q, sizeof s->q, "%s", q); s->scope = scope;
+	if (q != s->q) snprintf(s->q, sizeof s->q, "%s", q);          /* (callers may pass s->q itself) */
+	s->scope = scope;
 	compute_answer(s);
 	search_run(s);
 	s->nhits = 0; s->cpos = 0; s->scanning = 0;                      /* restart the text search */

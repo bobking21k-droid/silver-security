@@ -16,6 +16,7 @@ CODE = "/usr/share/OVMF/OVMF_CODE_4M.fd"
 
 class VM:
     runs = 0
+    shots = {}
     def __init__(self, with_iso):
         VM.runs += 1
         self.mon = os.path.join(outdir, "mon.sock")
@@ -67,6 +68,15 @@ class VM:
         open(png, "wb").write(b"\x89PNG\r\n\x1a\n" + c(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0))
                               + c(b"IDAT", zlib.compress(raw)) + c(b"IEND", b""))
         os.unlink(ppm); print("   screenshot:", png)
+        VM.shots[name] = px
+
+    def changed(self, a, b, minimum=0.04):
+        """fail unless screenshot b differs from screenshot a: the key press must have done something"""
+        pa, pb = VM.shots[a], VM.shots[b]
+        n = min(len(pa), len(pb)); step = 97
+        diff = sum(1 for i in range(0, n, step) if abs(pa[i] - pb[i]) > 24) / max(1, n // step)
+        print(f"   {a} -> {b}: {diff:.0%} of the screen changed")
+        if diff < minimum: self.fail(f"{b} looks the same as {a}: the key press did nothing")
 
     def off(self):
         try: self.monitor("quit")
@@ -110,14 +120,15 @@ vm.key("esc"); time.sleep(1.5); vm.key("left"); time.sleep(0.8); vm.key("ret"); 
 for k in ["down", "down", "down"]: vm.key(k); time.sleep(0.5)
 vm.key("ret"); time.sleep(1.5); vm.shot("settings-sound-off")                      # Sound effects off (also for the boot chooser)
 vm.key("esc"); time.sleep(1.5); vm.key("down"); time.sleep(0.8); vm.key("ret"); time.sleep(2.5); vm.shot("apps")
-vm.key("right"); time.sleep(0.5); vm.key("right"); time.sleep(0.5); vm.key("ret"); time.sleep(2); vm.shot("game-store")     # three stores
+vm.key("right"); time.sleep(0.5); vm.key("ret"); time.sleep(2); vm.shot("game-store")     # three stores
 vm.key("ret"); time.sleep(1.5); vm.key("ret"); time.sleep(2); vm.key("down"); time.sleep(1); vm.shot("game-snake")         # play Snake
 vm.key("esc"); time.sleep(1); vm.key("esc"); time.sleep(1); vm.key("right"); time.sleep(0.5); vm.key("ret"); time.sleep(8); vm.shot("game-steam")
 vm.key("esc"); time.sleep(1); vm.key("esc"); time.sleep(1)
 vm.key("right"); time.sleep(0.5); vm.key("ret"); time.sleep(3); vm.shot("me-and-my-pc")
-vm.key("esc"); time.sleep(1); vm.key("left"); time.sleep(0.5); vm.key("left"); time.sleep(0.5); vm.key("ret"); time.sleep(2); vm.shot("app-store")
-vm.key("ret"); time.sleep(12); vm.shot("app-store-get")                            # no internet in this test: it must fail cleanly
-vm.key("esc"); time.sleep(1); vm.key("left"); time.sleep(0.8)
+vm.key("esc"); time.sleep(1); vm.key("left"); time.sleep(0.5); vm.key("left"); time.sleep(0.8)
+vm.changed("home", "home-files-selected"); vm.changed("home-files-selected", "files"); vm.changed("files", "search")
+vm.changed("settings", "settings-sound-off", 0.002); vm.changed("apps", "game-store"); vm.changed("game-store", "game-snake")
+vm.changed("game-snake", "game-steam"); vm.changed("apps", "me-and-my-pc")
 vm.key("ret"); time.sleep(5); vm.shot("terminal")                                  # Terminal: a shell on tty1, as the user
 vm.send("silver"); vm.expect(r"~\$ ")                                              # text console: no password either
 for c in ["od -An -tx1 /sys/firmware/efi/efivars/SilverMute-6c5c3c2e-6b0a-4f3c-9a7e-2f1d0c9b8a71", "ls ~/.config/silver", "cat /etc/silver-installed", "mount | grep ' / '", "echo persist-check > ~/note.txt; sync", "ps | grep -c '[s]ilver-greeter' || true", "id -un"]:

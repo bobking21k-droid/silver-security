@@ -27,7 +27,7 @@ static float sfx_exp(float x)
 	float y = x * 1.4426950409f, fl = sg_floor(y), f = y - fl;
 	float p = 1 + f * (0.6931472f + f * (0.2402265f + f * (0.0555041f + f * 0.0096181f)));
 	union { float f; int32_t i; } u = {p};
-	u.i += (int32_t)fl << 23;
+	u.i += (int32_t)fl * (1 << 23);                             /* (a multiply: shifting a negative number is undefined) */
 	return u.f;
 }
 static float sfx_ln(float x)

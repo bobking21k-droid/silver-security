@@ -1,12 +1,5 @@
 /*
- * The Apps pane: a grid of apps, the App Store, and "Me and my PC".
- *
- * App Store: every app in catalog.h is one statically linked program published by its own
- * project. Get downloads the release archive with silver-fetch into ~/.cache/silver, checks its
- * SHA-256 against the catalog (anything else is thrown away), unpacks it into
- * ~/.local/share/silver-apps/<id> and links the program into ~/.local/bin. No root needed, and
- * nothing outside your home folder changes. Opening an app runs it full screen in the terminal;
- * when it quits you are back here. U removes an installed app.
+ * The Apps pane: a grid of apps, the Game Store (gstore.h) and "Me and my PC".
  *
  * Me and my PC: who you are and what you are running on, read live from /proc and /sys: the
  * computer's maker and model, processor, memory, storage, graphics and display, network, power
@@ -14,141 +7,9 @@
  */
 #pragma once
 #include <sys/statvfs.h>
-#include "catalog.h"
 
 static void request(char c);
 #define FETCH_BIN "/sbin/silver-fetch"
-
-/* ================================================================ installing */
-enum { IN_NONE, IN_DOWNLOAD, IN_UNPACK, IN_DONE, IN_FAIL };
-typedef struct { int state; Job job; char msg[96]; float t0; } Inst;
-static Inst inst[NCAT];
-#ifdef RENDER
-static int mock_installed[NCAT] = {[0] = 0, [2] = 1};
-#endif
-
-static void app_paths(int i, char *dl, size_t n1, char *dir, size_t n2)
-{
-	if (dl) snprintf(dl, n1, "%s/.cache/silver/%s.download", homedir, CATALOG[i].id);
-	if (dir) snprintf(dir, n2, "%s/.local/share/silver-apps/%s", homedir, CATALOG[i].id);
-}
-static int app_installed(int i)
-{
-#ifdef RENDER
-	return mock_installed[i];
-#else
-	char p[400]; snprintf(p, sizeof p, "%s/.local/bin/%s", homedir, CATALOG[i].cmd);
-	return access(p, X_OK) == 0;
-#endif
-}
-static void mkdirs(const char *path)
-{
-	char p[400]; snprintf(p, sizeof p, "%s", path);
-	for (char *s = p + 1; *s; s++) if (*s == '/') { *s = 0; mkdir(p, 0755); *s = '/'; }
-	mkdir(p, 0755);
-}
-
-/* the unpack step: a fixed script, the catalog's values passed as arguments (never pasted in) */
-static const char *UNPACK_SH =
-	"set -e\n"
-	"dl=\"$1\"; dir=\"$2\"; sum=\"$3\"; kind=\"$4\"; prog=\"$5\"; cmd=\"$6\"\n"
-	"[ \"$(sha256sum \"$dl\" | cut -d' ' -f1)\" = \"$sum\" ] || { rm -f \"$dl\"; echo checksum; exit 3; }\n"
-	"rm -rf \"$dir.new\"; mkdir -p \"$dir.new\"\n"
-	"case \"$kind\" in\n"
-	"  tbz) bunzip2 -c \"$dl\" | tar -x -C \"$dir.new\" ;;\n"
-	"  tgz) gunzip -c \"$dl\" | tar -x -C \"$dir.new\" ;;\n"
-	"  zip) unzip -q -o \"$dl\" -d \"$dir.new\" ;;\n"
-	"esac\n"
-	"[ -f \"$dir.new/$prog\" ] || { echo missing; exit 4; }\n"
-	"chmod 755 \"$dir.new/$prog\"\n"
-	"rm -rf \"$dir\"; mv \"$dir.new\" \"$dir\"\n"
-	"mkdir -p \"$HOME/.local/bin\"; ln -sf \"$dir/$prog\" \"$HOME/.local/bin/$cmd\"\n"
-	"rm -f \"$dl\"\n";
-
-static void app_install(int i, float t)
-{
-	Inst *s = &inst[i];
-	if (s->state == IN_DOWNLOAD || s->state == IN_UNPACK) return;
-	memset(s, 0, sizeof *s); s->t0 = t;
-#ifdef RENDER
-	s->state = IN_DOWNLOAD;
-#else
-	char dl[400], dir[400], cache[400];
-	app_paths(i, dl, sizeof dl, dir, sizeof dir);
-	snprintf(cache, sizeof cache, "%s/.cache/silver", homedir); mkdirs(cache);
-	char lim[32]; snprintf(lim, sizeof lim, "%ld", CATALOG[i].size + 4096);
-	char *argv[] = {FETCH_BIN, "-q", "-t", "900", "-m", lim, "-o", dl, (char *)CATALOG[i].url, 0};
-	job_start(&s->job, argv, 4096);
-	s->state = s->job.active ? IN_DOWNLOAD : IN_FAIL;
-	if (s->state == IN_FAIL) snprintf(s->msg, sizeof s->msg, "Could not start the download");
-#endif
-}
-static void app_remove(int i)
-{
-#ifdef RENDER
-	mock_installed[i] = 0;
-#else
-	char dir[400], link[400]; app_paths(i, 0, 0, dir, sizeof dir);
-	snprintf(link, sizeof link, "%s/.local/bin/%s", homedir, CATALOG[i].cmd);
-	unlink(link);
-	char *argv[] = {"/bin/rm", "-rf", dir, 0};
-	Job j; job_start(&j, argv, 64); while (j.active && !j.done) { job_poll(&j); usleep(20000); } job_free(&j);
-#endif
-	memset(&inst[i], 0, sizeof inst[i]);
-}
-/* run an installed app full screen: the terminal session reads this file and starts it */
-static void app_launch(const char *cmd)
-{
-#ifndef RENDER
-	char p[400]; snprintf(p, sizeof p, "%s/.config/silver", homedir); mkdirs(p);
-	snprintf(p, sizeof p, "%s/.config/silver/launch", homedir);
-	FILE *f = fopen(p, "w");
-	if (f) { fprintf(f, "%s\n", cmd); fclose(f); }
-#endif
-	(void)cmd;
-	request('T');
-}
-static float app_progress(int i, float t)
-{
-	Inst *s = &inst[i];
-#ifdef RENDER
-	return sg_sat((t - s->t0) / 2.2f);
-#else
-	(void)t;
-	char dl[400]; app_paths(i, dl, sizeof dl, 0, 0);
-	struct stat st;
-	return stat(dl, &st) == 0 ? sg_sat((float)st.st_size / (float)CATALOG[i].size) : 0;
-#endif
-}
-static void inst_poll(float t)
-{
-	for (int i = 0; i < NCAT; i++) {
-		Inst *s = &inst[i];
-#ifdef RENDER
-		if (s->state == IN_DOWNLOAD && t - s->t0 > 2.2f) s->state = IN_UNPACK;
-		else if (s->state == IN_UNPACK && t - s->t0 > 3.0f) { s->state = IN_DONE; mock_installed[i] = 1; }
-		continue;
-#else
-		(void)t;
-		if (s->state != IN_DOWNLOAD && s->state != IN_UNPACK) continue;
-		job_poll(&s->job);
-		if (!s->job.done) continue;
-		int ok = s->job.ok;
-		char out[64]; snprintf(out, sizeof out, "%s", s->job.buf ? s->job.buf : "");
-		job_free(&s->job);
-		if (s->state == IN_DOWNLOAD) {
-			if (!ok) { s->state = IN_FAIL; snprintf(s->msg, sizeof s->msg, "Download failed. Check your network."); continue; }
-			char dl[400], dir[400]; app_paths(i, dl, sizeof dl, dir, sizeof dir);
-			char *argv[] = {"/bin/sh", "-c", (char *)UNPACK_SH, "unpack", dl, dir, (char *)CATALOG[i].sha256, (char *)CATALOG[i].archive, (char *)CATALOG[i].path, (char *)CATALOG[i].cmd, 0};
-			job_start(&s->job, argv, 4096);
-			s->state = s->job.active ? IN_UNPACK : IN_FAIL;
-		} else {
-			s->state = ok ? IN_DONE : IN_FAIL;
-			if (!ok) snprintf(s->msg, sizeof s->msg, strstr(out, "checksum") ? "The download did not match its checksum, so it was thrown away." : "Could not unpack the app.");
-		}
-#endif
-	}
-}
 
 /* ================================================================ Me and my PC */
 typedef struct {
@@ -307,19 +168,17 @@ static void pc_read(PcInfo *p, const Sys *sy)
 }
 
 /* ================================================================ drawing */
-typedef struct { const char *name, *desc; int icon, action; } AppTile;    /* action: 0 terminal 1 store 2 pc 3 monitor 4 about, 100+i catalog app */
+typedef struct { const char *name, *desc; int icon, action; } AppTile;    /* action: 0 terminal 2 pc 3 monitor 4 about 5 game store */
 static int app_tiles(AppTile *t, int max)
 {
-	static const AppTile fixed[6] = {
+	static const AppTile fixed[5] = {
 		{"Terminal", "A command line. Type exit to come back.", I_TERM, 0},
-		{"App Store", "Get apps. Checked before they install.", I_STORE, 1},
 		{"Game Store", "Play here, or browse Steam and the Microsoft Store.", I_GAME, 5},
 		{"Me and my PC", "You, and everything inside this computer.", I_PC, 2},
 		{"System Monitor", "Live CPU and memory.", I_MONITOR, 3},
 		{"About SilverOS", "Version and install notes.", I_INFO, 4}};
 	int n = 0;
-	for (int i = 0; i < 6 && n < max; i++) t[n++] = fixed[i];
-	for (int i = 0; i < NCAT && n < max; i++) if (app_installed(i)) t[n++] = (AppTile){CATALOG[i].name, CATALOG[i].tag, -1, 100 + i};
+	for (int i = 0; i < 5 && n < max; i++) t[n++] = fixed[i];
 	return n;
 }
 
@@ -327,8 +186,8 @@ static int app_tiles(AppTile *t, int max)
 static void draw_app_grid(Home *h, float t)
 {
 	memcpy(fb.px, bg_sec, (size_t)W * H * 4);
-	title_block("APPS", "YOUR APPS  -  GAMES  -  GET MORE IN THE APP STORE", I_APPS);
-	AppTile tl[6 + NCAT]; int n = app_tiles(tl, 6 + NCAT);
+	title_block("APPS", "TERMINAL  -  GAMES  -  YOUR PC", I_APPS);
+	AppTile tl[5]; int n = app_tiles(tl, 5);
 	if (h->row >= n) h->row = n - 1;
 	float lx = U * 6, top = U * 24, gap = U * 2.2f, tw = (W - U * 12 - gap * (GRID_C - 1)) / GRID_C, th = U * 19;
 	int rows = (int)((H - U * 10 - top + gap) / (th + gap)), srow = h->row / GRID_C;
@@ -352,87 +211,6 @@ static void draw_app_grid(Home *h, float t)
 	}
 	foot_hints("ARROWS  move      ENTER  open      ESC  home");
 	(void)t;
-}
-
-static void host_of(const char *url, char *out, size_t n)
-{
-	const char *p = strstr(url, "://"); p = p ? p + 3 : url;
-	size_t o = 0; int slashes = 0;
-	for (; *p && o + 1 < n; p++) { if (*p == '/' && ++slashes > 2) break; out[o++] = *p; }
-	out[o] = 0;
-}
-
-static void draw_store(Home *h, float t)
-{
-	inst_poll(t);
-	memcpy(fb.px, bg_sec, (size_t)W * H * 4);
-	title_block("APP STORE", "FREE APPS  -  EVERY DOWNLOAD CHECKED", I_STORE);
-	if (h->row >= NCAT) h->row = NCAT - 1;
-	float lx = U * 6, top = U * 23, lw = W * 0.38f, rh = U * 8.2f, bot = H - U * 10;
-	int vis = (int)((bot - top) / rh);
-	if (h->row < h->top) h->top = h->row;
-	if (h->row >= h->top + vis) h->top = h->row - vis + 1;
-	ui_frost(lx - U * 1.2f, top - U * 1.2f, lw + U * 2.4f, vis * rh + U * 2.0f, U * 2.0f, 0.55f);
-	for (int i = 0; i < vis && h->top + i < NCAT; i++) {
-		int idx = h->top + i, sel = idx == h->row;
-		const CatApp *a = &CATALOG[idx];
-		float y = top + i * rh;
-		if (sel) { sg_rrect(&fb, lx, y + U * 0.3f, lw, rh - U * 0.6f, U * 1.3f, 0, WHITE, 0.95f); sg_rrect(&fb, lx + U * 0.6f, y + rh * 0.28f, U * 0.42f, rh * 0.44f, U * 0.21f, 0, RED, 1); }
-		ui_avatar(lx + U * 4.0f, y + rh / 2, U * 2.4f, a->name);
-		sg_text(&fb, &FT, lx + U * 7.8f, y + rh * 0.46f, a->name, U * 2.2f, sel ? INK : WHITE, 1, 0.0f);
-		char tg[96]; fit(a->tag, U * 1.4f, lw - U * 20, tg, sizeof tg);
-		sg_text(&fb, &FT, lx + U * 7.8f, y + rh * 0.46f + U * 2.4f, tg, U * 1.4f, sel ? RGB(80, 80, 88) : RGB(160, 160, 166), 1, 0.01f);
-		char pct[16]; snprintf(pct, sizeof pct, "%d%%", (int)(app_progress(idx, t) * 100));
-		const char *chip = inst[idx].state == IN_DOWNLOAD ? pct : inst[idx].state == IN_UNPACK ? "CHECK" : app_installed(idx) ? "OPEN" : "GET";
-		float cw = sg_text_w(&FC, chip, U * 0.95f, 0.2f) + U * 3.0f;
-		sg_rrect(&fb, lx + lw - cw - U * 1.6f, y + rh / 2 - U * 1.6f, cw, U * 3.2f, U * 1.6f, 0, app_installed(idx) ? (sel ? INK : WHITE) : RED, app_installed(idx) ? (sel ? 0.9f : 0.14f) : 0.95f);
-		sg_text(&fb, &FC, lx + lw - cw - U * 0.1f, y + rh / 2 + U * 0.36f, chip, U * 0.95f, WHITE, 1, 0.2f);
-	}
-	ui_scroll(lx + lw + U * 0.4f, top, vis * rh, h->top, vis, NCAT);
-	/* the chosen app */
-	const CatApp *a = &CATALOG[h->row];
-	Inst *s = &inst[h->row];
-	float px = lx + lw + U * 4, pw = W - U * 6 - px, py = top - U * 1.2f, ph = bot - py + U * 0.8f;
-	ui_frost(px, py, pw, ph, U * 2.4f, 0.62f);
-	ui_avatar(px + U * 7, py + U * 7.5f, U * 4.4f, a->name);
-	sg_text(&fb, &FD, px + U * 13.5f, py + U * 9.2f, a->name, U * 5.4f, WHITE, 1, 0);
-	float cx = ui_chip(px + U * 13.6f, py + U * 12.6f, a->kind, U * 0.9f, WHITE, WHITE, 0.12f);
-	char sz[32]; human_bytes((double)a->size, sz, sizeof sz);
-	char dsz[48]; snprintf(dsz, sizeof dsz, "%s DOWNLOAD", sz); for (char *q = dsz; *q; q++) if (*q >= 'a' && *q <= 'z') *q -= 32;
-	ui_chip(cx + U * 1.0f, py + U * 12.6f, dsz, U * 0.9f, WHITE, WHITE, 0.12f);
-	sg_text(&fb, &FT, px + U * 3, py + U * 20, a->tag, U * 2.6f, WHITE, 1, 0.0f);
-	char ln[5][160]; int m = ui_wrap(a->desc, U * 1.9f, pw - U * 6, 5, ln);
-	for (int k = 0; k < m; k++) sg_text(&fb, &FT, px + U * 3, py + U * 24.6f + k * U * 2.8f, ln[k], U * 1.9f, RGB(200, 200, 206), 1, 0.01f);
-	char host[160]; host_of(a->url, host, sizeof host);
-	float iy = py + U * 26 + m * U * 2.8f + U * 3;
-	cap_text(px + U * 3, iy, "FROM", U * 0.95f, RGB(150, 150, 156), 1, 0);
-	sg_text(&fb, &FT, px + U * 12.5f, iy + U * 0.3f, host, U * 1.6f, WHITE, 1, 0.01f);
-	cap_text(px + U * 3, iy + U * 3.4f, "CHECK", U * 0.95f, RGB(150, 150, 156), 1, 0);
-	char sh[64]; snprintf(sh, sizeof sh, "SHA-256 %.16s...", a->sha256);
-	sg_text(&fb, &FT, px + U * 12.5f, iy + U * 3.7f, sh, U * 1.6f, WHITE, 1, 0.01f);
-	cap_text(px + U * 3, iy + U * 6.8f, "RUNS AS", U * 0.95f, RGB(150, 150, 156), 1, 0);
-	sg_text(&fb, &FT, px + U * 12.5f, iy + U * 7.1f, a->cmd, U * 1.6f, WHITE, 1, 0.01f);
-	/* the big button */
-	float bx = px + U * 3, by = py + ph - U * 9.4f, bw = pw - U * 6, bh = U * 6;
-	if (s->state == IN_DOWNLOAD || s->state == IN_UNPACK) {
-		float pr = s->state == IN_UNPACK ? 1 : app_progress(h->row, t);
-		sg_rrect(&fb, bx, by, bw, bh, bh / 2, 0, WHITE, 0.10f);
-		sg_rrect(&fb, bx, by, sg_max(bh, bw * pr), bh, bh / 2, 0, RED, 0.9f);
-		char lab[48];
-		if (s->state == IN_UNPACK) snprintf(lab, sizeof lab, "CHECKING AND INSTALLING");
-		else snprintf(lab, sizeof lab, "DOWNLOADING  %d%%", (int)(pr * 100));
-		float lw2 = sg_text_w(&FC, lab, U * 1.1f, 0.22f);
-		sg_text(&fb, &FC, bx + bw / 2 - lw2 / 2, by + bh / 2 + U * 0.4f, lab, U * 1.1f, WHITE, 1, 0.22f);
-	} else {
-		int on = app_installed(h->row);
-		sg_rrect(&fb, bx, by, bw, bh, bh / 2, 0, on ? WHITE : RED, 0.95f);
-		const char *lab = on ? "OPEN" : "GET";
-		float lw2 = sg_text_w(&FC, lab, U * 1.3f, 0.22f);
-		sg_text(&fb, &FC, bx + bw / 2 - lw2 / 2, by + bh / 2 + U * 0.48f, lab, U * 1.3f, on ? INK : WHITE, 1, 0.22f);
-		if (s->state == IN_FAIL) sg_text(&fb, &FT, bx, by - U * 1.6f, s->msg, U * 1.6f, RGB(255, 120, 110), 1, 0.01f);
-		else if (s->state == IN_DONE && on) sg_text(&fb, &FT, bx, by - U * 1.6f, "Installed and checked. Press Enter to open it.", U * 1.6f, RGB(170, 220, 170), 1, 0.01f);
-	}
-	foot_hints(app_installed(h->row) ? "UP DOWN  choose      ENTER  open      U  remove      ESC  back" : "UP DOWN  choose      ENTER  get      ESC  back");
 }
 
 static void pc_card(float x, float y, float w, float h, int ic, const char *title, const char *big, const char *sub, float bar, const char *stat)
@@ -506,20 +284,11 @@ static void draw_mypc(Home *h, float t)
 /* keys for the whole Apps pane; returns 1 if it used the key */
 static int apps_key(Home *h, int k, float t)
 {
+	(void)t;
 	if (h->sub == 6) { if (game_key(k)) h->sub = 5; return 1; }            /* playing a SilverOS game */
 	if (h->sub == 5) { int play = 0; if (gstore_key(k, &play)) { h->sub = 0; h->row = h->sub_from; } else if (play) h->sub = 6; return 1; }
 	if (h->sub == 1 || h->sub == 2 || h->sub == 4) { if (k == K_ESC || k == K_BACK || k == K_LEFT) { h->sub = 0; h->row = h->sub_from; } return 1; }
-	if (h->sub == 3) {                                                     /* the App Store */
-		if (k == K_ESC || k == K_BACK) { h->sub = 0; h->row = h->sub_from; return 1; }
-		if (k == K_UP && h->row > 0) h->row--;
-		else if (k == K_DOWN && h->row + 1 < NCAT) h->row++;
-		else if (k == K_ENTER) {
-			if (app_installed(h->row)) app_launch(CATALOG[h->row].cmd);
-			else app_install(h->row, t);
-		} else if ((k == 'u' || k == 'U') && app_installed(h->row)) app_remove(h->row);
-		return 1;
-	}
-	AppTile tl[6 + NCAT]; int n = app_tiles(tl, 6 + NCAT);
+	AppTile tl[5]; int n = app_tiles(tl, 5);
 	if (k == K_ESC || k == K_BACK) { h->screen = 0; h->fade = 0; return 1; }
 	if (k == K_LEFT && h->row > 0) h->row--;
 	else if (k == K_RIGHT && h->row + 1 < n) h->row++;
@@ -530,12 +299,10 @@ static int apps_key(Home *h, int k, float t)
 		int act = tl[h->row].action;
 		h->sub_from = h->row;
 		if (act == 0) request('T');
-		else if (act == 1) { h->sub = 3; h->row = 0; h->top = 0; }
 		else if (act == 2) { h->sub = 4; pc.last = 0; }
 		else if (act == 3) h->sub = 1;
 		else if (act == 4) h->sub = 2;
 		else if (act == 5) { h->sub = 5; scores_load(); gs.open = 0; gs.focus = 1; }
-		else app_launch(CATALOG[act - 100].cmd);
 	}
 	return 1;
 }
@@ -545,7 +312,6 @@ static void draw_apps(Home *h, float t)
 	switch (h->sub) {
 	case 1: draw_monitor(h, t); break;
 	case 2: draw_about(h); break;
-	case 3: draw_store(h, t); break;
 	case 4: draw_mypc(h, t); break;
 	case 5: draw_gstore(h, t); break;
 	case 6: { static float last; float dt = last > 0 && t > last ? t - last : 0; if (dt > 0.1f) dt = 0.1f; last = t; game_update(dt); game_draw(); break; }

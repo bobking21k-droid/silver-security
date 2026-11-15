@@ -42,24 +42,33 @@ static float clip_len(void) { return clip.n ? (float)clip.n / clip.fps : 0; }
  * placed at `focus` across the screen (so it shows beside the results, not under them); bilinear */
 static void clip_draw(int fi, float zoom, float focus)
 {
+	static int *rowk; static int rowk_h;                              /* per row: the darkening, the scanlines and the calm top, all in one */
+	if (rowk_h != H) { free(rowk); rowk = malloc(sizeof(int) * (size_t)H); rowk_h = H; if (rowk) for (int y = 0; y < H; y++) { float f = y < H * 0.30f ? 1 - (float)y / (H * 0.30f) : 0; float m = 0.88f * (y % 3 == 0 ? 0.78f : 1.0f) * (1 - 0.55f * f); rowk[y] = (int)(m * 256); } }
+	if (!rowk) return;
 	const uint8_t *src = clip.frames + (size_t)(fi % clip.n) * clip.w * clip.h;
 	float sc = sg_max((float)W / clip.w, (float)H / clip.h) * zoom;
 	float ox = clip.w * 0.5f - W * focus / sc, oy = (clip.h - H / sc) / 2;
-	int step = (int)(65536 / sc), sx0 = (int)(ox * 65536);
-	for (int y = 0; y < H; y++) {
-		float fy = oy + (y + 0.5f) / sc - 0.5f;
+	/* sampled at half resolution, each sample doubled: the clip is far smaller than the screen anyway */
+	int step = (int)(65536 * 2 / sc), sx0 = (int)(ox * 65536);
+	for (int y = 0; y < H; y += 2) {
+		float fy = oy + (y + 1.0f) / sc - 0.5f;
 		int y0 = (int)fy; if (fy < 0) { y0 = 0; fy = 0; }
 		if (y0 >= clip.h - 1) { y0 = clip.h - 2; fy = (float)(clip.h - 1); }
 		int wy = (int)((fy - y0) * 256); if (wy > 255) wy = 255;
 		const uint8_t *r0 = src + y0 * clip.w, *r1 = r0 + clip.w;
-		uint32_t *d = fb.px + y * W;
+		uint32_t *d0 = fb.px + y * W, *d1 = y + 1 < H ? d0 + W : d0;
+		int k0 = rowk[y], k1 = rowk[y + 1 < H ? y + 1 : y];
 		int sx = sx0 + step / 2 - 32768;
-		for (int x = 0; x < W; x++, sx += step) {
+		for (int x = 0; x < W; x += 2, sx += step) {
 			int x0 = sx >> 16, wx = (sx >> 8) & 255;
 			if (sx < 0) { x0 = 0; wx = 0; }
 			if (x0 >= clip.w - 1) { x0 = clip.w - 2; wx = 255; }
 			int top = r0[x0] * (256 - wx) + r0[x0 + 1] * wx, bot = r1[x0] * (256 - wx) + r1[x0 + 1] * wx;
-			d[x] = clip_lut[(top * (256 - wy) + bot * wy) >> 16];
+			uint32_t c = clip_lut[(top * (256 - wy) + bot * wy) >> 16];
+			int R = (c >> 16) & 255, G = (c >> 8) & 255, B = c & 255;
+			uint32_t a0 = (uint32_t)((R * k0 >> 8) << 16 | (G * k0 >> 8) << 8 | (B * k0 >> 8)), a1 = (uint32_t)((R * k1 >> 8) << 16 | (G * k1 >> 8) << 8 | (B * k1 >> 8));
+			d0[x] = a0; d1[x] = a1;
+			if (x + 1 < W) { d0[x + 1] = a0; d1[x + 1] = a1; }
 		}
 	}
 }
@@ -91,11 +100,11 @@ static void scene_bg(float t)
 	clip_load();
 	if (clip.n) {                                       /* the clip, looping */
 		float len = clip_len(), u = fmodf(s_age, len);
-		clip_draw((int)(u * clip.fps), 1.22f, 0.74f);
-		sg_rect(&fb, 0, 0, W, H, BLACK, 0.12f);           /* a little darker, for reading */
-		for (int yy = 0; yy < H; yy += 3) sg_rect(&fb, 0, yy, W, 1, BLACK, 0.22f);   /* scanlines */
+		clip_draw((int)(u * clip.fps), 1.22f, 0.74f);       /* (darkened, scanlined and calmed at the top as it is drawn) */
 		if (s_age > 1.0f && u < 0.20f) glitch(1 - u / 0.20f, u + 1);           /* tear the picture where it loops */
 		else if (len - u < 0.10f) glitch(1 - (len - u) / 0.10f, len - u);
-	} else parade_bg(t);                                /* no clip: just the turning swirl */
-	for (int y = 0; y < H * 0.30f; y++) { float f = 1 - (float)y / (H * 0.30f); sg_rect(&fb, 0, y, W, 1, BLACK, 0.55f * f); }
+	} else {                                            /* no clip: just the turning swirl */
+		parade_bg(t);
+		for (int y = 0; y < H * 0.30f; y++) { float f = 1 - (float)y / (H * 0.30f); sg_rect(&fb, 0, y, W, 1, BLACK, 0.55f * f); }
+	}
 }

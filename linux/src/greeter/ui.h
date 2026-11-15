@@ -112,39 +112,81 @@ static float ui_chip(float x, float cy, const char *s, float size, uint32_t fg, 
 }
 
 /* Frosted glass: blur what is behind a rounded rectangle and darken it, so text on top reads
- * over a busy, moving background. */
+ * over a busy, moving background. The blur runs at half resolution (four times less work, and
+ * at this radius it looks the same). On screens whose background doesn't move (frost_static),
+ * finished panels are kept and simply copied back the next frame. */
 static uint32_t *frost_buf, *frost_tmp;
 static size_t frost_cap;
+static int frost_static;                                /* set per frame: the background under panels is still */
+#define FROST_CACHE 48
+static struct { int x0, y0, bw, bh, key; uint32_t *px; unsigned used; } frost_cache[FROST_CACHE];
+static unsigned frost_clock;
+
 static void ui_frost(float x, float y, float w, float h, float r, float dark)
 {
-	int x0 = (int)sg_max(0, x), y0 = (int)sg_max(0, y), x1 = (int)sg_min(W, x + w + 1), y1 = (int)sg_min(H, y + h + 1);
+	int x0 = (int)sg_max(0, x - 1), y0 = (int)sg_max(0, y - 1), x1 = (int)sg_min(W, x + w + 2), y1 = (int)sg_min(H, y + h + 2);
 	int bw = x1 - x0, bh = y1 - y0;
 	if (bw < 4 || bh < 4) return;
-	if ((size_t)bw * bh > frost_cap) {
+	int key = (int)(r * 16) * 1000 + (int)(dark * 1000) + (int)((x - (int)x) * 7) * 100000 + (int)((y - (int)y) * 7) * 1000000;
+	frost_clock++;
+	if (frost_static)
+		for (int i = 0; i < FROST_CACHE; i++)
+			if (frost_cache[i].px && frost_cache[i].x0 == x0 && frost_cache[i].y0 == y0 && frost_cache[i].bw == bw && frost_cache[i].bh == bh && frost_cache[i].key == key) {
+				for (int j = 0; j < bh; j++) memcpy(fb.px + (y0 + j) * W + x0, frost_cache[i].px + j * bw, (size_t)bw * 4);
+				frost_cache[i].used = frost_clock;
+				return;
+			}
+	int hw = (bw + 1) / 2, hh = (bh + 1) / 2;
+	if ((size_t)hw * hh > frost_cap) {
 		free(frost_buf); free(frost_tmp);
-		frost_cap = (size_t)bw * bh;
+		frost_cap = (size_t)hw * hh;
 		frost_buf = malloc(frost_cap * 4); frost_tmp = malloc(frost_cap * 4);
 		if (!frost_buf || !frost_tmp) { frost_cap = 0; return; }
 	}
-	for (int j = 0; j < bh; j++) memcpy(frost_buf + j * bw, fb.px + (y0 + j) * W + x0, (size_t)bw * 4);
-	sg_blur(frost_buf, frost_tmp, bw, bh, (int)(U * 1.3f) + 1, 2);
-	float cx = x + w / 2, cy = y + h / 2, hx = w / 2 - r, hy = h / 2 - r, k = 1 - dark;
+	for (int j = 0; j < hh; j++) {                                        /* shrink 2x2 -> 1 */
+		const uint32_t *r0 = fb.px + (y0 + 2 * j) * W + x0, *r1 = (y0 + 2 * j + 1 < y1) ? r0 + W : r0;
+		uint32_t *o = frost_buf + j * hw;
+		for (int i = 0; i < hw; i++) {
+			int a0 = 2 * i, a1 = 2 * i + 1 < bw ? 2 * i + 1 : 2 * i;
+			uint32_t p = r0[a0], q = r0[a1], u = r1[a0], v = r1[a1];
+			o[i] = RGB((int)((((p >> 16) & 255) + ((q >> 16) & 255) + ((u >> 16) & 255) + ((v >> 16) & 255)) >> 2),
+				   (int)((((p >> 8) & 255) + ((q >> 8) & 255) + ((u >> 8) & 255) + ((v >> 8) & 255)) >> 2),
+				   (int)(((p & 255) + (q & 255) + (u & 255) + (v & 255)) >> 2));
+		}
+	}
+	sg_blur(frost_buf, frost_tmp, hw, hh, (int)(U * 0.65f) + 1, 2);
+	uint8_t lut[3][256];                                                   /* darkening, as a table */
+	float k = 1 - dark;
+	for (int v = 0; v < 256; v++) { int a2 = (int)(v * k); lut[0][v] = (uint8_t)sg_min(255, a2 + 4); lut[1][v] = (uint8_t)sg_min(255, a2 + 3); lut[2][v] = (uint8_t)sg_min(255, a2 + 4); }
+	float cx = x + w / 2, cy = y + h / 2, hx = w / 2 - r, hy2 = h / 2 - r;
 	for (int j = 0; j < bh; j++) {
 		uint32_t *d = fb.px + (y0 + j) * W + x0;
-		const uint32_t *s = frost_buf + j * bw;
-		float qy = sg_abs(y0 + j + 0.5f - cy) - hy;
+		const uint32_t *srow = frost_buf + (j >> 1) * hw;
+		float qy = sg_abs(y0 + j + 0.5f - cy) - hy2;
 		for (int i = 0; i < bw; i++) {
-			float qx = sg_abs(x0 + i + 0.5f - cx) - hx;
-			float ox = qx > 0 ? qx : 0, oy = qy > 0 ? qy : 0;
-			float dd = sg_sqrt(ox * ox + oy * oy) + sg_min(sg_max(qx, qy), 0) - r, cov = sg_sat(0.5f - dd);
+			float qx = sg_abs(x0 + i + 0.5f - cx) - hx, dd;
+			if (qx <= 0 && qy <= 0) dd = sg_max(qx, qy) - r;
+			else if (qx > 0 && qy > 0) dd = sg_sqrt(qx * qx + qy * qy) - r;
+			else dd = sg_max(qx, qy) - r;
+			float cov = 0.5f - dd;
 			if (cov <= 0) continue;
-			uint32_t c = s[i];
-			c = RGB((int)(((c >> 16) & 255) * k + 4), (int)(((c >> 8) & 255) * k + 3), (int)((c & 255) * k + 4));
+			uint32_t c = srow[i >> 1];
+			c = RGB(lut[0][(c >> 16) & 255], lut[1][(c >> 8) & 255], lut[2][c & 255]);
 			d[i] = cov >= 1 ? c : sg_mix(d[i], c, cov);
 		}
 	}
 	sg_rrect(&fb, x, y, w, h, r, sg_max(1, U * 0.11f), WHITE, 0.12f);                                     /* glass edge */
 	sg_rrect(&fb, x + r * 0.5f, y + sg_max(1, U * 0.1f), w - r, sg_max(1, U * 0.1f), U * 0.05f, 0, WHITE, 0.10f);   /* lit top */
+	if (frost_static) {                                                    /* keep it for next time (oldest out) */
+		int slot = 0;
+		for (int i = 0; i < FROST_CACHE; i++) { if (!frost_cache[i].px) { slot = i; break; } if (frost_cache[i].used < frost_cache[slot].used) slot = i; }
+		if (frost_cache[slot].px && (frost_cache[slot].bw * frost_cache[slot].bh < bw * bh)) { free(frost_cache[slot].px); frost_cache[slot].px = 0; }
+		if (!frost_cache[slot].px) frost_cache[slot].px = malloc((size_t)bw * bh * 4);
+		if (frost_cache[slot].px) {
+			frost_cache[slot].x0 = x0; frost_cache[slot].y0 = y0; frost_cache[slot].bw = bw; frost_cache[slot].bh = bh; frost_cache[slot].key = key; frost_cache[slot].used = frost_clock;
+			for (int j = 0; j < bh; j++) memcpy(frost_cache[slot].px + j * bw, fb.px + (y0 + j) * W + x0, (size_t)bw * 4);
+		}
+	}
 }
 
 /* a key cap with its meaning beside it; returns where the next one starts */

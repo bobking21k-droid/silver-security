@@ -66,24 +66,14 @@ reference, not its content.)
    - **Files** also searches: press `/`, type part of a name (letters may be spread out) or
      switch with Tab to search inside text files; Enter shows the result in its folder.
    - **Apps**: a grid of apps: Terminal (a shell on the console; `exit` returns here), the
-     **App Store**, **Game Store**, **Me and my PC**, a live System Monitor and About, then every app
-     you install.
-     - **App Store** (`src/greeter/apps.h`): free command-line apps, each one statically linked
-       program from its own project's releases (btop, bottom, micro, Yazi, gdu, Glow, fzf,
-       ripgrep, fd, bat, eza). Get downloads it with `silver-fetch`, checks its **SHA-256**
-       against the catalog (a changed or tampered file is thrown away), unpacks it into
-       `~/.local/share/silver-apps` and links it into `~/.local/bin`. No root, nothing outside
-       your home folder. Open runs it full screen; quitting it brings you back. U removes it.
-       The catalog (`src/greeter/catalog.h`) is made by `scripts/make-app-catalog.py`, which
-       downloads every app, checks the program is inside and records its checksum.
+     **Game Store**, **Me and my PC**, a live System Monitor and About.
      - **Game Store** (`src/greeter/gstore.h`): opens on three panels side by side, picked with
        the arrows: **SilverOS** (games that play right here: Snake, 2048 and Shatter, a brick
        breaker made of glass, written for SilverOS in `games.h`, best scores kept), **Steam**
-       (top sellers, deals and new releases, or search, from Steam's public store API, with art,
-       prices and discounts) and **Microsoft Store** (its catalogue and search, from the public
+       (top sellers and new releases, or search, from Steam's public store API, with art) and **Microsoft Store** (its catalogue and search, from the public
        storefront API). Steam and Microsoft Store games are Windows games, so SilverOS shows them
-       honestly as look-only, with a wishlist (W, kept in `~/.config/silver/wishlist`); nothing
-       signs in or buys anything. A little figure dances along the bottom, from a clip you
+       honestly as look-only, with a wishlist (W, kept in `~/.config/silver/wishlist`). There is
+       no buying and nothing signs in. A little figure dances along the bottom, from a clip you
        supply: `scripts/make-dancer.py <clip> <start> <end> <x> <y> <w> <h>` (kept in `work/`,
        not in git).
      - **Me and my PC**: you, and the computer: maker and model, processor (cores, threads,
@@ -161,7 +151,8 @@ verified against `checksums.sha256`.
 tests/boot-test.py work/out/silveros-0.1.0-x86_64.iso   # automated boot + security checks
 ```
 
-`tests/dualboot-test.py` runs the whole dual-boot story in QEMU against a fake Windows 11
+`scripts/render-demo.sh` also checks the home screen: its scripted walk through every screen
+must land where it should at each step, or it fails. `tests/dualboot-test.py` runs the whole dual-boot story in QEMU against a fake Windows 11
 disk (`tests/make-fake-windows-disk.sh`): install, chooser, melt, system check, greeter
 intro, graphical login, then a reboot into "Windows". It saves screenshots of each step.
 

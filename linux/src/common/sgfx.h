@@ -140,18 +140,42 @@ static void sg_rrect(Surf *s, float x, float y, float w, float h, float r, float
 	float hx = w / 2, hy = h / 2, cx = x + hx, cy = y + hy;
 	if (r > hx) r = hx;
 	if (r > hy) r = hy;
+	if (a <= 0) return;
 	for (int j = y0; j < y1; j++) {
 		uint32_t *row = s->px + j * s->w;
 		float qy = sg_abs(j + .5f - cy) - (hy - r);
-		for (int i = x0; i < x1; i++) {
-			float qx = sg_abs(i + .5f - cx) - (hx - r), d;
-			if (qx <= 0 && qy <= 0) d = sg_max(qx, qy) - r;
-			else if (qx > 0 && qy > 0) d = sg_sqrt(qx * qx + qy * qy) - r;
-			else d = sg_max(qx, qy) - r;
-			if (stroke > 0) d = sg_abs(d + stroke / 2) - stroke / 2;
-			float cov = .5f - d;
-			if (cov <= 0) continue;
-			row[i] = sg_mix(row[i], c, cov >= 1 ? a : a * cov);
+		/* In the middle of a row (|qx| small) the distance doesn't change along x: d = qy - r.
+		 * Do that span in one go (or skip it, for an outline) and work out only the two ends. */
+		float half = hx - r + (qy < 0 ? qy : 0) - 1.0f;
+		int i0 = x0, i1 = x1;
+		if (half > 0) {
+			i0 = (int)(cx - half); i1 = (int)(cx + half) + 1;
+			if (i0 < x0) i0 = x0;
+			if (i1 > x1) i1 = x1;
+			if (i1 > i0) {
+				float d = qy - r;
+				if (stroke > 0) d = sg_abs(d + stroke / 2) - stroke / 2;
+				float cov = .5f - d;
+				if (cov > 0) {
+					float aa = cov >= 1 ? a : a * cov;
+					if (aa >= 1) for (int i = i0; i < i1; i++) row[i] = c;
+					else for (int i = i0; i < i1; i++) row[i] = sg_mix(row[i], c, aa);
+				}
+			} else { i0 = x1; i1 = x1; }
+		} else { i0 = x1; i1 = x1; }
+		for (int pass = 0; pass < 2; pass++) {
+			int a0 = pass ? i1 : x0, a1 = pass ? x1 : i0;
+			if (i0 >= x1) { if (pass) break; a0 = x0; a1 = x1; }
+			for (int i = a0; i < a1; i++) {
+				float qx = sg_abs(i + .5f - cx) - (hx - r), d;
+				if (qx <= 0 && qy <= 0) d = sg_max(qx, qy) - r;
+				else if (qx > 0 && qy > 0) d = sg_sqrt(qx * qx + qy * qy) - r;
+				else d = sg_max(qx, qy) - r;
+				if (stroke > 0) d = sg_abs(d + stroke / 2) - stroke / 2;
+				float cov = .5f - d;
+				if (cov <= 0) continue;
+				row[i] = sg_mix(row[i], c, cov >= 1 ? a : a * cov);
+			}
 		}
 	}
 }
