@@ -328,7 +328,7 @@ static void draw_network(Home *h, float t)
 	sg_text(&fb, &FT, lx + U * 6, y + U * 3.6f, fb1, U * 3.0f, WHITE, 1, 0.01f);
 	fit(small, U * 1.9f, lw - U * 8, fb1, sizeof fb1);
 	sg_text(&fb, &FT, lx + U * 6, y + U * 6.6f, fb1, U * 1.9f, RGB(170, 170, 178), 1, 0.01f);
-	if (wf.note[0] && t - wf.note_t < 7) { float na = sg_sat((7 - (t - wf.note_t)) / 0.6f); float nw = sg_text_w(&FT, wf.note, U * 1.8f, 0.01f); sg_text(&fb, &FT, lx + lw - nw - U * 1.5f, y + U * 3.4f, wf.note, U * 1.8f, RGB(255, 140, 130), na, 0.01f); }
+	if (wf.note[0] && t - wf.note_t < 7) { float na = sg_sat((7 - (t - wf.note_t)) / 0.6f); float nw = sg_text_w(&FT, wf.note, U * 1.8f, 0.01f); sg_text(&fb, &FT, lx + lw - nw - U * 1.5f, y + U * 3.4f, wf.note, U * 1.8f, strncmp(wf.note, "Connected", 9) ? RGB(255, 140, 130) : RGB(90, 225, 140), na, 0.01f); }
 	/* the networks */
 	float ly = y + U * 12, rh = U * 5.6f; int vis = (int)((H - U * 9 - ly) / (rh + U * 0.5f));
 	if (vis < 1) vis = 1;
