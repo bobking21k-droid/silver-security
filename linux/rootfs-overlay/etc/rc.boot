@@ -8,6 +8,7 @@ echo "  * random seed"; [ -f /var/lib/random-seed ] && cat /var/lib/random-seed 
 echo "  * games layer (graphics, Bluetooth firmware, Steam's libraries)"
 /sbin/silver-games-mount && [ -d /usr/lib/firmware ] && printf /usr/lib/firmware > /sys/module/firmware_class/parameters/path
 echo "  * drivers for this computer's Wi-Fi, graphics and Bluetooth (signed modules)"
+depmod 2>/dev/null                        # the lookup tables that map devices to drivers (94 modules: about a second)
 # load the module for each device present, then keep listening for devices plugged in later
 for a in $(cat /sys/bus/pci/devices/*/modalias /sys/bus/usb/devices/*/modalias 2>/dev/null | sort -u); do
   modprobe "$a" 2>/dev/null
