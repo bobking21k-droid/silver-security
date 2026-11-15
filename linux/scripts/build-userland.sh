@@ -76,6 +76,38 @@ bs="$BUILD/bearssl-$BEARSSL_VER"
 make -C "$bs" -j"$(nproc)" CC="$CC" LD="$CC" AR=ar CFLAGS="-W -Wall -Os -fPIC -fstack-protector-strong" lib >/dev/null
 $CC $HARDEN -static -DBUILD_EPOCH="$(date +%s)" -I"$bs/inc" -o "$WORK/stage/sbin/silver-fetch" "$TOP/src/tools/silver-fetch.c" "$bs/build/libbearssl.a"
 
+# ---- Wi-Fi: libnl (netlink) + wpa_supplicant/wpa_cli (WPA2-Personal, open networks) ----
+nl="$BUILD/libnl-$LIBNL_VER"
+[[ -d "$nl" ]] || tar -C "$BUILD" -xf "$SOURCES/libnl-$LIBNL_VER.tar.gz"
+if [[ ! -f "$SYSROOT/usr/lib/libnl-genl-3.a" ]]; then
+  (cd "$nl" && CC="$CC" ./configure --host=x86_64-linux-musl --prefix=/usr --disable-shared --enable-static --disable-cli \
+     --disable-debug >/dev/null && make -j"$JOBS" >/dev/null && make DESTDIR="$SYSROOT" install >/dev/null)
+fi
+wpa_build() {   # $1: wpa_supplicant or hostapd
+  local src="$BUILD/$1-$WPA_VER" dir
+  [[ -d "$src" ]] || tar -C "$BUILD" -xf "$SOURCES/$1-$WPA_VER.tar.gz"
+  dir="$src/$1"
+  cat > "$dir/.config" <<CFG
+CONFIG_DRIVER_NL80211=y
+CONFIG_LIBNL32=y
+CONFIG_CTRL_IFACE=y
+CONFIG_TLS=internal
+CONFIG_CRYPTO=internal
+CONFIG_INTERNAL_LIBTOMMATH=y
+CONFIG_NO_RANDOM_POOL=y
+CONFIG_GETRANDOM=y
+CONFIG_ELOOP_POLL=y
+CFG
+  [[ "$1" == wpa_supplicant ]] && echo 'CONFIG_NO_STDOUT_DEBUG=y' >> "$dir/.config"
+  [[ "$1" == hostapd ]] && printf 'CONFIG_IAPP=n\nCONFIG_NO_RADIUS=y\nCONFIG_NO_ACCOUNTING=y\nCONFIG_NO_VLAN=y\n' >> "$dir/.config"
+  PKG_CONFIG_LIBDIR="$SYSROOT/usr/lib/pkgconfig" PKG_CONFIG_SYSROOT_DIR="$SYSROOT" make -C "$dir" -j"$JOBS" CC="$CC" EXTRA_CFLAGS="-Os -fstack-protector-strong -I$SYSROOT/usr/include/libnl3" \
+       LDFLAGS="-static -L$SYSROOT/usr/lib" >/dev/null
+}
+wpa_build wpa_supplicant
+install -m 0755 "$BUILD/wpa_supplicant-$WPA_VER/wpa_supplicant/wpa_supplicant" "$BUILD/wpa_supplicant-$WPA_VER/wpa_supplicant/wpa_cli" "$WORK/stage/sbin/"
+wpa_build hostapd                     # only for tests/dualboot-test.py (a pretend access point); not in the image
+mkdir -p "$WORK/test"; install -m 0755 "$BUILD/hostapd-$WPA_VER/hostapd/hostapd" "$WORK/test/"
+
 # ---- silver-greeter: graphical login on the framebuffer ----
 $CC $HARDEN -O2 -fno-math-errno -static -Wall -Wextra -Wno-unused-function -DFONT_DIR="\"$TOP/src/common/fonts\"" \
     -o "$WORK/stage/sbin/silver-greeter" "$TOP/src/greeter/silver-greeter.c" -lm

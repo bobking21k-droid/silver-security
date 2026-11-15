@@ -181,17 +181,14 @@ static float seg_pos;                                         /* where the Web/V
 #define GRID_COLS 4
 
 /* the header row shared by the results screens: the word SEARCH, then the bar */
-static void search_header(Home *h, float t, float op)
+/* the search box itself, at any place and size: the query, a blinking cursor, Web | Videos */
+static void search_box(Home *h, float t, float bx0, float by, float full, float bh, float op)
 {
 	Yt *y = &yt;
-	float tx = U * 5, ty = U * 10.6f, tsz = U * 6.2f;
-	sg_text(&fb, &FD, tx + U * 0.4f, ty, "SEARCH", tsz, ACCENT, 0.85f * op, 0);
-	sg_text(&fb, &FD, tx, ty, "SEARCH", tsz, WHITE, op, 0);
-	float bx0 = tx + sg_text_w(&FD, "SEARCH", tsz, 0) + U * 3.5f, by = U * 4.0f, bh = U * 7.6f, full = W - U * 5 - bx0;
-	float bw = sg_max(bh, full * op);
-	if (h->focus == 0) sg_glow(&fb, bx0 + bw / 2, by + bh / 2, bw * 0.4f, ACCENT, 0.08f);
-	ui_frost(bx0, by, bw, bh, bh / 2, 0.6f);
-	sg_rrect(&fb, bx0, by, bw, bh, bh / 2, sg_max(1.5f, U * 0.2f), h->focus == 0 ? ACCENT : WHITE, h->focus == 0 ? 0.95f : 0.18f);
+	float bw = sg_max(bh, full * op), bxs = bx0 + (full - bw) / 2;
+	if (h->focus == 0) sg_glow(&fb, bx0 + full / 2, by + bh / 2, bw * 0.4f, ACCENT, 0.08f);
+	ui_frost(bxs, by, bw, bh, bh / 2, 0.6f);
+	sg_rrect(&fb, bxs, by, bw, bh, bh / 2, sg_max(1.5f, U * 0.2f), h->focus == 0 ? ACCENT : WHITE, h->focus == 0 ? 0.95f : 0.18f);
 	if (op < 0.98f) return;
 	icon(I_SEARCH, bx0 + bh * 0.62f, by + bh / 2, U * 1.6f, h->focus == 0 ? WHITE : RGB(170, 170, 176), 1);
 	float sw = U * 21, sh = bh - U * 2.0f, sx = bx0 + full - sw - U * 1.0f, sy = by + U * 1.0f;
@@ -204,10 +201,63 @@ static void search_header(Home *h, float t, float op)
 		sg_text(&fb, &FC, sx + sw / 4 + i * sw / 2 - w / 2, sy + sh / 2 + U * 0.38f, seg[i], U * 1.0f, sg_mix(RGB(180, 180, 186), INK, on), 1, 0.2f);
 	}
 	float qx0 = bx0 + bh * 1.2f, tb = by + bh / 2 + U * 1.0f;
-	if (!y->q[0]) sg_text(&fb, &FT, qx0, tb, y->mode ? "Search YouTube" : "Search the internet", U * 2.7f, RGB(130, 130, 136), 1, 0.01f);
+	if (!y->q[0]) sg_text(&fb, &FT, qx0, tb, y->mode ? "Search YouTube" : "Search the web", U * 2.7f, RGB(130, 130, 136), 1, 0.01f);
 	float qx = sg_text(&fb, &FT, qx0, tb, y->q, U * 2.7f, WHITE, 1, 0.01f);
-	if (h->focus == 0 && ((int)(t * 2) & 1)) sg_rect(&fb, qx + U * 0.3f, by + U * 1.7f, sg_max(2, U * 0.26f), bh - U * 3.4f, ACCENT, 1);
-	if (y->q[0] && h->focus == 0) ui_key(sx - U * 13.5f, by + bh / 2, "ENTER", "search", 0.85f);
+	if (h->focus == 0 && sug.sel < 0 && ((int)(t * 2) & 1)) sg_rect(&fb, qx + U * 0.3f, by + U * 1.7f, sg_max(2, U * 0.26f), bh - U * 3.4f, ACCENT, 1);
+	if (y->q[0] && h->focus == 0 && sx - U * 13.5f > qx + U * 4) ui_key(sx - U * 13.5f, by + bh / 2, "ENTER", "search", 0.85f);
+}
+
+/* the results page header: the word SEARCH, then the box */
+static void search_header(Home *h, float t, float op)
+{
+	float tx = U * 5, ty = U * 10.6f, tsz = U * 6.2f;
+	sg_text(&fb, &FD, tx + U * 0.4f, ty, "SEARCH", tsz, ACCENT, 0.85f * op, 0);
+	sg_text(&fb, &FD, tx, ty, "SEARCH", tsz, WHITE, op, 0);
+	float bx0 = tx + sg_text_w(&FD, "SEARCH", tsz, 0) + U * 3.5f;
+	search_box(h, t, bx0, U * 4.0f, W - U * 5 - bx0, U * 7.6f, op);
+}
+
+/* the list under the box: suggestions as you type; recent and trending before you do */
+static int sug_visible(Home *h)
+{
+	return h->focus == 0 && !sug.hidden && (yt.q[0] ? 1 : yt.state == Y_IDLE);
+}
+static void sug_draw(Home *h, float x, float y0, float w, float maxh)
+{
+	SugItem it[MAXSUG + 4 + MAXTREND]; int n = sug_items(yt.q, it, (int)(sizeof it / sizeof it[0]));
+	if (!n || !sug_visible(h)) return;
+	float rh = U * 5.0f, hd = 0, y = y0;
+	int last_kind = -1, rows = 0;
+	for (int i = 0; i < n; i++) { if (it[i].kind != last_kind && !yt.q[0]) hd += U * 4.2f; last_kind = it[i].kind; if (y0 + hd + (rows + 1) * rh > y0 + maxh) break; rows++; }
+	if (sug.sel >= rows) sug.sel = rows - 1;
+	ui_frost(x, y0, w, hd + rows * rh + U * 1.6f, U * 2.2f, 0.72f);
+	y = y0 + U * 0.8f; last_kind = -1;
+	for (int i = 0; i < rows; i++) {
+		if (it[i].kind != last_kind && !yt.q[0]) {
+			cap_text(x + U * 3, y + U * 2.9f, it[i].kind == 1 ? "YOUR RECENT SEARCHES" : "TRENDING TODAY", U * 0.95f, it[i].kind == 2 ? ACCENT : RGB(170, 170, 176), 1, 0);
+			y += U * 4.2f;
+		}
+		last_kind = it[i].kind;
+		int sel = i == sug.sel;
+		if (sel) sg_rrect(&fb, x + U * 1.0f, y + U * 0.3f, w - U * 2.0f, rh - U * 0.6f, U * 1.3f, 0, WHITE, 0.95f);
+		uint32_t fg = sel ? INK : WHITE, dim = sel ? RGB(80, 80, 88) : RGB(165, 165, 172);
+		float ix = x + U * 3.6f, cy = y + rh / 2;
+		if (it[i].kind == 1) { sg_ring(&fb, ix, cy, U * 1.0f, sg_max(1.2f, U * 0.18f), dim, 1); sg_line(&fb, (V2){ix, cy}, (V2){ix, cy - U * 0.6f}, sg_max(1.2f, U * 0.16f), dim, 1); sg_line(&fb, (V2){ix, cy}, (V2){ix + U * 0.45f, cy + U * 0.3f}, sg_max(1.2f, U * 0.16f), dim, 1); }
+		else if (it[i].kind == 2) { sg_line(&fb, (V2){ix - U * 0.9f, cy + U * 0.6f}, (V2){ix - U * 0.2f, cy - U * 0.1f}, sg_max(1.4f, U * 0.2f), sel ? RED : ACCENT, 1); sg_line(&fb, (V2){ix - U * 0.2f, cy - U * 0.1f}, (V2){ix + U * 0.2f, cy + U * 0.3f}, sg_max(1.4f, U * 0.2f), sel ? RED : ACCENT, 1); sg_line(&fb, (V2){ix + U * 0.2f, cy + U * 0.3f}, (V2){ix + U * 0.95f, cy - U * 0.6f}, sg_max(1.4f, U * 0.2f), sel ? RED : ACCENT, 1); }
+		else icon(I_SEARCH, ix, cy, U * 1.05f, dim, 1);
+		float tx = x + U * 6.8f, tb = cy + U * 0.75f;
+		size_t ql = strlen(yt.q);
+		char tf[96]; fit(it[i].text, U * 2.1f, w - U * 20, tf, sizeof tf);
+		if (ql && !strncasecmp(tf, yt.q, ql)) {                               /* what you typed plain, the rest of the suggestion bright */
+			char head[96]; snprintf(head, sizeof head, "%.*s", (int)ql, tf);
+			float hx = sg_text(&fb, &FT, tx, tb, head, U * 2.1f, dim, 1, 0.01f);
+			sg_text(&fb, &FT, hx, tb, tf + ql, U * 2.1f, fg, 1, 0.01f);
+			sg_text(&fb, &FT, hx + U * 0.03f, tb, tf + ql, U * 2.1f, fg, 0.6f, 0.01f);   /* a touch bolder */
+		} else sg_text(&fb, &FT, tx, tb, tf, U * 2.1f, fg, 1, 0.01f);
+		if (it[i].extra[0]) { char ex[40]; snprintf(ex, sizeof ex, "%s SEARCHES", it[i].extra); cap_text(x + w - U * 3, cy + U * 0.4f, ex, U * 0.9f, dim, 1, 1); }
+		else if (it[i].kind == 1 && sel) cap_text(x + w - U * 3, cy + U * 0.4f, "BACKSPACE  FORGET", U * 0.9f, dim, 1, 1);
+		y += rh;
+	}
 }
 
 /* web results: titles down the left, the chosen one large on the right */
@@ -301,23 +351,11 @@ static void draw_search(Home *h, float t)
 	if (y->state == Y_WATCH) { if (y->mode) draw_watch(h, t); else draw_page(h, t); return; }
 	scene_bg(t);
 	float op = sg_smooth(s_age / 0.55f);
-	search_header(h, t, op);
+	sug_poll(y->q, y->fetch, y->mode);
+	if (y->state != Y_IDLE) search_header(h, t, op);
 	float top = U * 15.5f, bot = H - U * 10.0f, lx = U * 5;
-	if (y->state == Y_IDLE) {
-		float w0 = W * 0.48f;
-		ui_frost(lx, top, w0, U * 21, U * 2.2f, 0.62f);
-		cap_text(lx + U * 3, top + U * 4.4f, "TRY", U * 1.0f, ACCENT, 1, 0);
-		static const char *ex[] = {"how operating systems boot", "linux from scratch", "lofi beats", "weather"};
-		float cx = lx + U * 3, cy = top + U * 9.4f;
-		for (int i = 0; i < 4; i++) {
-			float w = sg_text_w(&FT, ex[i], U * 1.8f, 0.01f) + U * 4.0f;
-			if (cx + w > lx + w0 - U * 2) { cx = lx + U * 3; cy += U * 5.2f; }
-			sg_rrect(&fb, cx, cy - U * 2.0f, w, U * 4.0f, U * 2.0f, 0, WHITE, 0.08f);
-			sg_rrect(&fb, cx, cy - U * 2.0f, w, U * 4.0f, U * 2.0f, sg_max(1, U * 0.1f), WHITE, 0.2f);
-			sg_text(&fb, &FT, cx + U * 2.0f, cy + U * 0.65f, ex[i], U * 1.8f, WHITE, 1, 0.01f);
-			cx += w + U * 1.2f;
-		}
-		sg_text(&fb, &FT, lx + U * 3, top + U * 18.2f, "Type anything, press Enter. Tab switches between the web and videos.", U * 1.6f, RGB(170, 170, 176), 1, 0.01f);
+	if (y->state == Y_IDLE) {                                         /* the home page: a name, a big box, what people search for */
+		/* (drawn below, over the header's place) */
 	} else if (y->state == Y_LOADING) {
 		float ph = 0.5f + 0.5f * sg_sin(t * 5);
 		if (y->mode) {
@@ -347,6 +385,22 @@ static void draw_search(Home *h, float t)
 		sg_text(&fb, &FT, lx + U * 8, top + U * 11.0f, "Press Enter to try again.", U * 1.7f, RGB(170, 170, 176), 1, 0.01f);
 	} else if (y->mode) draw_grid(h, t, top, bot);
 	else draw_web(h, t, top, bot);
+	if (y->state == Y_IDLE) {
+		float tsz = U * 11, cxw = W / 2.0f, ly = H * 0.215f;
+		float tw = sg_text_w(&FD, "SILVER", tsz, 0);
+		sg_text(&fb, &FD, cxw - tw / 2 + U * 0.6f, ly, "SILVER", tsz, ACCENT, 0.9f * op, 0);
+		sg_text(&fb, &FD, cxw - tw / 2, ly, "SILVER", tsz, WHITE, op, 0);
+		float cw2 = sg_text_w(&FC, "SEARCH THE WEB AND VIDEOS", U * 1.1f, 0.3f);
+		sg_text(&fb, &FC, cxw - cw2 / 2, ly + U * 4.4f, "SEARCH THE WEB AND VIDEOS", U * 1.1f, RGB(190, 190, 196), op, 0.3f);
+		float bw = W * 0.58f, bx = cxw - bw / 2, by = ly + U * 8.0f, bh = U * 7.6f;
+		search_box(h, t, bx, by, bw, bh, op);
+		if (op > 0.98f) sug_draw(h, bx + U * 1.5f, by + bh + U * 1.0f, bw - U * 3, bot - (by + bh + U * 1.0f));
+	} else if (op > 0.98f && sug_visible(h)) {
+		float bx0 = U * 5 + sg_text_w(&FD, "SEARCH", U * 6.2f, 0) + U * 3.5f;
+		sug_draw(h, bx0 + U * 1.5f, U * 4.0f + U * 7.6f + U * 0.8f, W - U * 5 - bx0 - U * 3, bot - U * 13);
+	}
+	static const char *k_sug[] = {"\xE2\x86\x91\xE2\x86\x93", "choose", "ENTER", "search", "TAB", "web / videos", "ESC", "close"};
+	if (sug_visible(h) && sug.sel >= 0) { search_footer(h, k_sug, 4); return; }
 	static const char *k_web[] = {"TAB", "web / videos", "\xE2\x86\x91\xE2\x86\x93", "pick", "ENTER", "open", "ESC", "home"};
 	static const char *k_vid[] = {"TAB", "web / videos", "\xE2\x86\x90\xE2\x86\x91\xE2\x86\x92\xE2\x86\x93", "pick", "ENTER", "watch", "ESC", "home"};
 	static const char *k_idle[] = {"TAB", "web / videos", "ENTER", "search", "\xE2\x86\x93", "settings", "ESC", "home"};

@@ -10,6 +10,12 @@ cp "$WORK/stage/bin/busybox" "$ROOTFS/bin/busybox"
 mkdir -p "$ROOTFS/etc/ssl"; cp "$SOURCES/cacert.pem" "$ROOTFS/etc/ssl/cacert.pem"
 if [[ -f "$WORK/assets/search-bg.svid" ]]; then mkdir -p "$ROOTFS/usr/share/silver"; cp "$WORK/assets/search-bg.svid" "$ROOTFS/usr/share/silver/"; fi   # optional, see make-search-bg.sh
 if [[ -f "$WORK/assets/dancer.sprite" ]]; then mkdir -p "$ROOTFS/usr/share/silver"; cp "$WORK/assets/dancer.sprite" "$ROOTFS/usr/share/silver/"; fi   # optional, see make-dancer.py
+# Wi-Fi firmware (Intel's flattened, as the kernel asks for it) and the regulatory database
+fwsrc="$SOURCES/firmware"; fwdst="$ROOTFS/lib/firmware"; mkdir -p "$fwdst"
+grep -v '^\s*\(#\|$\)' "$TOP/firmware/wifi.list" | while read -r rel; do
+  case "$rel" in intel/iwlwifi/*) cp "$fwsrc/$rel" "$fwdst/" ;; *) mkdir -p "$fwdst/$(dirname "$rel")"; cp "$fwsrc/$rel" "$fwdst/$rel" ;; esac
+done
+cp "$fwsrc/regulatory.db" "$fwsrc/regulatory.db.p7s" "$fwdst/"
 cp "$WORK/stage/sbin/"* "$ROOTFS/sbin/"     # init, dropbear, sfdisk, mke2fs, e2fsck, silver-efiboot
 ln -sf mke2fs "$ROOTFS/sbin/mkfs.ext4"; ln -sf e2fsck "$ROOTFS/sbin/fsck.ext4"
 ln -s sbin/init "$ROOTFS/init"   # the kernel runs /init from an initramfs

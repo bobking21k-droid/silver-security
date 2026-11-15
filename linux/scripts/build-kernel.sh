@@ -6,6 +6,8 @@ src="$BUILD/linux-$LINUX_VER"
 mkdir -p "$BUILD"
 [[ -d "$src" ]] || tar -C "$BUILD" -xf "$SOURCES/linux-$LINUX_VER.tar.xz"
 cd "$src"
+# the pretend Wi-Fi radios (for tests) are off unless asked for on the command line
+sed -i 's/^static int radios = 2;/static int radios;/' drivers/net/wireless/virtual/mac80211_hwsim.c
 make ARCH=x86_64 x86_64_defconfig >/dev/null
 scripts/kconfig/merge_config.sh -m .config "$TOP/kernel/silver.config" >/dev/null
 make ARCH=x86_64 olddefconfig >/dev/null

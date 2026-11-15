@@ -742,13 +742,18 @@ static void draw_about(Home *h)
 
 static float ui_t;                              /* seconds on the home screen clock */
 #include "apps.h"
+#include "wifi.h"
 
 /* ---------------------------------------------------------------- settings */
 static void draw_settings(Home *h, float t)
 {
+	if (h->sub == 1) { draw_network(h, t); return; }
 	memcpy(fb.px, bg_sec, (size_t)W * H * 4);
 	title_block("SETTINGS", "NETWORK  DISPLAY  SOUND  POWER", I_SETTINGS);
 	char net[80]; net_text(net, sizeof net);
+	if (t - wf.last_poll > 3 || !wf.last_poll) wf_poll(t);
+	if (wf.ssid[0]) snprintf(net, sizeof net, "Wi-Fi  %.32s", wf.ssid);
+	else if (!strcmp(net, "not connected") && wf.adapters) snprintf(net, sizeof net, "Not connected  -  ENTER to pick Wi-Fi");
 	char disp[48]; snprintf(disp, sizeof disp, "%d x %d", W * scale, H * scale);
 	static const char *name[7] = {"Network", "Display", "Calm mode", "Sound effects", "About", "Restart", "Shut down"};
 	static const int ic[7] = {I_NET, I_SCREEN, I_SETTINGS, I_SOUND, I_INFO, I_POWER, I_POWER};

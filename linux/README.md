@@ -53,27 +53,50 @@ reference, not its content.)
    to white glass), Enter opens it, Esc comes back. Every section works:
    - **Files**: browse your home folder (Enter opens a folder, Backspace goes up) with a text
      preview of the selected file.
-   - **Search**: Internet search. Type, Enter, pick a result (Tab switches between **Web** and **Videos**). Web results come from DuckDuckGo's plain-HTML page; Videos from YouTube. Enter on a video opens a watch page (title,
-     channel, description, up-next list). **Playback is not built yet**, and the page is a
-     placeholder for you to change. Results are read from those sites' public pages through
-     `silver-fetch` (our own small HTTPS client on BearSSL, checking certificates against the
-     bundled Mozilla roots). That scraping is unofficial, can break whenever YouTube changes its
-     page, and is against those sites' terms for automated use. What you search for goes to DuckDuckGo or YouTube. There is no web browser, so a web result opens a page showing its title, snippet and address.
+   - **Search** works like Google's front page: a big search bar, and under it **your recent
+     searches** (kept in `~/.config/silver/search-history`, Backspace on one forgets it) and
+     **what's trending today** (Google Trends' public feed). As you type, Google's suggestions
+     appear under the bar (the part you typed dim, the rest bright); arrows pick one, Enter
+     searches. Tab switches between **Web** and **Videos**. Web results come from DuckDuckGo's
+     plain-HTML page; Videos from YouTube, with thumbnails. Enter on a video opens a watch page
+     (title, channel, description, up-next list); **playback is not built yet**. D on a web
+     result downloads the file to `~/Downloads`. Everything is fetched by `silver-fetch` (our
+     own small HTTPS client on BearSSL, checking certificates against the bundled Mozilla
+     roots). The result scraping is unofficial, can break whenever those sites change their
+     pages, and is against their terms for automated use. What you type goes to Google (for
+     suggestions) and to DuckDuckGo or YouTube (for results). There is no web browser, so a web
+     result opens a page showing its title, snippet and address.
    - Behind Search a video clip of your choice loops, tinted black and red. Make it with
      `scripts/make-search-bg.sh <clip> <start> <end> [<start> <end> ...]` before building. The
      clip is kept in `work/` (not in git); only use footage you have the right to use. Without
      it, a turning dark-red swirl plays instead.
    - **Files** also searches: press `/`, type part of a name (letters may be spread out) or
      switch with Tab to search inside text files; Enter shows the result in its folder.
+   - **Settings > Network** joins Wi-Fi: the networks nearby (signal, padlock, 2.4/5/6 GHz,
+     which ones are saved), Enter to join, a password box (Tab shows what you typed), F forgets
+     a saved network, R scans again. Joined networks are saved and joined by themselves at the
+     next boot; the status line shows the network, your address, and a cable if one is plugged
+     in. Behind it, `/sbin/silver-wifi` runs **wpa_supplicant 2.11** (built from source, with
+     libnl) on every wireless adapter, including USB ones plugged in later, and fetches an
+     address with DHCP when it connects. Supported adapters (drivers and firmware in the image):
+     Intel Wi-Fi (7265 up to Wi-Fi 7 BE200), Realtek (rtw88/rtw89), MediaTek MT7921/MT7922/MT7925,
+     Qualcomm Atheros (ath9k, ath10k QCA6174, ath11k WCN6855, ath12k WCN7850). Not yet: WPA3-only
+     networks (WPA2 and WPA2/WPA3 mixed ones work), work/school sign-in networks (802.1X), and
+     Broadcom chips. The firmware is Intel's, Realtek's, MediaTek's and Qualcomm's own (kept
+     under their licences in `/lib/firmware`, listed in `firmware/wifi.list`).
    - **Apps**: a grid of apps: Terminal (a shell on the console; `exit` returns here), the
      **Game Store**, **Me and my PC**, a live System Monitor and About.
      - **Game Store** (`src/greeter/gstore.h`): opens on three panels side by side, picked with
        the arrows: **SilverOS** (games that play right here: Snake, 2048 and Shatter, a brick
        breaker made of glass, written for SilverOS in `games.h`, best scores kept), **Steam**
        (top sellers and new releases, or search, from Steam's public store API, with art) and **Microsoft Store** (its catalogue and search, from the public
-       storefront API). Steam and Microsoft Store games are Windows games, so SilverOS shows them
-       honestly as look-only, with a wishlist (W, kept in `~/.config/silver/wishlist`). There is
-       no buying and nothing signs in. A little figure dances along the bottom, from a clip you
+       storefront API), with **prices, discounts and deals**. Steam and Microsoft Store games are
+       Windows games, so they are bought, downloaded and played in Windows. **Buy** opens a panel
+       with a code for your phone: scanning it opens that game in the Steam app (or Microsoft
+       Store), where you buy it with your own account; it is then in your library, to play on
+       Windows. SilverOS never asks for your Steam password or card: logging in to Steam and
+       paying happen only in Steam itself. A wishlist (W) is kept in `~/.config/silver/wishlist`.
+       A little figure dances along the bottom, from a clip you
        supply: `scripts/make-dancer.py <clip> <start> <end> <x> <y> <w> <h>` (kept in `work/`,
        not in git).
      - **Me and my PC**: you, and the computer: maker and model, processor (cores, threads,
@@ -126,6 +149,7 @@ building needs neither the font files nor that script's dependencies.
 | Boot chooser | **silverboot**: split-screen animated UEFI app, written from scratch | `src/silverboot/` |
 | Login | **silver-greeter**: framebuffer intro + "press Enter" sign-in (asks for a password only if the account has one) | `src/greeter/` |
 | Installer | **silver-install** (dual boot) + **silver-efiboot** (UEFI boot entries) | `rootfs-overlay/sbin/`, `src/tools/` |
+| Wi-Fi | wpa_supplicant 2.11 + libnl 3.11, static; firmware from linux-firmware; regulatory database | `scripts/build-userland.sh`, `firmware/wifi.list` |
 | Disk tools | sfdisk (util-linux), mkfs.ext4/e2fsck (e2fsprogs), static | `scripts/build-userland.sh` |
 
 Rebrand everything by editing `config.sh` (`OS_NAME`, `OS_HOSTNAME`, colours, ...).

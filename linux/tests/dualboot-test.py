@@ -14,10 +14,19 @@ iso, disk, vars_fd, outdir = sys.argv[1:5]
 os.makedirs(outdir, exist_ok=True)
 CODE = "/usr/share/OVMF/OVMF_CODE_4M.fd"
 
+# Wi-Fi: the installed system boots with two simulated radios (mac80211_hwsim); a small extra
+# disk carries a test access point (hostapd, WPA2 "SilverTest") for the second one
+here = os.path.dirname(os.path.abspath(__file__))
+apimg = os.path.join(outdir, "testap.img")
+subprocess.run(["rm", "-f", apimg]); subprocess.run(["truncate", "-s", "16M", apimg], check=True)
+subprocess.run(["mkfs.vfat", "-n", "TESTAP", apimg], check=True, stdout=subprocess.DEVNULL)
+for f in [os.path.join(here, "..", "work", "test", "hostapd")] + [os.path.join(here, "wifi-ap", n) for n in ("ap.sh", "hostapd.conf", "udhcpd.conf")]:
+    subprocess.run(["mcopy", "-i", apimg, f, "::"], check=True)
+
 class VM:
     runs = 0
     shots = {}
-    def __init__(self, with_iso):
+    def __init__(self, with_iso, testap=False):
         VM.runs += 1
         self.mon = os.path.join(outdir, "mon.sock")
         if os.path.exists(self.mon): os.unlink(self.mon)
@@ -27,6 +36,8 @@ class VM:
                 "-drive", f"file={disk},format=raw,if=none,id=d0", "-device", "nvme,drive=d0,serial=WIN11",
                 "-nic", "user,model=e1000", "-vga", "std", "-display", "none",
                 "-serial", "stdio", "-monitor", f"unix:{self.mon},server,nowait"]
+        if testap:
+            args += ["-drive", f"file={apimg},format=raw,if=none,id=t0,readonly=on", "-device", "nvme,drive=t0,serial=TESTAP"]
         if with_iso:
             args += ["-drive", f"file={iso},media=cdrom,readonly=on", "-boot", "order=d"]
         # a sound card whose output is recorded, so the intro's sound can be checked
@@ -101,10 +112,13 @@ done = vm.expect(r"Done\. Remove the USB stick|silver-install: .*", 300); print(
 if "Done" not in done: vm.fail("installer failed")
 vm.expect(r"~\$ "); vm.send("su -c 'silver-efiboot list'"); vm.expect("Password:"); vm.send("Admin#Test12")
 print(strip(vm.expect(r"~\$ ")))
+# (test only) the installed system gets two simulated Wi-Fi radios
+vm.send("su -c 'mkdir -p /run/e; mount -t vfat $(findfs LABEL=SYSTEM) /run/e && sed -i \"s/console=tty1\\$/console=tty1 mac80211_hwsim.radios=2/\" /run/e/EFI/SilverOS/grub.cfg; grep -c hwsim /run/e/EFI/SilverOS/grub.cfg; umount /run/e'"); vm.expect("Password:"); vm.send("Admin#Test12")
+print(strip(vm.expect(r"~\$ ")))
 vm.send("su -c poweroff"); vm.expect("Password:"); vm.send("Admin#Test12"); vm.p.wait(60); print("   powered off cleanly")
 
 print("== 2. power on from disk: chooser must appear")
-vm = VM(with_iso=False)
+vm = VM(with_iso=False, testap=True)
 vm.expect("silverboot.efi", 60); time.sleep(4); vm.shot("chooser")
 vm.key("ret"); time.sleep(0.9); vm.shot("melt"); time.sleep(3.2); vm.shot("checks")
 print("== 3. SilverOS boots from disk: crack intro, four-pane home, sections, terminal as the user")
@@ -133,6 +147,22 @@ vm.key("ret"); time.sleep(5); vm.shot("terminal")                               
 vm.send("silver"); vm.expect(r"~\$ ")                                              # text console: no password either
 for c in ["od -An -tx1 /sys/firmware/efi/efivars/SilverMute-6c5c3c2e-6b0a-4f3c-9a7e-2f1d0c9b8a71", "ls ~/.config/silver", "cat /etc/silver-installed", "mount | grep ' / '", "echo persist-check > ~/note.txt; sync", "ps | grep -c '[s]ilver-greeter' || true", "id -un"]:
     vm.send(c); print(strip(vm.expect(r"~\$ ")))
+print("== 3b. Wi-Fi: join the test access point from Settings > Network")
+vm.send("su -c 'mkdir -p /run/ap; mount -o ro $(findfs LABEL=TESTAP) /run/ap && /run/ap/ap.sh'"); vm.expect("Password:"); vm.send("Admin#Test12")
+print(strip(vm.expect(r"~\$ ", 30)))
+vm.send("exit"); time.sleep(6); vm.key("spc"); time.sleep(4); vm.shot("home-again")          # back to the home screen (intro skipped)
+vm.key("ret"); time.sleep(2); vm.key("ret"); time.sleep(10); vm.shot("network")            # Settings > Network: SilverTest listed
+vm.key("ret"); time.sleep(0.3)
+for ch in "silverpass1": vm.key(ch); time.sleep(0.15)
+time.sleep(1); vm.shot("network-password")
+vm.key("ret"); time.sleep(15); vm.shot("network-joined")
+vm.changed("network", "network-password"); vm.changed("network-password", "network-joined")
+vm.key("esc"); time.sleep(1); vm.key("esc"); time.sleep(1.5); vm.key("down"); time.sleep(0.8); vm.key("ret"); time.sleep(2); vm.key("ret"); time.sleep(5)
+vm.send("silver"); vm.expect(r"~\$ ")
+for c in ["ip -4 addr show wlan0 | grep inet", "ping -c 1 -W 3 10.42.0.1 | grep -c 'bytes from'", "id"]:
+    vm.send(c); out = strip(vm.expect(r"~\$ ")); print(out)
+    if "inet 10.42.0." in out: print("   Wi-Fi joined: got an address from the test access point")
+vm.send("su -c 'grep -c SilverTest /etc/wpa_supplicant/wpa_supplicant.conf'"); vm.expect("Password:"); vm.send("Admin#Test12"); print(strip(vm.expect(r"~\$ ")))
 vm.send("su -c reboot"); vm.expect("Password:"); vm.send("Admin#Test12")
 print("== 4. reboot, choose Windows")
 vm.expect("silverboot.efi", 60); time.sleep(4); vm.key("right"); time.sleep(1); vm.shot("chooser-windows-selected"); vm.key("ret")

@@ -331,3 +331,144 @@ static void dl_poll(void)
 	job_free(&dl.job);
 #endif
 }
+
+/* ---------------------------------------------------------------- suggestions, trending, recent
+ * Like a search engine's home page: as you type, suggestions come from Google's public suggest
+ * service (the same one browsers use); before you type, today's trending searches (Google Trends'
+ * public feed) and your own recent searches (kept in ~/.config/silver/search-history). */
+#define MAXSUG 8
+#define MAXTREND 10
+#define MAXRECENT 12
+typedef struct { char text[96], extra[24]; int kind; } SugItem;      /* kind: 0 suggestion, 1 recent, 2 trending */
+static struct {
+	char sug[MAXSUG][96]; int nsug; char for_q[96];
+	char trend[MAXTREND][80], traffic[MAXTREND][16]; int ntrend, trend_state;
+	char recent[MAXRECENT][96]; int nrecent, recent_loaded;
+	Job sjob, tjob; double typed; int want, sel, hidden;
+} sug;
+
+static void recent_load(void)
+{
+	if (sug.recent_loaded) return;
+	sug.recent_loaded = 1;
+#ifdef RENDER
+	static const char *demo[3] = {"linux from scratch", "how operating systems boot", "lofi beats"};
+	for (int i = 0; i < 3; i++) snprintf(sug.recent[sug.nrecent++], 96, "%s", demo[i]);
+#else
+	char p[300], ln[128]; snprintf(p, sizeof p, "%s/.config/silver/search-history", homedir);
+	FILE *f = fopen(p, "r");
+	if (!f) return;
+	while (sug.nrecent < MAXRECENT && fgets(ln, sizeof ln, f)) {
+		size_t l = strlen(ln); while (l && (ln[l - 1] == '\n' || ln[l - 1] == '\r')) ln[--l] = 0;
+		if (l) snprintf(sug.recent[sug.nrecent++], 96, "%s", ln);
+	}
+	fclose(f);
+#endif
+}
+static void recent_add(const char *q)
+{
+	recent_load();
+	int at = -1;
+	for (int i = 0; i < sug.nrecent; i++) if (!strcasecmp(sug.recent[i], q)) at = i;
+	if (at < 0) at = sug.nrecent < MAXRECENT ? sug.nrecent++ : MAXRECENT - 1;
+	for (int i = at; i > 0; i--) memcpy(sug.recent[i], sug.recent[i - 1], 96);
+	snprintf(sug.recent[0], 96, "%s", q);
+#ifndef RENDER
+	char p[300]; snprintf(p, sizeof p, "%s/.config", homedir); mkdir(p, 0755);
+	snprintf(p, sizeof p, "%s/.config/silver", homedir); mkdir(p, 0755);
+	snprintf(p, sizeof p, "%s/.config/silver/search-history", homedir);
+	FILE *f = fopen(p, "w");
+	if (f) { for (int i = 0; i < sug.nrecent; i++) fprintf(f, "%s\n", sug.recent[i]); fclose(f); }
+#endif
+}
+static void recent_forget(int i)
+{
+	if (i < 0 || i >= sug.nrecent) return;
+	for (int k = i; k + 1 < sug.nrecent; k++) memcpy(sug.recent[k], sug.recent[k + 1], 96);
+	sug.nrecent--;
+#ifndef RENDER
+	char p[300]; snprintf(p, sizeof p, "%s/.config/silver/search-history", homedir);
+	FILE *f = fopen(p, "w");
+	if (f) { for (int k = 0; k < sug.nrecent; k++) fprintf(f, "%s\n", sug.recent[k]); fclose(f); }
+#endif
+}
+
+/* the typed text changed: ask for suggestions a moment later (not on every key) */
+static void sug_typed(void) { sug.typed = now(); sug.want = 1; sug.sel = -1; sug.hidden = 0; }
+
+static void sug_parse(const char *js, size_t n)
+{
+	sug.nsug = 0;
+	const char *lim = js + n, *p = memchr(js, '[', n);                        /* ["q",["s1","s2",...],...] */
+	if (!p) return;
+	p = memchr(p + 1, '[', (size_t)(lim - p - 1));
+	if (!p) return;
+	const char *e = json_end(p, lim);
+	for (const char *q = p + 1; q && e && q < e && sug.nsug < MAXSUG;) {
+		q = memchr(q, '"', (size_t)(e - q));
+		if (!q) break;
+		q = json_str(q, sug.sug[sug.nsug], 96);
+		if (sug.sug[sug.nsug][0]) sug.nsug++;
+	}
+}
+static void trend_parse(const char *x, size_t n)
+{
+	sug.ntrend = 0;
+	const char *lim = x + n, *p = x;
+	while (sug.ntrend < MAXTREND && (p = json_find(p, lim, "<item>"))) {
+		const char *t = json_find(p, lim, "<title>"), *te = t ? json_find(t, lim, "</title>") : 0;
+		if (!t || !te) break;
+		size_t l = (size_t)(te - 8 - t); if (l > 79) l = 79;
+		memcpy(sug.trend[sug.ntrend], t, l); sug.trend[sug.ntrend][l] = 0;
+		const char *a = json_find(p, lim, "<ht:approx_traffic>"), *nx = json_find(p, lim, "</item>");
+		sug.traffic[sug.ntrend][0] = 0;
+		if (a && (!nx || a < nx)) { size_t k = 0; while (a[k] && a[k] != '<' && k < 15) { sug.traffic[sug.ntrend][k] = a[k]; k++; } sug.traffic[sug.ntrend][k] = 0; }
+		sug.ntrend++;
+		p = te;
+	}
+}
+static void sug_poll(const char *q, const char *fetch, int tab_videos)
+{
+	if (sug.trend_state == 0 && fetch && fetch[0]) {                           /* trending: once */
+		char *argv[] = {(char *)fetch, "-q", "-m", "400000", "https://trends.google.com/trending/rss?geo=US", 0};
+		job_start(&sug.tjob, argv, 400000);
+		sug.trend_state = sug.tjob.active ? 1 : 3;
+#ifdef RENDER
+		job_wait(&sug.tjob);
+#endif
+	}
+	if (sug.trend_state == 1) { job_poll(&sug.tjob); if (sug.tjob.done) { if (sug.tjob.ok) trend_parse(sug.tjob.buf, sug.tjob.n); sug.trend_state = 2; job_free(&sug.tjob); } }
+	if (sug.want && now() - sug.typed > 0.12 && !(sug.sjob.active && !sug.sjob.done)) {
+		sug.want = 0;
+		job_free(&sug.sjob);
+		snprintf(sug.for_q, sizeof sug.for_q, "%s", q);
+		if (!q[0]) { sug.nsug = 0; return; }
+		if (!fetch || !fetch[0]) return;
+		char enc[300], url[400]; url_encode(q, enc, sizeof enc);
+		snprintf(url, sizeof url, "https://suggestqueries.google.com/complete/search?client=firefox&hl=en%s&q=%s", tab_videos ? "&ds=yt" : "", enc);
+		char *argv[] = {(char *)fetch, "-q", "-m", "100000", url, 0};
+		job_start(&sug.sjob, argv, 100000);
+#ifdef RENDER
+		job_wait(&sug.sjob);
+#endif
+	}
+	if (sug.sjob.active) { job_poll(&sug.sjob); if (sug.sjob.done) { if (sug.sjob.ok && !strcmp(sug.for_q, q)) sug_parse(sug.sjob.buf, sug.sjob.n); job_free(&sug.sjob); } }
+}
+/* what the list under the box shows right now */
+static int sug_items(const char *q, SugItem *out, int max)
+{
+	int n = 0;
+	recent_load();
+	if (q[0]) {
+		for (int i = 0; i < sug.nrecent && n < 3; i++)                          /* your own matching searches first */
+			if (!strncasecmp(sug.recent[i], q, strlen(q)) && strcasecmp(sug.recent[i], q)) { snprintf(out[n].text, 96, "%s", sug.recent[i]); out[n].extra[0] = 0; out[n].kind = 1; n++; }
+		for (int i = 0; i < sug.nsug && n < max; i++) {
+			int dup = 0; for (int k = 0; k < n; k++) if (!strcasecmp(out[k].text, sug.sug[i])) dup = 1;
+			if (!dup && strcasecmp(sug.sug[i], q)) { snprintf(out[n].text, 96, "%s", sug.sug[i]); out[n].extra[0] = 0; out[n].kind = 0; n++; }
+		}
+	} else {
+		for (int i = 0; i < sug.nrecent && n < 4; i++) { snprintf(out[n].text, 96, "%s", sug.recent[i]); out[n].extra[0] = 0; out[n].kind = 1; n++; }
+		for (int i = 0; i < sug.ntrend && n < max; i++) { snprintf(out[n].text, 96, "%s", sug.trend[i]); snprintf(out[n].extra, 24, "%s", sug.traffic[i]); out[n].kind = 2; n++; }
+	}
+	return n;
+}

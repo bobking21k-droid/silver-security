@@ -520,7 +520,7 @@ static void open_screen(Home *h, int s)
 {
 	h->screen = s; h->row = 0; h->top = 0; h->sub = 0; h->confirm = 0; h->fade = 0;
 	if (s == 4) { snprintf(cwd, sizeof cwd, "%s", homedir); h->depth = 0; fs_list(cwd); files_preview(h); }
-	if (s == 2) { s_age = 0; h->focus = yt_count(&yt) ? 1 : 0; if (!yt.fetch[0]) snprintf(yt.fetch, sizeof yt.fetch, "/sbin/silver-fetch"); if (yt.state == Y_WATCH) yt.state = Y_RESULTS; }
+	if (s == 2) { s_age = 0; sug.sel = -1; sug.hidden = 0; h->focus = yt_count(&yt) ? 1 : 0; if (!yt.fetch[0]) snprintf(yt.fetch, sizeof yt.fetch, "/sbin/silver-fetch"); if (yt.state == Y_WATCH) yt.state = Y_RESULTS; }
 	h->fs = 0;
 	if (s == 3) h->sub = 0;
 }
@@ -567,6 +567,14 @@ static void files_up(Home *h)
 	h->top = 0; files_preview(h);
 }
 
+/* run a search: remember it, close the list, ask the site */
+static void search_go(Home *h)
+{
+	recent_add(yt.q);
+	sug.sel = -1; sug.hidden = 1;
+	yt_search(&yt);
+	h->focus = yt.state == Y_RESULTS ? 1 : 0;
+}
 static void handle_key(Home *h, int k)
 {
 	switch (h->screen) {
@@ -578,11 +586,13 @@ static void handle_key(Home *h, int k)
 		else if (k == K_ENTER) open_screen(h, h->sel + 1);
 		break;
 	case 1:                                                                     /* settings */
+		if (h->sub == 1) { if (wf_key(k)) h->sub = 0; break; }                 /* Network */
 		if (k == K_ESC || k == K_LEFT || k == K_BACK) { h->screen = 0; h->fade = 0; }
 		else if (k == K_UP && h->row > 0) { h->row--; h->confirm = 0; }
 		else if (k == K_DOWN && h->row < 6) { h->row++; h->confirm = 0; }
 		else if (k == K_ENTER) {
-			if (h->row == 2) calm_toggle(h);
+			if (h->row == 0) { h->sub = 1; wf_open(); }
+			else if (h->row == 2) calm_toggle(h);
 			else if (h->row == 3) mute_toggle(h);
 			else if (h->row == 5 || h->row == 6) { if (h->confirm == h->row) request(h->row == 5 ? 'R' : 'P'); else h->confirm = h->row; }
 		}
@@ -594,8 +604,22 @@ static void handle_key(Home *h, int k)
 			else if ((k == 'd' || k == 'D') && !y->mode) dl_start(y->web[y->watch].url);
 			break;
 		}
+		if (h->focus == 2) { if (k == K_UP) { h->focus = yt_count(y) ? 1 : 0; break; } else if (k == K_ENTER) { open_screen(h, 1); break; } else if (k == K_ESC) { h->screen = 0; h->fade = 0; break; } else h->focus = 0; if (h->focus == 2) break; }
+		if (h->focus == 0 && sug_visible(h)) {                              /* the list under the box */
+			SugItem it[MAXSUG + 4 + MAXTREND]; int n = sug_items(y->q, it, (int)(sizeof it / sizeof it[0]));
+			if (n) {
+				if (k == K_DOWN) { if (sug.sel + 1 < n) sug.sel++; else { sug.sel = -1; sug.hidden = 1; h->focus = y->state == Y_RESULTS ? 1 : 2; } break; }
+				if (k == K_UP && sug.sel >= 0) { sug.sel--; break; }
+				if (k == K_ENTER && sug.sel >= 0) { snprintf(y->q, sizeof y->q, "%s", it[sug.sel].text); search_go(h); break; }
+				if (k == K_BACK && sug.sel >= 0 && it[sug.sel].kind == 1) {     /* forget one of your recent searches */
+					for (int r = 0; r < sug.nrecent; r++) if (!strcmp(sug.recent[r], it[sug.sel].text)) { recent_forget(r); break; }
+					if (sug.sel > 0) sug.sel--;
+					break;
+				}
+				if (k == K_ESC && (sug.sel >= 0 || y->q[0])) { sug.sel = -1; sug.hidden = 1; break; }
+			}
+		}
 		if (k == K_ESC) { h->screen = 0; h->fade = 0; break; }
-		if (h->focus == 2) { if (k == K_UP) { h->focus = yt_count(y) ? 1 : 0; break; } else if (k == K_ENTER) { open_screen(h, 1); break; } else h->focus = 0; if (h->focus == 2) break; }
 		if (k == K_DOWN && h->focus == 0 && y->state == Y_RESULTS) { h->focus = 1; break; }
 		if (k == K_DOWN && h->focus == 0 && y->state != Y_RESULTS && !y->q[0]) { h->focus = 2; break; }
 		if (h->focus == 1 && y->mode) {                                       /* the video grid */
@@ -610,12 +634,12 @@ static void handle_key(Home *h, int k)
 			if (k == K_DOWN) { if (y->sel + 1 < yt_count(y)) y->sel++; else h->focus = 2; break; }
 			if (k == K_ENTER) { y->watch = y->sel; y->state = Y_WATCH; break; }
 		}
-		if (k == 9) { y->mode ^= 1; if (y->q[0]) { yt_search(y); h->focus = y->state == Y_RESULTS ? 1 : 0; } break; }
+		if (k == 9) { y->mode ^= 1; if (y->q[0] && y->state != Y_IDLE) search_go(h); else sug_typed(); break; }
 		size_t n = strlen(y->q);
-		if (k == K_BACK && n) { y->q[n - 1] = 0; h->focus = 0; }
-		else if (k == 21) { y->q[0] = 0; h->focus = 0; }
-		else if (k >= 32 && k < 127 && n + 1 < sizeof y->q) { y->q[n] = (char)k; y->q[n + 1] = 0; h->focus = 0; }
-		else if (k == K_ENTER && y->q[0]) { yt_search(y); h->focus = y->state == Y_RESULTS ? 1 : 0; }
+		if (k == K_BACK && n) { y->q[n - 1] = 0; h->focus = 0; sug_typed(); }
+		else if (k == 21) { y->q[0] = 0; h->focus = 0; sug_typed(); }
+		else if (k >= 32 && k < 127 && n + 1 < sizeof y->q) { y->q[n] = (char)k; y->q[n + 1] = 0; h->focus = 0; sug_typed(); }
+		else if (k == K_ENTER && y->q[0]) search_go(h);
 		break;
 	}
 	case 3:                                                                     /* apps */
@@ -661,7 +685,7 @@ static void handle_key(Home *h, int k)
 /* every key press makes a sound that fits what it did */
 static void handle_key_snd(Home *h, int k)
 {
-	Home o = *h; Yt yo; memcpy(&yo, &yt, sizeof yo);
+	Home o = *h; Yt yo; memcpy(&yo, &yt, sizeof yo); int ssel0 = sug.sel, wsel0 = wf.sel, wtyp0 = wf.typing; size_t wpw0 = strlen(wf.pw);
 	char cwd0[256]; snprintf(cwd0, sizeof cwd0, "%s", cwd);
 	char fq0[64]; snprintf(fq0, sizeof fq0, "%s", h->sr.q);
 	handle_key(h, k);
@@ -669,9 +693,10 @@ static void handle_key_snd(Home *h, int k)
 	else if (yt.state != yo.state && (yt.state == Y_WATCH || yo.state == Y_WATCH)) snd(yt.state == Y_WATCH ? 'o' : 'b');
 	else if (h->fs != o.fs || h->sub != o.sub) snd((h->fs > o.fs || h->sub > o.sub) ? 'o' : 'b');
 	else if (strcmp(cwd, cwd0)) snd(strlen(cwd) > strlen(cwd0) ? 'o' : 'b');
-	else if (strcmp(yt.q, yo.q) || strcmp(h->sr.q, fq0)) snd('k');
+	else if (wf.typing != wtyp0) snd(wf.typing ? 'o' : 'b');
+	else if (strcmp(yt.q, yo.q) || strcmp(h->sr.q, fq0) || strlen(wf.pw) != wpw0) snd('k');
 	else if (yt.state == Y_LOADING && yo.state != Y_LOADING) snd('o');
-	else if (h->sel != o.sel || h->row != o.row || h->focus != o.focus || yt.sel != yo.sel || yt.mode != yo.mode || h->fs_scope != o.fs_scope) snd('m');
+	else if (h->sel != o.sel || h->row != o.row || h->focus != o.focus || yt.sel != yo.sel || yt.mode != yo.mode || h->fs_scope != o.fs_scope || sug.sel != ssel0 || wf.sel != wsel0) snd('m');
 	else if (h->calm_on != o.calm_on || h->confirm != o.confirm) snd('o');
 }
 
@@ -713,33 +738,35 @@ static const struct { float t; int k; } SCRIPT[] = {
 	{6.0f, K_ENTER}, {7.0f, K_DOWN}, {7.8f, K_DOWN}, {8.6f, K_BACK}, {9.6f, K_DOWN}, {10.2f, K_DOWN},
 	{11.2f, '/'}, {12.0f, 'r'}, {12.4f, 'e'}, {12.8f, 'p'}, {14.0f, K_DOWN}, {15.0f, K_ESC}, {15.8f, K_ESC},  /* search inside Files */
 	{16.6f, K_UP}, {17.3f, K_ENTER},                                                                          /* Search = YouTube */
-	{18.2f, 'l'}, {18.5f, 'o'}, {18.8f, 'f'}, {19.1f, 'i'}, {20.0f, K_ENTER},                                /* web results */
-	{22.0f, K_DOWN}, {22.8f, K_DOWN}, {23.6f, K_ENTER}, {24.8f, 'd'}, {27.4f, K_ESC},                          /* a result, downloaded */
-	{28.2f, 9}, {30.2f, K_DOWN}, {31.2f, K_RIGHT}, {32.2f, K_ENTER}, {35.4f, K_ESC},                          /* videos, a watch page */
-	{36.4f, K_DOWN}, {37.9f, K_RIGHT}, {39.4f, K_UP}, {40.9f, K_UP}, {42.2f, K_ESC},                          /* linger: the rooms loop behind */
-	{43.0f, K_LEFT}, {43.7f, K_ENTER},                                                                        /* Settings */
-	{44.8f, K_DOWN}, {45.4f, K_DOWN}, {46.0f, K_DOWN}, {46.9f, K_ENTER}, {48.4f, K_ENTER}, {49.4f, K_ESC},     /* sound effects off, on */
-	{50.2f, K_DOWN}, {50.9f, K_ENTER},                                                                        /* Apps */
-	{52.0f, K_RIGHT}, {52.8f, K_ENTER},                                                                       /* Game Store: three stores */
-	{54.0f, K_RIGHT}, {55.2f, K_RIGHT}, {56.4f, K_LEFT}, {57.4f, K_LEFT}, {58.2f, K_ENTER},                  /* SilverOS games */
-	{59.2f, K_RIGHT}, {60.0f, K_LEFT}, {60.8f, K_ENTER},                                                      /* play Snake */
-	{61.4f, K_DOWN}, {62.2f, K_RIGHT}, {63.0f, K_UP}, {63.8f, K_RIGHT}, {64.8f, K_ESC}, {65.6f, K_ESC},
-	{66.4f, K_RIGHT}, {67.2f, K_ENTER}, {68.8f, K_RIGHT}, {69.6f, K_DOWN}, {70.4f, K_ENTER}, {71.6f, 'w'}, {73.2f, K_ESC}, {74.0f, K_ESC},   /* Steam */
-	{74.8f, K_RIGHT}, {75.6f, K_ENTER}, {77.2f, K_RIGHT}, {78.0f, K_ENTER}, {80.2f, K_ESC}, {81.0f, K_ESC}, {81.8f, K_ESC},                   /* Microsoft Store */
-	{82.6f, K_RIGHT}, {83.4f, K_ENTER}, {87.0f, K_ESC}, {87.8f, K_ESC},                                       /* Me and my PC */
+	{20.2f, 'l'}, {20.5f, 'o'}, {20.8f, 'f'}, {21.1f, 'i'}, {21.6f, K_DOWN}, {21.9f, K_ENTER},             /* suggestions, web results */
+	{24.0f, K_DOWN}, {24.8f, K_DOWN}, {25.6f, K_ENTER}, {26.8f, 'd'}, {29.4f, K_ESC},                          /* a result, downloaded */
+	{30.2f, 9}, {32.2f, K_DOWN}, {33.2f, K_RIGHT}, {34.2f, K_ENTER}, {37.4f, K_ESC},                          /* videos, a watch page */
+	{38.4f, K_DOWN}, {39.9f, K_RIGHT}, {41.4f, K_UP}, {42.9f, K_UP}, {44.2f, K_ESC},                          /* linger: the rooms loop behind */
+	{45.0f, K_LEFT}, {45.7f, K_ENTER},                                                                        /* Settings */
+	{46.4f, K_ENTER}, {47.4f, K_DOWN}, {48.0f, K_UP}, {48.8f, K_ENTER},                                    /* Network: join Wi-Fi */
+	{49.4f, 's'}, {49.6f, 'i'}, {49.8f, 'l'}, {50.0f, 'v'}, {50.2f, 'e'}, {50.4f, 'r'}, {50.6f, '2'}, {50.8f, '0'}, {51.0f, '2'}, {51.2f, '6'}, {51.8f, K_ENTER}, {55.2f, K_ESC},
+	{55.8f, K_DOWN}, {56.4f, K_DOWN}, {57.0f, K_DOWN}, {57.9f, K_ENTER}, {59.4f, K_ENTER}, {60.4f, K_ESC},     /* sound effects off, on */
+	{61.2f, K_DOWN}, {61.9f, K_ENTER},                                                                        /* Apps */
+	{63.0f, K_RIGHT}, {63.8f, K_ENTER},                                                                       /* Game Store: three stores */
+	{65.0f, K_RIGHT}, {66.2f, K_RIGHT}, {67.4f, K_LEFT}, {68.4f, K_LEFT}, {69.2f, K_ENTER},                  /* SilverOS games */
+	{70.2f, K_RIGHT}, {71.0f, K_LEFT}, {71.8f, K_ENTER},                                                      /* play Snake */
+	{72.4f, K_DOWN}, {73.2f, K_RIGHT}, {74.0f, K_UP}, {74.8f, K_RIGHT}, {75.8f, K_ESC}, {76.6f, K_ESC},
+	{77.4f, K_RIGHT}, {78.2f, K_ENTER}, {79.8f, K_RIGHT}, {80.6f, K_DOWN}, {81.4f, K_ENTER}, {82.0f, 'w'}, {82.6f, K_ENTER}, {84.3f, K_ESC}, {84.7f, K_ESC}, {85.1f, K_ESC},   /* Steam: wishlist, buy */
+	{85.8f, K_RIGHT}, {86.6f, K_ENTER}, {88.2f, K_RIGHT}, {89.0f, K_ENTER}, {91.2f, K_ESC}, {92.0f, K_ESC}, {92.8f, K_ESC},                   /* Microsoft Store */
+	{93.6f, K_RIGHT}, {94.4f, K_ENTER}, {98.0f, K_ESC}, {98.8f, K_ESC},                                       /* Me and my PC */
 };
-#define SCRIPT_END 89.3f
+#define SCRIPT_END 100.3f
 /* where the script must have got to (-1: don't care); the demo fails if any is wrong */
 static const struct { float t; int screen, sub, open, tab, mute; const char *what; } EXPECT[] = {
 	{5.6f, 4, -1, -1, -1, -1, "Files opens"}, {16.2f, 0, -1, -1, -1, -1, "back home from Files"},
-	{17.8f, 2, -1, -1, -1, -1, "Search opens"}, {44.2f, 1, -1, -1, -1, -1, "Settings opens"},
-	{47.5f, 1, -1, -1, -1, 1, "Sound effects off"}, {49.0f, 1, -1, -1, -1, 0, "Sound effects on"},
-	{51.5f, 3, 0, -1, -1, -1, "Apps grid"}, {53.2f, 3, 5, 0, -1, -1, "Game Store front"},
-	{58.6f, 3, 5, 1, 0, -1, "SilverOS games"}, {61.2f, 3, 6, -1, -1, -1, "playing Snake"},
-	{65.2f, 3, 5, 1, 0, -1, "back from Snake"}, {66.0f, 3, 5, 0, -1, -1, "back to the front"},
-	{67.6f, 3, 5, 1, 1, -1, "Steam"}, {74.4f, 3, 5, 0, -1, -1, "front again"},
-	{76.0f, 3, 5, 1, 2, -1, "Microsoft Store"}, {82.2f, 3, 0, -1, -1, -1, "Apps grid again"},
-	{84.0f, 3, 4, -1, -1, -1, "Me and my PC"}, {88.6f, 0, -1, -1, -1, -1, "home at the end"},
+	{17.8f, 2, -1, -1, -1, -1, "Search opens"}, {46.2f, 1, -1, -1, -1, -1, "Settings opens"}, {47.0f, 1, 1, -1, -1, -1, "Network page"}, {55.6f, 1, 0, -1, -1, -1, "back to Settings"},
+	{58.5f, 1, -1, -1, -1, 1, "Sound effects off"}, {60.0f, 1, -1, -1, -1, 0, "Sound effects on"},
+	{62.5f, 3, 0, -1, -1, -1, "Apps grid"}, {64.2f, 3, 5, 0, -1, -1, "Game Store front"},
+	{69.6f, 3, 5, 1, 0, -1, "SilverOS games"}, {72.2f, 3, 6, -1, -1, -1, "playing Snake"},
+	{76.2f, 3, 5, 1, 0, -1, "back from Snake"}, {77.0f, 3, 5, 0, -1, -1, "back to the front"},
+	{78.6f, 3, 5, 1, 1, -1, "Steam"}, {83.6f, 3, 5, 1, 1, -1, "Steam Buy panel"}, {85.4f, 3, 5, 0, -1, -1, "front again"},
+	{87.0f, 3, 5, 1, 2, -1, "Microsoft Store"}, {93.2f, 3, 0, -1, -1, -1, "Apps grid again"},
+	{95.0f, 3, 4, -1, -1, -1, "Me and my PC"}, {99.6f, 0, -1, -1, -1, -1, "home at the end"},
 };
 static int expect_failed;
 #endif
@@ -826,7 +853,7 @@ static void run_session(void)
 	if (pid == 0) {                                   /* the interface runs as the user, never as root */
 		close(pfd[0]); req_fd = pfd[1];
 		snprintf(homedir, sizeof homedir, "%s", pw->pw_dir);
-		if (setgroups(0, NULL) || setgid(pw->pw_gid) || setuid(pw->pw_uid)) _exit(1);
+		if (initgroups(pw->pw_name, pw->pw_gid) || setgid(pw->pw_gid) || setuid(pw->pw_uid)) _exit(1);   /* keeps 'netdev' (Wi-Fi settings) */
 		if (chdir(homedir)) { /* fine */ }
 		Home h; home_init(&h);
 		home_loop(&h);
