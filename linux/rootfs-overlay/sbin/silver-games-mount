@@ -1,4 +1,5 @@
 #!/bin/sh
+# (The games layer sits on top, so its GNU tools win over BusyBox's under /usr/bin; /bin stays BusyBox.)
 # Mount the games layer (games.sqfs: Mesa, Vulkan, Xorg, PulseAudio, the 32-bit libraries the
 # Steam app needs) underneath /usr, read-only. Installed systems keep it in /boot; the live USB
 # has it on the stick. Without it SilverOS works as before, and the Game Store says so.
@@ -16,5 +17,5 @@ fi
 [ -f "$img" ] || exit 0
 mkdir -p /run/games
 mount -t squashfs -o ro,loop "$img" /run/games || exit 1
-mount -t overlay overlay -o lowerdir=/usr:/run/games /usr || { umount /run/games; exit 1; }
+mount -t overlay overlay -o lowerdir=/run/games:/usr /usr || { umount /run/games; exit 1; }
 echo "games layer: $img"

@@ -23,11 +23,21 @@ t64="$BUILD/games-x86_64/target"; t32="$BUILD/games-i686/target"
 if [[ -d "$t64/usr/lib" && -d "$t32/usr/lib" ]]; then
   g="$BUILD/games-root"; rm -rf "$g"; mkdir -p "$g/usr"
   cp -a "$t64/usr/." "$g/usr/"
+  # Buildroot keeps glibc, bash, udev and friends in /bin /sbin /lib; they all live in /usr here
+  for d in bin sbin lib libexec; do
+    [[ -d "$t64/$d" ]] || continue
+    mkdir -p "$g/usr/$d"; cp -a "$t64/$d/." "$g/usr/$d/"
+    find "$g/usr/$d" -maxdepth 1 -type l | while read -r l; do
+      t=$(readlink "$l"); case "$t" in ../usr/*) ln -sfn "../${t#../usr/}" "$l"; [[ -e "$l" ]] || ln -sfn "${t#../usr/}" "$l" ;; esac
+    done
+  done
+  # links into /usr/bin from usr/sbin etc. that now sit in the same tree stay valid; report any that don't
+  find "$g/usr" -xtype l | head -5 | sed 's/^/   (dangling, ignored) /'
   mkdir -p "$g/usr/lib32"; cp -a "$t32/usr/lib/." "$g/usr/lib32/"           # the 32-bit libraries the Steam app needs
   for f in "$t32"/lib/*.so*; do [[ -e "$f" ]] && cp -a "$f" "$g/usr/lib32/"; done
   # its /etc pieces live in /usr/etc-games; SilverOS's /etc links to them
   mkdir -p "$g/usr/etc-games"
-  for e in fonts X11 dbus-1 pulse udev ssl xdg; do [[ -e "$t64/etc/$e" ]] && cp -a "$t64/etc/$e" "$g/usr/etc-games/"; done
+  for e in fonts X11 dbus-1 pulse udev xdg bluetooth libinput; do [[ -e "$t64/etc/$e" ]] && cp -a "$t64/etc/$e" "$g/usr/etc-games/"; done
   printf '/usr/lib\n/usr/lib32\n/usr/lib32/dri\n' > "$g/usr/etc-games/ld.so.conf"
   cp -a "$TOP/games-overlay/usr/." "$g/usr/"
   # graphics card and Bluetooth firmware (firmware/gpu.list), from the linux-firmware tarball

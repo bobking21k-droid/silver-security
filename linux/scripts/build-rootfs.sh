@@ -24,7 +24,8 @@ ln -s /usr/lib/ld-linux-x86-64.so.2 "$ROOTFS/lib64/ld-linux-x86-64.so.2"
 ln -s /usr/lib32/ld-linux.so.2 "$ROOTFS/lib/ld-linux.so.2"
 ln -s /usr/lib/udev "$ROOTFS/lib/udev"
 ln -s /usr/bin/bash "$ROOTFS/bin/bash"
-for e in fonts X11 dbus-1 pulse udev xdg ld.so.conf ld.so.cache; do ln -s "/usr/etc-games/$e" "$ROOTFS/etc/$e"; done
+mkdir -p "$ROOTFS/etc/ssl/certs"; ln -s ../cacert.pem "$ROOTFS/etc/ssl/certs/ca-certificates.crt"   # Steam's downloads check certificates
+for e in fonts X11 dbus-1 pulse udev xdg bluetooth libinput ld.so.conf ld.so.cache; do ln -s "/usr/etc-games/$e" "$ROOTFS/etc/$e"; done
 cp "$WORK/stage/sbin/"* "$ROOTFS/sbin/"     # init, dropbear, sfdisk, mke2fs, e2fsck, silver-efiboot
 ln -sf mke2fs "$ROOTFS/sbin/mkfs.ext4"; ln -sf e2fsck "$ROOTFS/sbin/fsck.ext4"
 ln -s sbin/init "$ROOTFS/init"   # the kernel runs /init from an initramfs
