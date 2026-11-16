@@ -167,6 +167,11 @@ static int read_key(int wait_ms)
 			if (c3 == 'B') return K_DOWN;
 			if (c3 == 'C') return K_RIGHT;
 			if (c3 == 'D') return K_LEFT;
+			if (c3 == '2') {                               /* F12 is ESC [ 2 4 ~ */
+				unsigned char c4 = 0, c5 = 0;
+				if (poll(&p, 1, 20) > 0 && read(tty_fd, &c4, 1) == 1 && poll(&p, 1, 20) > 0 && read(tty_fd, &c5, 1) == 1 && c4 == '4' && c5 == '~') return K_SHOT;
+				return -1;
+			}
 			while (c3 >= '0' && c3 <= '9' && poll(&p, 1, 20) > 0) { if (read(tty_fd, &c3, 1) != 1) break; if (c3 == '~') break; }
 			return -1;
 		}
@@ -670,6 +675,7 @@ static void search_go(Home *h)
 	h->focus = yt.state == Y_RESULTS ? 1 : 0;
 }
 #include "buttons.h"
+#include "shot.h"
 #include "fileops.h"
 
 static void handle_key(Home *h, int k)
@@ -899,6 +905,7 @@ static void home_frame(Home *h, float t, float dt)
 	else if (!h->screen && h->fade < 1) sg_rect(&fb, 0, 0, W, H, BLACK, 1 - h->fade);
 	battery_draw(t);
 	wel_draw();
+	shot_draw();
 	pwr_draw(t);
 }
 
@@ -972,6 +979,7 @@ static void home_loop(Home *h)
 		if (now() - idle_cfg > 5) { idle_cfg = now(); idle_read_config(); }                 /* (re-read every few seconds) */
 		while ((k = read_key(0)) != -1) {
 			act_t = now();
+			if (k == K_SHOT) { if (!idle_state) shot_take(); continue; }
 			if (idle_state) idle_set(0);                     /* the key that woke it does nothing else */
 			else handle_key_snd(h, k);
 		}

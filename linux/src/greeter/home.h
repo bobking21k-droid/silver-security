@@ -38,6 +38,7 @@ static float sg_atan2f_approx(float y, float x)
 #define K_ESC 27
 #define K_ENTER 13
 #define K_BACK 127
+#define K_SHOT 1010                      /* F12: screenshot */
 
 /* ================================================================ the cracks */
 /* A crack is a polyline that grows from its first point at `speed` px/s, starting `t0` seconds

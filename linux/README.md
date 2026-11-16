@@ -56,6 +56,7 @@ reference, not its content.)
    scrolling on a touchpad is not translated, so use the touchpad's edge or the arrow keys.
    Arrow keys choose a pane (the chosen one turns
    to white glass), Enter opens it, Esc comes back. Every section works:
+   - **F12 takes a screenshot** (anywhere on the home screen): a PNG in `~/Pictures`.
    - **Files**: browse your home folder (Enter opens a folder, Backspace goes up) with a text
      preview of the selected file. Keys: `C` copy, `X` cut, `V` paste, `R` rename, `N` new
      folder, `D` then `D` again to delete (asks first); Enter on a picture (PNG, JPEG, BMP, GIF)

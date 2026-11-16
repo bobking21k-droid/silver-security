@@ -80,3 +80,4 @@ Investigations (time-boxed to one session each; stop and write down what was lea
 - 2026-11-16 18:05Z  Full suite on the kernel with hci_vhci: all 10 tests pass (run-all order fixed so install tests run after the live-USB tests).
 - 2026-11-16 19:05Z  Kernel audit for real PCs: added touchpad/I2C/LPSS/pinctrl, VMD, SD/eMMC, Intel 2.5G + USB ethernet, USB-C/USB4, laptop vendor drivers. SOF audio firmware unavailable offline (documented). docs/REAL-PC.md checklist. Full suite passes.
 - 2026-11-16 19:30Z  Files: text viewer (Enter on .txt/.md/.log/code; scroll, page). ASan/UBSan run of the demo greeter: no errors (only exit-time leaks).
+- 2026-11-16 19:45Z  F12 screenshot to ~/Pictures (hand-written PNG, verified with CRC/zlib check; tests/screenshot-test.py).
