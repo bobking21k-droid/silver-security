@@ -77,3 +77,4 @@ Investigations (time-boxed to one session each; stop and write down what was lea
 - 2026-11-16 17:00Z  In-OS installer page (plan, progress bar, done) built on silver-install --plan/--yes; install + boot verified in QEMU.
 - 2026-11-16 17:20Z  First-run welcome on installed systems (Keyboard > Time > Network, then home). Dual-boot test passes with it.
 - 2026-11-16 17:45Z  Bluetooth investigation: the reason btvirt failed was a missing kernel option (CONFIG_BT_HCIVHCI, now =m, /dev/vhci exists). btvirt still prints "Failed to open Virtual HCI device" even with bluetoothd stopped; the kernel registers hci0 but the emulator's create handshake fails (hci0 reset times out). Not solved; tests/bt-pair-test.py and tests/bt-img.sh are kept for the next try. Pairing remains untested.
+- 2026-11-16 18:05Z  Full suite on the kernel with hci_vhci: all 10 tests pass (run-all order fixed so install tests run after the live-USB tests).
