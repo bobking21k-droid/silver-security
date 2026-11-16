@@ -3,4 +3,14 @@
 L=$1; url=$2
 xset s off -dpms 2>/dev/null
 xsetroot -solid black 2>/dev/null
-"$L/bin_steam.sh" -gamepadui ${url:+"$url"}
+args="-gamepadui"
+# With no real graphics card (a virtual machine, an unsupported GPU) everything is drawn by the
+# CPU, and Steam's browser engine can't start its graphics process: tell it to draw in software.
+if glxinfo -B 2>/dev/null | grep -qi -E "llvmpipe|softpipe|swrast"; then
+  args="$args -cef-disable-gpu -cef-disable-gpu-compositing"
+  export VK_ICD_FILENAMES=/nonexistent    # no software Vulkan: games can't use it, and the browser engine crashes in it
+fi
+# your own flags for Steam, one line: ~/.config/silver/steam-args
+[ -r "$HOME/.config/silver/steam-args" ] && args="$args $(head -n 1 "$HOME/.config/silver/steam-args")"
+# shellcheck disable=SC2086
+"$L/bin_steam.sh" $args ${url:+"$url"}
