@@ -1,0 +1,13 @@
+#!/bin/sh
+# Set the clock from the internet. First the Date header of a secure web page (works through
+# nearly every network, and the page's certificate is checked), then NTP to refine it where
+# NTP is allowed. The computer's own (hardware) clock is never written: with Windows next to
+# SilverOS it keeps local time there, and writing UTC would make Windows wrong afterwards.
+# Run as root, in the background, once the network is up (rc.boot) and when Wi-Fi connects.
+log=/run/time.log
+i=0; while [ $i -lt 60 ]; do ip route 2>/dev/null | grep -q '^default' && break; sleep 2; i=$((i+1)); done
+for u in https://www.cloudflare.com/ https://www.google.com/ https://www.microsoft.com/; do
+  /sbin/silver-fetch -t 15 --set-time "$u" >>"$log" 2>&1 && break
+done
+ntpd -q -n -p pool.ntp.org -p time.cloudflare.com -p time.google.com >>"$log" 2>&1
+exit 0

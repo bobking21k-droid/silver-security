@@ -1,3 +1,6 @@
 export PATH=/usr/sbin:/usr/bin:/sbin:/bin
 export PS1='\[\033[1;37m\]\u@\h\[\033[0m\]:\w\$ '
 umask 027
+
+# your time zone (chosen in Settings > Time)
+[ -r "$HOME/.config/silver/tz" ] && export TZ="$(head -n 1 "$HOME/.config/silver/tz")"

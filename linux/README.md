@@ -93,6 +93,15 @@ reference, not its content.)
      Tested against real BlueZ only for the "no adapter" state (a virtual machine has no
      Bluetooth hardware, and BlueZ's virtual controller would not run on this kernel); pairing
      itself is untested, and the page parses `bluetoothctl`'s documented output.
+   - **Settings > Time** picks your time zone from about 50 (with today's daylight-saving rules built
+     in, so no zone database is needed); every zone shows its current time. The **clock is set
+     from the internet** at boot and when Wi-Fi connects (`/sbin/silver-time`): first from the
+     Date header of a secure web page (the page's certificate is checked; works through nearly
+     every network), then NTP to refine it where NTP is allowed. **The computer's own hardware
+     clock is never written**: with Windows next to SilverOS it keeps local time there, and
+     writing UTC would make Windows wrong afterwards. Your zone is kept in
+     `~/.config/silver/tz`. (Until the network is up, SilverOS reads the hardware clock as UTC,
+     so on a dual-boot PC it can be a few hours off for a moment.)
    - **Apps**: a grid of apps: Terminal (a shell on the console; `exit` returns here), the
      **Game Store**, **Me and my PC**, a live System Monitor and About.
      - **Game Store** (`src/greeter/gstore.h`): opens on three panels side by side, picked with
@@ -330,6 +339,11 @@ What works and what is untested, plainly:
   `silver`; the greeter then asks for it.
 - Root stays locked until you set the admin password, can't log in directly (empty `securetty`,
   refused by the greeter), and is reached with `su`. Passwords are SHA-512 crypt hashes.
+- **Firewall** (nftables, `/etc/nftables.conf`, loaded before the network starts): nothing
+  gets in unless you asked. Inbound traffic is dropped except replies to what you started, DHCP,
+  ping and the messages the network needs; nothing is forwarded; SSH is opened only when you
+  have set up a key. Tested: data sent from outside does not reach a listening program until its
+  port is opened. Outgoing traffic is not restricted.
 - No plaintext network services. SSH accepts keys only and runs only when
   `authorized_keys` exists.
 - `/proc` is mounted with `hidepid=2`.
@@ -338,7 +352,7 @@ What works and what is untested, plainly:
 
 1. **Groundwork** ✅: toolchain, kernel, init, userland, bootable USB.
 2. **Dual boot with Windows** ✅: installer, own boot chooser, graphical login, persistent install.
-3. **Firewall**: build nftables (libmnl + libnftnl) from source, default-deny inbound.
+3. ~~Firewall~~ done: nftables, default-deny inbound.
 4. **Silver Desktop**: windows. The home screen and its sections exist; next is a window
    manager and compositor so several apps can run at once.
 5. **Self-hosting toolchain**: build GCC/binutils for the target so SilverOS can rebuild

@@ -614,16 +614,18 @@ static void handle_key(Home *h, int k)
 	case 1:                                                                     /* settings */
 		if (h->sub == 1) { if (wf_key(k)) h->sub = 0; break; }                 /* Network */
 		if (h->sub == 2) { if (bt_key(k)) h->sub = 0; break; }                 /* Bluetooth */
+		if (h->sub == 3) { if (tz_key(k)) h->sub = 0; break; }                 /* Time */
 		if (k == K_ESC || k == K_LEFT || k == K_BACK) { h->screen = 0; h->fade = 0; }
 		else if (k == K_UP && h->row > 0) { h->row--; h->confirm = 0; }
-		else if (k == K_DOWN && h->row < 8) { h->row++; h->confirm = 0; }
+		else if (k == K_DOWN && h->row < 9) { h->row++; h->confirm = 0; }
 		else if (k == K_ENTER) {
 			if (h->row == 0) { h->sub = 1; wf_open(); }
 			else if (h->row == 1) { h->sub = 2; bt_open(); }
-			else if (h->row == 3) calm_toggle(h);
-			else if (h->row == 4) mute_toggle(h);
-			else if (h->row == 6) { if (win_ok()) { if (h->confirm == 6) request('N'); else h->confirm = 6; } }      /* Windows: asks twice */
-			else if (h->row == 7 || h->row == 8) { if (h->confirm == h->row) request(h->row == 7 ? 'R' : 'P'); else h->confirm = h->row; }
+			else if (h->row == 3) { h->sub = 3; tz_open(); }
+			else if (h->row == 4) calm_toggle(h);
+			else if (h->row == 5) mute_toggle(h);
+			else if (h->row == 7) { if (win_ok()) { if (h->confirm == 7) request('N'); else h->confirm = 7; } }      /* Windows: asks twice */
+			else if (h->row == 8 || h->row == 9) { if (h->confirm == h->row) request(h->row == 8 ? 'R' : 'P'); else h->confirm = h->row; }
 		}
 		break;
 	case 2: {                                                                   /* search: YouTube */
@@ -714,7 +716,7 @@ static void handle_key(Home *h, int k)
 /* every key press makes a sound that fits what it did */
 static void handle_key_snd(Home *h, int k)
 {
-	Home o = *h; Yt yo; memcpy(&yo, &yt, sizeof yo); int ssel0 = sug.sel, wsel0 = wf.sel, bsel0 = bt.sel, wtyp0 = wf.typing; size_t wpw0 = strlen(wf.pw);
+	Home o = *h; Yt yo; memcpy(&yo, &yt, sizeof yo); int ssel0 = sug.sel, wsel0 = wf.sel, bsel0 = bt.sel, zsel0 = tzs.sel, wtyp0 = wf.typing; size_t wpw0 = strlen(wf.pw);
 	char cwd0[256]; snprintf(cwd0, sizeof cwd0, "%s", cwd);
 	char fq0[64]; snprintf(fq0, sizeof fq0, "%s", h->sr.q);
 	handle_key(h, k);
@@ -725,7 +727,7 @@ static void handle_key_snd(Home *h, int k)
 	else if (wf.typing != wtyp0) snd(wf.typing ? 'o' : 'b');
 	else if (strcmp(yt.q, yo.q) || strcmp(h->sr.q, fq0) || strlen(wf.pw) != wpw0) snd('k');
 	else if (yt.state == Y_LOADING && yo.state != Y_LOADING) snd('o');
-	else if (h->sel != o.sel || h->row != o.row || h->focus != o.focus || yt.sel != yo.sel || yt.mode != yo.mode || h->fs_scope != o.fs_scope || sug.sel != ssel0 || wf.sel != wsel0 || bt.sel != bsel0) snd('m');
+	else if (h->sel != o.sel || h->row != o.row || h->focus != o.focus || yt.sel != yo.sel || yt.mode != yo.mode || h->fs_scope != o.fs_scope || sug.sel != ssel0 || wf.sel != wsel0 || bt.sel != bsel0 || tzs.sel != zsel0) snd('m');
 	else if (h->calm_on != o.calm_on || h->confirm != o.confirm) snd('o');
 }
 
@@ -776,28 +778,29 @@ static const struct { float t; int k; } SCRIPT[] = {
 	{46.4f, K_ENTER}, {47.4f, K_DOWN}, {48.0f, K_UP}, {48.8f, K_ENTER},                                    /* Network: join Wi-Fi */
 	{49.4f, 's'}, {49.6f, 'i'}, {49.8f, 'l'}, {50.0f, 'v'}, {50.2f, 'e'}, {50.4f, 'r'}, {50.6f, '2'}, {50.8f, '0'}, {51.0f, '2'}, {51.2f, '6'}, {51.8f, K_ENTER}, {55.2f, K_ESC},
 	{55.8f, K_DOWN}, {56.4f, K_ENTER}, {57.6f, K_DOWN}, {58.2f, K_DOWN}, {58.8f, K_ENTER}, {60.2f, K_ESC},      /* Bluetooth: pair a controller */
-	{60.8f, K_DOWN}, {61.4f, K_DOWN}, {62.0f, K_DOWN}, {62.9f, K_ENTER}, {64.4f, K_ENTER}, {65.4f, K_ESC},     /* sound effects off, on */
-	{66.2f, K_DOWN}, {66.9f, K_ENTER},                                                                        /* Apps */
-	{68.0f, K_RIGHT}, {68.8f, K_ENTER},                                                                       /* Game Store: three stores */
-	{70.0f, K_RIGHT}, {71.2f, K_RIGHT}, {72.4f, K_LEFT}, {73.4f, K_LEFT}, {74.2f, K_ENTER},                  /* SilverOS games */
-	{75.2f, K_RIGHT}, {76.0f, K_LEFT}, {76.8f, K_ENTER},                                                      /* play Snake */
-	{77.4f, K_DOWN}, {78.2f, K_RIGHT}, {79.0f, K_UP}, {79.8f, K_RIGHT}, {80.8f, K_ESC}, {81.6f, K_ESC},
-	{82.4f, K_RIGHT}, {83.2f, K_ENTER}, {84.8f, K_RIGHT}, {85.6f, K_DOWN}, {86.4f, K_ENTER}, {87.0f, 'w'}, {87.6f, K_ENTER}, {90.2f, 'p'}, {91.8f, K_ESC}, {92.5f, K_ESC}, {92.9f, K_ESC},                   /* Steam: wishlist, install with Steam */
-	{94.0f, K_RIGHT}, {94.8f, K_ENTER}, {96.4f, K_RIGHT}, {97.2f, K_ENTER}, {99.4f, K_ESC}, {100.2f, K_ESC}, {101.0f, K_ESC},                   /* Microsoft Store */
-	{101.8f, K_RIGHT}, {102.6f, K_ENTER}, {106.2f, K_ESC}, {107.0f, K_ESC},                                       /* Me and my PC */
+	{60.8f, K_DOWN}, {61.4f, K_DOWN}, {62.0f, K_ENTER}, {63.2f, K_DOWN}, {63.8f, K_DOWN}, {64.5f, K_ENTER}, {66.0f, K_ESC},         /* Time: pick a zone */
+	{66.6f, K_DOWN}, {67.2f, K_DOWN}, {68.1f, K_ENTER}, {69.6f, K_ENTER}, {70.6f, K_ESC},     /* sound effects off, on */
+	{71.4f, K_DOWN}, {72.1f, K_ENTER},                                                                        /* Apps */
+	{73.2f, K_RIGHT}, {74.0f, K_ENTER},                                                                       /* Game Store: three stores */
+	{75.2f, K_RIGHT}, {76.4f, K_RIGHT}, {77.6f, K_LEFT}, {78.6f, K_LEFT}, {79.4f, K_ENTER},                  /* SilverOS games */
+	{80.4f, K_RIGHT}, {81.2f, K_LEFT}, {82.0f, K_ENTER},                                                      /* play Snake */
+	{82.6f, K_DOWN}, {83.4f, K_RIGHT}, {84.2f, K_UP}, {85.0f, K_RIGHT}, {86.0f, K_ESC}, {86.8f, K_ESC},
+	{87.6f, K_RIGHT}, {88.4f, K_ENTER}, {90.0f, K_RIGHT}, {90.8f, K_DOWN}, {91.6f, K_ENTER}, {92.2f, 'w'}, {92.8f, K_ENTER}, {95.4f, 'p'}, {97.0f, K_ESC}, {97.7f, K_ESC}, {98.1f, K_ESC},                   /* Steam: wishlist, install with Steam */
+	{99.2f, K_RIGHT}, {100.0f, K_ENTER}, {101.6f, K_RIGHT}, {102.4f, K_ENTER}, {104.6f, K_ESC}, {105.4f, K_ESC}, {106.2f, K_ESC},                   /* Microsoft Store */
+	{107.0f, K_RIGHT}, {107.8f, K_ENTER}, {111.4f, K_ESC}, {112.2f, K_ESC},                                       /* Me and my PC */
 };
-#define SCRIPT_END 108.5f
+#define SCRIPT_END 113.7f
 /* where the script must have got to (-1: don't care); the demo fails if any is wrong */
 static const struct { float t; int screen, sub, open, tab, mute; const char *what; } EXPECT[] = {
 	{5.6f, 4, -1, -1, -1, -1, "Files opens"}, {16.2f, 0, -1, -1, -1, -1, "back home from Files"},
 	{17.8f, 2, -1, -1, -1, -1, "Search opens"}, {46.2f, 1, -1, -1, -1, -1, "Settings opens"}, {47.0f, 1, 1, -1, -1, -1, "Network page"}, {55.6f, 1, 0, -1, -1, -1, "back to Settings"}, {57.0f, 1, 2, -1, -1, -1, "Bluetooth page"}, {60.6f, 1, 0, -1, -1, -1, "Settings again"},
-	{63.5f, 1, -1, -1, -1, 1, "Sound effects off"}, {65.0f, 1, -1, -1, -1, 0, "Sound effects on"},
-	{67.5f, 3, 0, -1, -1, -1, "Apps grid"}, {69.2f, 3, 5, 0, -1, -1, "Game Store front"},
-	{74.6f, 3, 5, 1, 0, -1, "SilverOS games"}, {77.2f, 3, 6, -1, -1, -1, "playing Snake"},
-	{81.2f, 3, 5, 1, 0, -1, "back from Snake"}, {82.0f, 3, 5, 0, -1, -1, "back to the front"},
-	{83.6f, 3, 5, 1, 1, -1, "Steam"}, {88.6f, 3, 5, 1, 1, -1, "Steam: install"}, {93.6f, 3, 5, 0, -1, -1, "front again"},
-	{95.2f, 3, 5, 1, 2, -1, "Microsoft Store"}, {101.4f, 3, 0, -1, -1, -1, "Apps grid again"},
-	{103.2f, 3, 4, -1, -1, -1, "Me and my PC"}, {107.8f, 0, -1, -1, -1, -1, "home at the end"},
+	{64.0f, 1, 3, -1, -1, -1, "Time page"}, {68.9f, 1, -1, -1, -1, 1, "Sound effects off"}, {70.3f, 1, -1, -1, -1, 0, "Sound effects on"},
+	{72.7f, 3, 0, -1, -1, -1, "Apps grid"}, {74.4f, 3, 5, 0, -1, -1, "Game Store front"},
+	{79.8f, 3, 5, 1, 0, -1, "SilverOS games"}, {82.4f, 3, 6, -1, -1, -1, "playing Snake"},
+	{86.4f, 3, 5, 1, 0, -1, "back from Snake"}, {87.2f, 3, 5, 0, -1, -1, "back to the front"},
+	{88.8f, 3, 5, 1, 1, -1, "Steam"}, {93.8f, 3, 5, 1, 1, -1, "Steam: install"}, {98.8f, 3, 5, 0, -1, -1, "front again"},
+	{100.4f, 3, 5, 1, 2, -1, "Microsoft Store"}, {106.6f, 3, 0, -1, -1, -1, "Apps grid again"},
+	{108.4f, 3, 4, -1, -1, -1, "Me and my PC"}, {113.0f, 0, -1, -1, -1, -1, "home at the end"},
 };
 static int expect_failed;
 #endif
@@ -976,6 +979,7 @@ int main(int argc, char **argv)
 {
 	W = argc > 2 ? atoi(argv[2]) : 1280; H = argc > 3 ? atoi(argv[3]) : 800;
 	if (buffers()) return 1;
+	setenv("TZ", "EST5EDT,M3.2.0,M11.1.0", 1); tzset(); tz_load();       /* (the demo's zone) */
 	char cmd[512];
 	snprintf(cmd, sizeof cmd, "ffmpeg -v error -y -f rawvideo -pix_fmt bgr0 -s %dx%d -r 30 -i - -c:v libx264 -crf 16 -preset medium -pix_fmt yuv420p '%s'",
 		 W, H, argc > 1 ? argv[1] : "greeter.mp4");
@@ -1031,6 +1035,7 @@ int main(int argc, char **argv)
 			if (access(p, F_OK) == 0) calm = 1;
 			snprintf(p, sizeof p, "%s/.config/silver/mute", homedir);
 			if (access(p, F_OK) == 0) muted = 1;
+			tz_load();                                            /* your time zone */
 		}
 	}
 	tcgetattr(tty_fd, &saved_tio);

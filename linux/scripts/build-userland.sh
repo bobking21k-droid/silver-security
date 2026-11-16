@@ -83,6 +83,24 @@ if [[ ! -f "$SYSROOT/usr/lib/libnl-genl-3.a" ]]; then
   (cd "$nl" && CC="$CC" ./configure --host=x86_64-linux-musl --prefix=/usr --disable-shared --enable-static --disable-cli \
      --disable-debug >/dev/null && make -j"$JOBS" >/dev/null && make DESTDIR="$SYSROOT" install >/dev/null)
 fi
+# ---- the firewall: libmnl + libnftnl + nft, static, with the small built-in gmp and no CLI editor ----
+for t in "libmnl-$LIBMNL_VER.tar.bz2" "libnftnl-$LIBNFTNL_VER.tar.xz" "nftables-$NFT_VER.tar.xz"; do
+  [[ -d "$BUILD/${t%.tar.*}" ]] || tar -C "$BUILD" -xf "$SOURCES/$t"
+done
+PCFG=(env PKG_CONFIG_LIBDIR="$SYSROOT/usr/lib/pkgconfig" PKG_CONFIG_SYSROOT_DIR="$SYSROOT")
+if [[ ! -f "$SYSROOT/usr/lib/libmnl.a" ]]; then
+  (cd "$BUILD/libmnl-$LIBMNL_VER" && CC="$CC" ./configure --host=x86_64-linux-musl --prefix=/usr --disable-shared --enable-static >/dev/null && make -j"$JOBS" >/dev/null && make DESTDIR="$SYSROOT" install >/dev/null)
+fi
+if [[ ! -f "$SYSROOT/usr/lib/libnftnl.a" ]]; then
+  (cd "$BUILD/libnftnl-$LIBNFTNL_VER" && "${PCFG[@]}" CC="$CC" ./configure --host=x86_64-linux-musl --prefix=/usr --disable-shared --enable-static >/dev/null && "${PCFG[@]}" make -j"$JOBS" >/dev/null && make DESTDIR="$SYSROOT" install >/dev/null)
+fi
+rm -f "$SYSROOT/usr/lib/libmnl.la" "$SYSROOT/usr/lib/libnftnl.la"      # (libtool archives with paths that only make sense after install)
+if [[ ! -x "$BUILD/nftables-$NFT_VER/src/nft" ]]; then
+  make -C "$BUILD/nftables-$NFT_VER" distclean >/dev/null 2>&1 || true
+  (cd "$BUILD/nftables-$NFT_VER" && "${PCFG[@]}" CC="$CC" LDFLAGS="-static" ./configure --host=x86_64-linux-musl --prefix=/usr --disable-shared --enable-static \
+     --with-mini-gmp --without-cli --disable-man-doc --disable-debug --without-json >/dev/null && "${PCFG[@]}" make -j"$JOBS" LDFLAGS="-all-static" >/dev/null)
+fi
+install -m 0755 "$BUILD/nftables-$NFT_VER/src/nft" "$WORK/stage/sbin/nft"
 wpa_build() {   # $1: wpa_supplicant or hostapd
   local src="$BUILD/$1-$WPA_VER" dir
   [[ -d "$src" ]] || tar -C "$BUILD" -xf "$SOURCES/$1-$WPA_VER.tar.gz"

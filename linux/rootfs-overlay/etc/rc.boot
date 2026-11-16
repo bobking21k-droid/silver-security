@@ -26,6 +26,8 @@ if [ -x /usr/bin/dbus-daemon ]; then                  # the system message bus, 
   for r in /sys/class/rfkill/rfkill*; do [ "$(cat "$r/type" 2>/dev/null)" = bluetooth ] && echo 0 > "$r/soft"; done
   for b in /usr/libexec/bluetooth/bluetoothd /usr/lib/bluetooth/bluetoothd; do [ -x "$b" ] && { "$b" >/dev/null 2>&1 & break; }; done
 fi
+echo "  * firewall (nothing gets in unless you asked)"
+if [ -x /sbin/nft ] && /sbin/nft -f /etc/nftables.conf 2>/run/nft.err; then :; else echo "    !! the firewall did not load: $(cat /run/nft.err 2>/dev/null | head -1)"; fi
 echo "  * network: wired (DHCP, background)"
 for dev in /sys/class/net/*; do
   n=${dev##*/}; [ "$n" = lo ] && continue
@@ -33,6 +35,8 @@ for dev in /sys/class/net/*; do
   ip link set "$n" up
   udhcpc -b -i "$n" -s /etc/udhcpc/default.script >/dev/null 2>&1 &
 done
+# the clock: set from the internet once the network is up (see silver-time)
+/sbin/silver-time >/dev/null 2>&1 &
 echo "  * network: Wi-Fi (silver-wifi, background)"
 /sbin/silver-wifi >/dev/null 2>&1 &
 if [ -s /root/.ssh/authorized_keys ] || ls /home/*/.ssh/authorized_keys >/dev/null 2>&1; then
@@ -40,6 +44,7 @@ if [ -s /root/.ssh/authorized_keys ] || ls /home/*/.ssh/authorized_keys >/dev/nu
   [ -f /etc/dropbear/dropbear_ed25519_host_key ] || \
     dropbearkey -t ed25519 -f /etc/dropbear/dropbear_ed25519_host_key >/dev/null 2>&1
   dropbear -s -g -r /etc/dropbear/dropbear_ed25519_host_key   # -s no passwords, -g no root password
+  /sbin/nft add rule inet silver input tcp dport 22 ct state new accept 2>/dev/null   # the one door we open, because you asked
 else
   echo "  * ssh disabled (no authorized_keys)"
 fi

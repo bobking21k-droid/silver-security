@@ -27,6 +27,7 @@
 
 #include "bearssl.h"
 
+static int set_time;                      /* --set-time: only read the server's Date header and set the clock from it */
 #ifndef BUILD_EPOCH
 #define BUILD_EPOCH 1760000000L
 #endif
@@ -223,11 +224,25 @@ static int fetch_one(const Url *u, char *location, size_t locn)
 	int status = atoi(hd + 9);
 	long clen = -1; int chunked = 0;
 	location[0] = 0;
+	char datehdr[64]; datehdr[0] = 0;
 	for (char *line = hd; (line = strchr(line, '\n')) && line[1];) {            /* stop at the end: never read old headers */
 		line++;
+		if (!strncasecmp(line, "date:", 5)) { char *v = line + 5; while (*v == ' ') v++; size_t l = strcspn(v, "\r\n"); if (l >= sizeof datehdr) l = sizeof datehdr - 1; memcpy(datehdr, v, l); datehdr[l] = 0; }
 		if (!strncasecmp(line, "content-length:", 15)) clen = atol(line + 15);
 		else if (!strncasecmp(line, "transfer-encoding:", 18) && strcasestr(line, "chunked")) chunked = 1;
 		else if (!strncasecmp(line, "location:", 9)) { char *v = line + 9; while (*v == ' ') v++; size_t l = strcspn(v, "\r\n"); if (l >= locn) l = locn - 1; memcpy(location, v, l); location[l] = 0; }
+	}
+	if (set_time) {                                                                 /* the clock, from a server we just verified */
+		struct tm tm; memset(&tm, 0, sizeof tm);
+		if (!datehdr[0] || !strptime(datehdr, "%a, %d %b %Y %H:%M:%S", &tm)) die(7, "the server sent no usable date%s", "");
+		time_t srv = timegm(&tm), cur = time(NULL);
+		if (srv < BUILD_EPOCH || srv > BUILD_EPOCH + 20L * 365 * 86400) die(7, "the date the server sent makes no sense%s", "");
+		long diff = (long)(srv - cur);
+		if (diff > -3 && diff < 3) { if (!quiet) printf("clock is right (%+ld s)\n", diff); exit(0); }
+		struct timespec ts = {srv, 0};
+		if (clock_settime(CLOCK_REALTIME, &ts) != 0) die(7, "cannot set the clock (are you root?)%s", "");
+		if (!quiet) printf("clock set (it was %ld s %s)\n", diff < 0 ? -diff : diff, diff < 0 ? "ahead" : "behind");
+		exit(0);
 	}
 	if (status >= 300 && status < 400 && location[0]) { close(fd); return status; }
 	if (status < 200 || status >= 300) { if (!quiet) fprintf(stderr, "HTTP %d\n", status); exit(5); }
@@ -277,6 +292,7 @@ int main(int argc, char **argv)
 		else if (!strcmp(argv[i], "-m") && i + 1 < argc) maxbytes = atol(argv[++i]);
 		else if (!strcmp(argv[i], "-H") && i + 1 < argc && nheaders < 8) headers[nheaders++] = argv[++i];
 		else if (!strcmp(argv[i], "-q")) quiet = 1;
+		else if (!strcmp(argv[i], "--set-time")) set_time = 1;
 		else if (!strcmp(argv[i], "-t") && i + 1 < argc) timeout = atoi(argv[++i]);
 		else if (argv[i][0] != '-') url = argv[i];
 		else die(2, "unknown option %s", argv[i]);
