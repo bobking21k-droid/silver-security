@@ -399,7 +399,9 @@ in [docs/SECURITY.md](docs/SECURITY.md).
   but untested on hardware.
 - Steam's own window crashes on software rendering in the test VM (its browser engine's GPU
   process); a real GPU should be better, but this is not proven.
-- Secure Boot must be off (images are not signed).
+- Secure Boot must be off (images are not signed; plan in docs/SECURITY.md). With BitLocker on, Windows may ask for its recovery key once after that change.
+- Bluetooth pairing is untested: no virtual Bluetooth adapter could be made to work in the test PC (see docs/GOAL-48H.md log).
+- The interface size can be changed (Settings > Display) but the screen's resolution can't: it is whatever the firmware gave us.
 - Accented letters from other keyboard layouts show in the console but are not yet typed into the
   home screen's text boxes.
 - The laptop lid blanks the screen but does not suspend.
