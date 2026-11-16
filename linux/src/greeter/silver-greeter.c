@@ -782,11 +782,11 @@ static const struct { float t; int k; } SCRIPT[] = {
 	{70.0f, K_RIGHT}, {71.2f, K_RIGHT}, {72.4f, K_LEFT}, {73.4f, K_LEFT}, {74.2f, K_ENTER},                  /* SilverOS games */
 	{75.2f, K_RIGHT}, {76.0f, K_LEFT}, {76.8f, K_ENTER},                                                      /* play Snake */
 	{77.4f, K_DOWN}, {78.2f, K_RIGHT}, {79.0f, K_UP}, {79.8f, K_RIGHT}, {80.8f, K_ESC}, {81.6f, K_ESC},
-	{82.4f, K_RIGHT}, {83.2f, K_ENTER}, {84.8f, K_RIGHT}, {85.6f, K_DOWN}, {86.4f, K_ENTER}, {87.0f, 'w'}, {87.6f, K_ENTER}, {89.3f, K_ESC}, {89.7f, K_ESC},                   /* Steam: wishlist, install with Steam */
-	{90.8f, K_RIGHT}, {91.6f, K_ENTER}, {93.2f, K_RIGHT}, {94.0f, K_ENTER}, {96.2f, K_ESC}, {97.0f, K_ESC}, {97.8f, K_ESC},                   /* Microsoft Store */
-	{98.6f, K_RIGHT}, {99.4f, K_ENTER}, {103.0f, K_ESC}, {103.8f, K_ESC},                                       /* Me and my PC */
+	{82.4f, K_RIGHT}, {83.2f, K_ENTER}, {84.8f, K_RIGHT}, {85.6f, K_DOWN}, {86.4f, K_ENTER}, {87.0f, 'w'}, {87.6f, K_ENTER}, {90.2f, 'p'}, {91.8f, K_ESC}, {92.5f, K_ESC}, {92.9f, K_ESC},                   /* Steam: wishlist, install with Steam */
+	{94.0f, K_RIGHT}, {94.8f, K_ENTER}, {96.4f, K_RIGHT}, {97.2f, K_ENTER}, {99.4f, K_ESC}, {100.2f, K_ESC}, {101.0f, K_ESC},                   /* Microsoft Store */
+	{101.8f, K_RIGHT}, {102.6f, K_ENTER}, {106.2f, K_ESC}, {107.0f, K_ESC},                                       /* Me and my PC */
 };
-#define SCRIPT_END 105.3f
+#define SCRIPT_END 108.5f
 /* where the script must have got to (-1: don't care); the demo fails if any is wrong */
 static const struct { float t; int screen, sub, open, tab, mute; const char *what; } EXPECT[] = {
 	{5.6f, 4, -1, -1, -1, -1, "Files opens"}, {16.2f, 0, -1, -1, -1, -1, "back home from Files"},
@@ -795,9 +795,9 @@ static const struct { float t; int screen, sub, open, tab, mute; const char *wha
 	{67.5f, 3, 0, -1, -1, -1, "Apps grid"}, {69.2f, 3, 5, 0, -1, -1, "Game Store front"},
 	{74.6f, 3, 5, 1, 0, -1, "SilverOS games"}, {77.2f, 3, 6, -1, -1, -1, "playing Snake"},
 	{81.2f, 3, 5, 1, 0, -1, "back from Snake"}, {82.0f, 3, 5, 0, -1, -1, "back to the front"},
-	{83.6f, 3, 5, 1, 1, -1, "Steam"}, {88.6f, 3, 5, 1, 1, -1, "Steam: install"}, {90.4f, 3, 5, 0, -1, -1, "front again"},
-	{92.0f, 3, 5, 1, 2, -1, "Microsoft Store"}, {98.2f, 3, 0, -1, -1, -1, "Apps grid again"},
-	{100.0f, 3, 4, -1, -1, -1, "Me and my PC"}, {104.6f, 0, -1, -1, -1, -1, "home at the end"},
+	{83.6f, 3, 5, 1, 1, -1, "Steam"}, {88.6f, 3, 5, 1, 1, -1, "Steam: install"}, {93.6f, 3, 5, 0, -1, -1, "front again"},
+	{95.2f, 3, 5, 1, 2, -1, "Microsoft Store"}, {101.4f, 3, 0, -1, -1, -1, "Apps grid again"},
+	{103.2f, 3, 4, -1, -1, -1, "Me and my PC"}, {107.8f, 0, -1, -1, -1, -1, "home at the end"},
 };
 static int expect_failed;
 #endif

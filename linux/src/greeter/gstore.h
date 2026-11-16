@@ -692,7 +692,7 @@ static void draw_gstore_page(Home *h, float t)
 		}
 		if (s->towin) {                                                   /* are you sure? */
 			sg_rect(&fb, 0, 0, W, H, BLACK, 0.6f);
-			float pw = W * 0.56f, ph = U * 30, px = (W - pw) / 2, py = (H - ph) / 2;
+			float pw = W * 0.56f, ph = U * 35, px = (W - pw) / 2, py = (H - ph) / 2;
 			ui_frost(px, py, pw, ph, U * 2.6f, 0.8f);
 			cap_text(px + U * 4, py + U * 5, "PLAY IT IN WINDOWS", U * 1.05f, RGB(110, 170, 255), 1, 0);
 			char nm2[120]; fit(g->name, U * 3.2f, pw - U * 8, nm2, sizeof nm2);
