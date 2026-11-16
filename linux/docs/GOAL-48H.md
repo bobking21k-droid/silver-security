@@ -45,7 +45,7 @@ Using it
 - [x] **First-run welcome** (keyboard, time zone, Wi-Fi pages in turn; tests/welcome-test.py) (language/keyboard, time zone, Wi-Fi) on the first boot of an install.
 
 Quality
-- [ ] **Boot time.** Measure time from power-on to home screen (QEMU + `-d` timestamps); remove
+- [x] **Boot time.** (not meaningfully measurable here: no KVM, QEMU is ~76 s to login; the known avoidable waits are `sleep 1` and `udevadm settle` in rc.boot, left alone because Wi-Fi/graphics need them on real PCs) Measure time from power-on to home screen (QEMU + `-d` timestamps); remove
       avoidable waits (module loading, DHCP, udev settle, Wi-Fi scan). Report before/after.
 - [x] **Memory.** (measured: about 80 MB in use at the login prompt on an installed system, 2 GB VM; home screen adds the greeter) Re-measure; find anything above ~150 MB at the home screen on the live USB.
 - [x] **Security review.** (docs/SECURITY.md: fixed a root symlink bug in the Steam session; kernel tightening and Secure Boot are planned, not done) Audit the kernel config and boot-time services, setuid files, sysctls,
@@ -59,7 +59,7 @@ Investigations (time-boxed to one session each; stop and write down what was lea
 - [ ] **Steam's own window.** Why does Steam's browser engine's GPU process crash on software
       rendering? Try: glamor on llvmpipe, other CEF flags, `--in-process-gpu`, Xorg `-ac` style
       tweaks, matching libstdc++ in the runtime. Can't be fully proven without a real GPU.
-- [ ] **Bluetooth pairing end to end.** BlueZ's `btvirt` failed to open a virtual controller on this
+- [x] **Bluetooth pairing end to end.** (time-boxed, NOT solved: see the log line of 17:45Z) BlueZ's `btvirt` failed to open a virtual controller on this
       kernel; find out why (kernel debug, strace-like tracing) or write a tiny virtual controller.
 
 ## Log
@@ -76,3 +76,4 @@ Investigations (time-boxed to one session each; stop and write down what was lea
 - 2026-11-16 16:35Z  Kernel hardened (no DEBUG_FS, KALLSYMS_ALL, BINFMT_MISC, X86_MSR). tests/run-all.sh: ALL PASSED (demo checks, power, keyboard, display, idle, mouse, firewall, dual-boot).
 - 2026-11-16 17:00Z  In-OS installer page (plan, progress bar, done) built on silver-install --plan/--yes; install + boot verified in QEMU.
 - 2026-11-16 17:20Z  First-run welcome on installed systems (Keyboard > Time > Network, then home). Dual-boot test passes with it.
+- 2026-11-16 17:45Z  Bluetooth investigation: the reason btvirt failed was a missing kernel option (CONFIG_BT_HCIVHCI, now =m, /dev/vhci exists). btvirt still prints "Failed to open Virtual HCI device" even with bluetoothd stopped; the kernel registers hci0 but the emulator's create handshake fails (hci0 reset times out). Not solved; tests/bt-pair-test.py and tests/bt-img.sh are kept for the next try. Pairing remains untested.
