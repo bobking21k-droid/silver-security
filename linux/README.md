@@ -57,7 +57,9 @@ reference, not its content.)
    Arrow keys choose a pane (the chosen one turns
    to white glass), Enter opens it, Esc comes back. Every section works:
    - **Files**: browse your home folder (Enter opens a folder, Backspace goes up) with a text
-     preview of the selected file.
+     preview of the selected file. Keys: `C` copy, `X` cut, `V` paste, `R` rename, `N` new
+     folder, `D` then `D` again to delete (asks first); Enter on a picture (PNG, JPEG, BMP, GIF)
+     opens a full-screen viewer (Left/Right for the next picture, Esc to close).
    - **Search** works like Google's front page: a big search bar, and under it **your recent
      searches** (kept in `~/.config/silver/search-history`, Backspace on one forgets it) and
      **what's trending today** (Google Trends' public feed). As you type, Google's suggestions
@@ -348,6 +350,9 @@ What works and what is untested, plainly:
 
 ## Security defaults
 
+The review notes (what was fixed, what is traded off, what is still to do, Secure Boot plan) are
+in [docs/SECURITY.md](docs/SECURITY.md).
+
 - Kernel: KASLR, lockdown (integrity), signed-only modules (only the Wi-Fi, Bluetooth and
   graphics drivers are modules), no `/dev/mem`, no kexec, no
   hibernation, 32-bit programs allowed only because Steam needs them, zeroed allocations and stacks, hardened usercopy,
@@ -380,3 +385,15 @@ What works and what is untested, plainly:
 5. **Self-hosting toolchain**: build GCC/binutils for the target so SilverOS can rebuild
    itself, and drop the dependency on the host compiler.
 6. **Secure Boot**: sign the bootloader and kernel with your own keys.
+
+## Known limits
+
+- Never run on a real PC yet: everything was tested in QEMU (BIOS and UEFI). Real GPU, Wi-Fi,
+  Bluetooth pairing, lid switch, touchpad, brightness/volume keys and CPU power saving are written
+  but untested on hardware.
+- Steam's own window crashes on software rendering in the test VM (its browser engine's GPU
+  process); a real GPU should be better, but this is not proven.
+- Secure Boot must be off (images are not signed).
+- Accented letters from other keyboard layouts show in the console but are not yet typed into the
+  home screen's text boxes.
+- The laptop lid blanks the screen but does not suspend.
