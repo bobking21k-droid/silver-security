@@ -48,11 +48,13 @@ typedef struct EFI_SIMPLE_TEXT_OUTPUT {
 	void *Mode;
 } EFI_SIMPLE_TEXT_OUTPUT;
 
-/* ---- runtime services: only the variable reader is used ---- */
+/* ---- runtime services: only the variable reader and writer are used ---- */
 typedef struct {
 	EFI_TABLE_HEADER Hdr;
 	void *GetTime, *SetTime, *GetWakeupTime, *SetWakeupTime, *SetVirtualAddressMap, *ConvertPointer;
 	EFI_STATUS (EFIAPI *GetVariable)(CHAR16 *Name, EFI_GUID *Vendor, uint32_t *Attributes, UINTN *DataSize, void *Data);
+	void *GetNextVariableName;
+	EFI_STATUS (EFIAPI *SetVariable)(CHAR16 *Name, EFI_GUID *Vendor, uint32_t Attributes, UINTN DataSize, void *Data);
 } EFI_RUNTIME_SERVICES;
 
 /* ---- boot services (order is significant) ---- */

@@ -616,13 +616,14 @@ static void handle_key(Home *h, int k)
 		if (h->sub == 2) { if (bt_key(k)) h->sub = 0; break; }                 /* Bluetooth */
 		if (k == K_ESC || k == K_LEFT || k == K_BACK) { h->screen = 0; h->fade = 0; }
 		else if (k == K_UP && h->row > 0) { h->row--; h->confirm = 0; }
-		else if (k == K_DOWN && h->row < 7) { h->row++; h->confirm = 0; }
+		else if (k == K_DOWN && h->row < 8) { h->row++; h->confirm = 0; }
 		else if (k == K_ENTER) {
 			if (h->row == 0) { h->sub = 1; wf_open(); }
 			else if (h->row == 1) { h->sub = 2; bt_open(); }
 			else if (h->row == 3) calm_toggle(h);
 			else if (h->row == 4) mute_toggle(h);
-			else if (h->row == 6 || h->row == 7) { if (h->confirm == h->row) request(h->row == 6 ? 'R' : 'P'); else h->confirm = h->row; }
+			else if (h->row == 6) { if (win_ok()) { if (h->confirm == 6) request('N'); else h->confirm = 6; } }      /* Windows: asks twice */
+			else if (h->row == 7 || h->row == 8) { if (h->confirm == h->row) request(h->row == 7 ? 'R' : 'P'); else h->confirm = h->row; }
 		}
 		break;
 	case 2: {                                                                   /* search: YouTube */
@@ -856,22 +857,34 @@ static void home_loop(Home *h)
 #include <sys/mount.h>
 /* Tell the boot chooser to stay quiet (or not): a small firmware variable it reads at start.
  * Runs in the privileged parent. Quietly does nothing on BIOS machines. */
-#define MUTE_VAR "/sys/firmware/efi/efivars/SilverMute-6c5c3c2e-6b0a-4f3c-9a7e-2f1d0c9b8a71"
-static void efi_mute(int on)
+#define EFI_GUID_STR "6c5c3c2e-6b0a-4f3c-9a7e-2f1d0c9b8a71"
+#define MUTE_VAR "/sys/firmware/efi/efivars/SilverMute-" EFI_GUID_STR
+#define NEXT_VAR "/sys/firmware/efi/efivars/SilverNext-" EFI_GUID_STR
+/* a one-byte firmware variable the boot chooser reads: SilverMute (1 = quiet) or SilverNext (2 = start Windows once) */
+static void efi_var(const char *path, int val)
 {
 	if (access("/sys/firmware/efi", F_OK)) return;
 	if (access("/sys/firmware/efi/efivars/SecureBoot-8be4df61-93ca-11d2-aa0d-00e098032b8c", F_OK) &&
 	    access("/sys/firmware/efi/efivars/BootOrder-8be4df61-93ca-11d2-aa0d-00e098032b8c", F_OK))
 		mount("efivarfs", "/sys/firmware/efi/efivars", "efivarfs", MS_NOSUID | MS_NODEV | MS_NOEXEC, NULL);
-	int fd = open(MUTE_VAR, O_RDONLY);
+	int fd = open(path, O_RDONLY);
 	if (fd >= 0) {                                    /* existing variables are immutable until told otherwise */
 		int flags = 0;
 		if (ioctl(fd, FS_IOC_GETFLAGS, &flags) == 0 && (flags & FS_IMMUTABLE_FL)) { flags &= ~FS_IMMUTABLE_FL; ioctl(fd, FS_IOC_SETFLAGS, &flags); }
 		close(fd);
 	}
-	unsigned char rec[5] = {7, 0, 0, 0, (unsigned char)(on ? 1 : 0)};   /* non-volatile, boot + runtime access */
-	fd = open(MUTE_VAR, O_WRONLY | O_CREAT, 0644);
+	unsigned char rec[5] = {7, 0, 0, 0, (unsigned char)val};   /* non-volatile, boot + runtime access */
+	fd = open(path, O_WRONLY | O_CREAT, 0644);
 	if (fd >= 0) { if (write(fd, rec, sizeof rec) != (ssize_t)sizeof rec) { /* firmware said no: nothing more to do */ } close(fd); }
+}
+static void efi_mute(int on) { efi_var(MUTE_VAR, on ? 1 : 0); }
+/* "Play in Windows": only on an installed SilverOS that found Windows (the installer records it) */
+static int windows_installed(void)
+{
+	FILE *f = fopen("/etc/silver-installed", "r");
+	char l[160]; int yes = 0;
+	if (f) { while (fgets(l, sizeof l, f)) if (!strncmp(l, "windows=yes", 11)) yes = 1; fclose(f); }
+	return yes;
 }
 
 /* Steam: hand the screen, keyboard and sound card to the games layer's session (Xorg + the
@@ -938,6 +951,7 @@ static void run_session(void)
 			if (n <= 0) { c = 'T'; break; }
 			if (c == 'T') break;
 			if (c == 'S' || c == 's') { efi_mute(c == 'S'); muted = c == 'S'; continue; }
+			if (c == 'N' && windows_installed()) { efi_var(NEXT_VAR, 2); kill(1, SIGTERM); for (;;) pause(); }     /* restart straight into Windows */
 			if (c == 'R') { kill(1, SIGTERM); for (;;) pause(); }
 			if (c == 'P') { kill(1, SIGUSR2); for (;;) pause(); }
 			if (c == 'G') {

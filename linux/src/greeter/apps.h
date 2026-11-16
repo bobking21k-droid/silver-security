@@ -9,6 +9,19 @@
 #include <sys/statvfs.h>
 
 static void request(char c);
+/* is Windows installed next to SilverOS (and is this the installed system, which has the boot chooser)? */
+static int win_ok(void)
+{
+#ifdef RENDER
+	return 1;
+#else
+	FILE *f = fopen("/etc/silver-installed", "r");
+	char l[160]; int yes = 0;
+	if (f) { while (fgets(l, sizeof l, f)) if (!strncmp(l, "windows=yes", 11)) yes = 1; fclose(f); }
+	return yes;
+#endif
+}
+
 #define FETCH_BIN "/sbin/silver-fetch"
 
 /* ================================================================ Me and my PC */

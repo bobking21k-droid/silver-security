@@ -107,7 +107,15 @@ reference, not its content.)
        Steam asks you to sign in to your own Steam account: SilverOS never sees your password
        or card. Windows games run through Steam's Proton (Valve's, downloaded by Steam). See
        "The games layer" below. **Microsoft Store games cannot run outside Windows** (their
-       copy protection needs it), so that tab is look-only, with a code to get them in Windows.
+       copy protection needs it), so for those, and for any Windows game you'd rather run in Windows
+       itself, press **P** on the game's page: **Play in Windows** asks once, then restarts the
+       computer straight into Windows (the boot chooser reads a one-time request that SilverOS
+       leaves in the firmware, starts Windows, and forgets it), where you open Steam, the Xbox app
+       or the Microsoft Store and play. To come back, restart: the SilverOS | Windows choice shows
+       at every start. It needs SilverOS installed next to Windows (the installer records that).
+       **Settings > Windows** does the same restart without a game. On the live USB it is
+       hidden, since the boot chooser is installed by the installer. (A boot chooser from an older
+       install doesn't know the request; run `silver-install` again to update it.)
        A wishlist (W) is kept in `~/.config/silver/wishlist`.
        A little figure dances along the bottom, from a clip you
        supply: `scripts/make-dancer.py <clip> <start> <end> <x> <y> <w> <h>` (kept in `work/`,

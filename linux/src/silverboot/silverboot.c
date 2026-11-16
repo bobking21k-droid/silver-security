@@ -232,6 +232,17 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE *st)
 		bootsfx_build(&snd, 1, calm);                          /* all the sounds, made now (well under a second) */
 		if (hda_start()) sfx_play(&hda_player, &snd.amb, 0.7f, 1);
 	}
+	/* "Play in Windows" in SilverOS leaves a one-time request (the variable SilverNext = 2): start
+	 * Windows right away, after a moment of the scene, and forget the request so it only happens once */
+	int auto_go = -1, frames = 0;
+	{
+		uint8_t nv = 0; UINTN ns = 1; uint32_t nattr;
+		EFI_RUNTIME_SERVICES *rt = (EFI_RUNTIME_SERVICES *)st->RuntimeServices;
+		if (rt->GetVariable(u"SilverNext", &muteg, &nattr, &ns, &nv) == EFI_SUCCESS) {
+			rt->SetVariable(u"SilverNext", &muteg, 0, 0, 0);           /* attributes 0, size 0: delete it */
+			if (nv == 2 && c.windows_found) auto_go = 1;
+		}
+	}
 	int last_sel = c.sel, last_count = (int)(c.countdown + 0.999f);
 	uint64_t last = rdtsc();
 	for (;;) {
@@ -241,6 +252,7 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE *st)
 
 		EFI_INPUT_KEY k;
 		int go = -1, click = 0;
+		if (auto_go >= 0 && ++frames > 40) { go = auto_go; auto_go = -1; }
 		while (st->ConIn->ReadKeyStroke(st->ConIn, &k) == EFI_SUCCESS) {
 			chooser_poke(&c);
 			if (k.ScanCode == SCAN_LEFT || k.ScanCode == SCAN_UP) c.sel = 0;

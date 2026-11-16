@@ -135,6 +135,7 @@ typedef struct {
 	int sel, top;
 	int detail; Job djob; int dstate;    /* the open game's page, and its extra details */
 	int buying;                          /* the Buy panel is open */
+	int towin;                           /* the "play it in Windows?" panel is open */
 } GStore;
 static struct { int tab, focus, open; GStore s[GS_N]; float seg, wide[GS_N]; } gs;     /* open: inside one store (else the three-way front screen) */
 
@@ -653,7 +654,7 @@ static void draw_gstore_page(Home *h, float t)
 		char dl2[6][160]; int m = ui_wrap(desc, U * 1.8f, rw, 6, dl2);
 		for (int k = 0; k < m; k++) sg_text(&fb, &FT, rx, y + k * U * 2.7f, dl2[k], U * 1.8f, RGB(205, 205, 210), 1, 0.01f);
 		/* install / play, buy, and the wishlist */
-		float boxy = bot - U * 15, boxh = U * 13;
+		float boxy = bot - U * 22, boxh = U * 20;
 		ui_frost(lx, boxy, gw, boxh, U * 2, 0.62f);
 		int here = gs.tab == GS_STEAM && steam_ready(), inst = here && steam_installed(g->id);
 		icon(here ? I_GAME : I_INFO, lx + U * 4, boxy + U * 4.4f, U * 1.6f, here ? RGB(90, 225, 140) : RGB(255, 190, 70), 1);
@@ -661,12 +662,12 @@ static void draw_gstore_page(Home *h, float t)
 		if (here && inst) { l1 = "Installed. Press Enter to play it, right here in SilverOS."; l2 = "It runs through Steam and Proton. Quit the game and Steam to come back here."; }
 		else if (here && silver_live()) { l1 = "You're running from the USB stick: Steam's files would fill your memory."; l2 = "Install SilverOS first (su -c silver-install), then games go on the disk. ENTER tries anyway."; }
 		else if (here) { l1 = "Press Enter to install it with Steam, right here in SilverOS. B buys it in Steam."; l2 = "Steam asks you to sign in the first time. Windows games run through Proton."; }
-		else if (gs.tab == GS_STEAM) { l1 = "Buy it through Steam: press Enter, scan the code, and it opens in the Steam app."; l2 = "This build has no games layer, so it plays when you start Windows."; }
-		else { l1 = "Microsoft Store games only run in Windows: their copy protection needs it."; l2 = "Press Enter and scan the code to get it there, for when you start Windows."; }
+		else if (gs.tab == GS_STEAM) { l1 = "Buy it through Steam: press Enter, scan the code, and it opens in the Steam app."; l2 = win_ok() ? "Press P to restart into Windows and play it there." : "This build has no games layer, so it plays when you start Windows."; }
+		else { l1 = "Microsoft Store games only run in Windows: their copy protection needs it."; l2 = win_ok() ? "Press P to restart into Windows and play it there. ENTER shows a code to get it." : "Press Enter and scan the code to get it there, for when you start Windows."; }
 		sg_text(&fb, &FT, lx + U * 7.5f, boxy + U * 5.0f, l1, U * 1.9f, WHITE, 1, 0.01f);
 		sg_text(&fb, &FT, lx + U * 7.5f, boxy + U * 8.6f, l2, U * 1.7f, RGB(185, 185, 190), 1, 0.01f);
 		int on = wish_has(g->key);
-		float bw = U * 20, bx = lx + gw - bw - U * 3, byy = boxy + boxh / 2 - U * 2.6f, bx2 = bx - bw - U * 1.6f, bx3 = bx2 - bw - U * 1.6f;
+		float bw = U * 20, bx = lx + gw - bw - U * 3, byy = boxy + U * 12, bx2 = bx - bw - U * 1.6f, bx3 = bx2 - bw - U * 1.6f, bx4 = bx3 - bw - U * 1.6f;
 		char bl[48]; snprintf(bl, sizeof bl, "BUY  %s", g->price[0] && strcmp(g->price, "Free") ? g->price : "");
 		if (!strcmp(g->price, "Free")) snprintf(bl, sizeof bl, "GET FREE");
 		if (!strcmp(g->price, "Game Pass")) snprintf(bl, sizeof bl, "GET");
@@ -683,8 +684,29 @@ static void draw_gstore_page(Home *h, float t)
 		const char *wl = on ? "ON WISHLIST" : "WISHLIST";
 		float ww = sg_text_w(&FC, wl, U * 1.05f, 0.2f);
 		sg_text(&fb, &FC, bx + bw / 2 - ww / 2, byy + U * 3.0f, wl, U * 1.05f, on ? INK : WHITE, 1, 0.2f);
-		if (here) { foot_hints(on ? (inst ? "ENTER  play      B  buy      W  remove from wishlist      ESC  back" : "ENTER  install      B  buy      W  remove from wishlist      ESC  back")
-		                          : (inst ? "ENTER  play      B  buy      W  add to wishlist      ESC  back" : "ENTER  install      B  buy      W  add to wishlist      ESC  back")); return; }
+		if (win_ok()) {                                                   /* PLAY IN WINDOWS: restart into Windows to play it there */
+			float wx = here ? bx4 : bx3; const char *wt = "PLAY IN WINDOWS";
+			sg_rrect(&fb, wx, byy, bw, U * 5.2f, U * 2.6f, 0, RGB(40, 110, 220), 0.95f);
+			float wtw = sg_text_w(&FC, wt, U * 1.05f, 0.2f);
+			sg_text(&fb, &FC, wx + bw / 2 - wtw / 2, byy + U * 3.0f, wt, U * 1.05f, WHITE, 1, 0.2f);
+		}
+		if (s->towin) {                                                   /* are you sure? */
+			sg_rect(&fb, 0, 0, W, H, BLACK, 0.6f);
+			float pw = W * 0.56f, ph = U * 30, px = (W - pw) / 2, py = (H - ph) / 2;
+			ui_frost(px, py, pw, ph, U * 2.6f, 0.8f);
+			cap_text(px + U * 4, py + U * 5, "PLAY IT IN WINDOWS", U * 1.05f, RGB(110, 170, 255), 1, 0);
+			char nm2[120]; fit(g->name, U * 3.2f, pw - U * 8, nm2, sizeof nm2);
+			sg_text(&fb, &FT, px + U * 4, py + U * 10.5f, nm2, U * 3.2f, WHITE, 1, 0.01f);
+			sg_text(&fb, &FT, px + U * 4, py + U * 15.2f, "SilverOS restarts and opens Windows.", U * 1.9f, RGB(215, 215, 220), 1, 0.01f);
+			sg_text(&fb, &FT, px + U * 4, py + U * 18.4f, gs.tab == GS_STEAM ? "Open Steam there and press Play." : "Open the Microsoft Store or Xbox app there.", U * 1.9f, RGB(215, 215, 220), 1, 0.01f);
+			sg_text(&fb, &FT, px + U * 4, py + U * 22.6f, "To come back, restart: the SilverOS | Windows choice shows at every start.", U * 1.6f, RGB(160, 160, 168), 1, 0.01f);
+			sg_rrect(&fb, px + U * 4, py + ph - U * 7.5f, U * 22, U * 5, U * 2.5f, 0, RGB(40, 110, 220), 0.95f);
+			sg_text(&fb, &FC, px + U * 4 + U * 11 - sg_text_w(&FC, "RESTART NOW", U * 1.05f, 0.2f) / 2, py + ph - U * 4.5f, "RESTART NOW", U * 1.05f, WHITE, 1, 0.2f);
+			foot_hints("ENTER  restart into Windows      ESC  cancel");
+			return;
+		}
+		if (here) { foot_hints(on ? (inst ? "ENTER  play      B  buy      P  windows      W  wishlist      ESC  back" : "ENTER  install      B  buy      P  windows      W  wishlist      ESC  back")
+		                          : (inst ? "ENTER  play      B  buy      P  windows      W  wishlist      ESC  back" : "ENTER  install      B  buy      P  windows      W  wishlist      ESC  back")); return; }
 		if (s->buying) {                                                  /* the Buy panel: scan with your phone */
 			sg_rect(&fb, 0, 0, W, H, BLACK, 0.55f);
 			char url[200];
@@ -718,7 +740,7 @@ static void draw_gstore_page(Home *h, float t)
 			foot_hints("ESC  close");
 			return;
 		}
-		foot_hints(on ? "ENTER  buy      W  remove from wishlist      ESC  back" : "ENTER  buy      W  add to wishlist      ESC  back");
+		foot_hints(win_ok() ? "ENTER  buy      P  play in windows      W  wishlist      ESC  back" : (on ? "ENTER  buy      W  remove from wishlist      ESC  back" : "ENTER  buy      W  add to wishlist      ESC  back"));
 		return;
 	} else {                                                         /* the grid */
 		int rows = (int)((bot - gy + gap) / (ch + gap)); if (rows < 1) rows = 1;
@@ -780,6 +802,8 @@ static int gstore_key(int k, int *playing)
 	}
 	if (s->detail) {
 		if (s->buying) { if (k == K_ESC || k == K_BACK || k == K_ENTER) s->buying = 0; return 0; }
+		if (s->towin) { if (k == K_ENTER) request('N'); if (k == K_ENTER || k == K_ESC || k == K_BACK) s->towin = 0; return 0; }
+		if ((k == 'p' || k == 'P') && win_ok()) { s->towin = 1; return 0; }
 		if (k == K_ESC || k == K_BACK || k == K_LEFT) s->detail = 0;
 		else if (gs.tab == GS_STEAM && steam_ready() && s->g[s->sel].id[0]) {        /* Steam runs here: it installs, plays and sells */
 			const char *id = s->g[s->sel].id;
