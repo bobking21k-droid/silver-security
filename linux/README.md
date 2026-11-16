@@ -49,7 +49,12 @@ reference, not its content.)
    (`src/greeter/sound.h`, sounds in `src/common/sfx.h`). It needs Intel HD Audio with a
    common codec (Realtek, Conexant, Analog, Cirrus, HDMI) or, in Linux only, USB audio.
    Calm mode plays the big moments quieter and without the booms.
-4. **The home screen** (`src/greeter/home.h`): arrow keys choose a pane (the chosen one turns
+4. **The home screen** (`src/greeter/home.h`): **mouse and touchpad work too** (`mouse.h`): move
+   to select what is under the cursor (the panes, and the rows of Settings, Network, Bluetooth
+   and Time), left click is Enter, right click is Back, the wheel scrolls. It reads the kernel's
+   mouse emulation (`/dev/input/mice`), which every mouse and touchpad feeds; two-finger
+   scrolling on a touchpad is not translated, so use the touchpad's edge or the arrow keys.
+   Arrow keys choose a pane (the chosen one turns
    to white glass), Enter opens it, Esc comes back. Every section works:
    - **Files**: browse your home folder (Enter opens a folder, Backspace goes up) with a text
      preview of the selected file.
@@ -93,6 +98,10 @@ reference, not its content.)
      Tested against real BlueZ only for the "no adapter" state (a virtual machine has no
      Bluetooth hardware, and BlueZ's virtual controller would not run on this kernel); pairing
      itself is untested, and the page parses `bluetoothctl`'s documented output.
+   - **Settings > Brightness and Volume** are sliders (Left / Right). Volume sets the sound card's
+     main playback control (and unmutes it). Brightness works on screens with a backlight (laptop
+     panels); on a desktop monitor it says so. The privileged side of the home screen makes the
+     change, asked by the unprivileged side with a one-line request.
    - **Settings > Time** picks your time zone from about 50 (with today's daylight-saving rules built
      in, so no zone database is needed); every zone shows its current time. The **clock is set
      from the internet** at boot and when Wi-Fi connects (`/sbin/silver-time`): first from the

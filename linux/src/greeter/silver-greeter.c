@@ -516,6 +516,16 @@ static void lock_loop(void)
 #endif
 
 /* ================================================================ home: input handling */
+/* "V75" / "L40": a level for the privileged side (volume, brightness) */
+static void request_val(char c, int v)
+{
+#ifndef RENDER
+	char m[16]; int n = snprintf(m, sizeof m, "%c%d\n", c, v);
+	if (req_fd >= 0 && n > 0) { if (write(req_fd, m, (size_t)n) < 0) { /* parent gone */ } }
+#else
+	(void)c; (void)v;
+#endif
+}
 static void request_game(const char *action, const char *app)
 {
 #ifndef RENDER
@@ -615,17 +625,18 @@ static void handle_key(Home *h, int k)
 		if (h->sub == 1) { if (wf_key(k)) h->sub = 0; break; }                 /* Network */
 		if (h->sub == 2) { if (bt_key(k)) h->sub = 0; break; }                 /* Bluetooth */
 		if (h->sub == 3) { if (tz_key(k)) h->sub = 0; break; }                 /* Time */
+		if ((k == K_LEFT || k == K_RIGHT) && (h->row == R_BRIGHT || h->row == R_VOL)) { slider_adjust(h, k == K_RIGHT ? 5 : -5); break; }
 		if (k == K_ESC || k == K_LEFT || k == K_BACK) { h->screen = 0; h->fade = 0; }
 		else if (k == K_UP && h->row > 0) { h->row--; h->confirm = 0; }
-		else if (k == K_DOWN && h->row < 9) { h->row++; h->confirm = 0; }
+		else if (k == K_DOWN && h->row < R_N - 1) { h->row++; h->confirm = 0; }
 		else if (k == K_ENTER) {
-			if (h->row == 0) { h->sub = 1; wf_open(); }
-			else if (h->row == 1) { h->sub = 2; bt_open(); }
-			else if (h->row == 3) { h->sub = 3; tz_open(); }
-			else if (h->row == 4) calm_toggle(h);
-			else if (h->row == 5) mute_toggle(h);
-			else if (h->row == 7) { if (win_ok()) { if (h->confirm == 7) request('N'); else h->confirm = 7; } }      /* Windows: asks twice */
-			else if (h->row == 8 || h->row == 9) { if (h->confirm == h->row) request(h->row == 8 ? 'R' : 'P'); else h->confirm = h->row; }
+			if (h->row == R_NET) { h->sub = 1; wf_open(); }
+			else if (h->row == R_BT) { h->sub = 2; bt_open(); }
+			else if (h->row == R_TIME) { h->sub = 3; tz_open(); }
+			else if (h->row == R_CALM) calm_toggle(h);
+			else if (h->row == R_SOUND) mute_toggle(h);
+			else if (h->row == R_WIN) { if (win_ok()) { if (h->confirm == R_WIN) request('N'); else h->confirm = R_WIN; } }      /* Windows: asks twice */
+			else if (h->row == R_RESTART || h->row == R_OFF) { if (h->confirm == h->row) request(h->row == R_RESTART ? 'R' : 'P'); else h->confirm = h->row; }
 		}
 		break;
 	case 2: {                                                                   /* search: YouTube */
@@ -731,6 +742,8 @@ static void handle_key_snd(Home *h, int k)
 	else if (h->calm_on != o.calm_on || h->confirm != o.confirm) snd('o');
 }
 
+#include "mouse.h"
+
 static void sample_sys(Home *h, float t)
 {
 	if (t - h->last_sample < 0.5f) return;
@@ -778,29 +791,29 @@ static const struct { float t; int k; } SCRIPT[] = {
 	{46.4f, K_ENTER}, {47.4f, K_DOWN}, {48.0f, K_UP}, {48.8f, K_ENTER},                                    /* Network: join Wi-Fi */
 	{49.4f, 's'}, {49.6f, 'i'}, {49.8f, 'l'}, {50.0f, 'v'}, {50.2f, 'e'}, {50.4f, 'r'}, {50.6f, '2'}, {50.8f, '0'}, {51.0f, '2'}, {51.2f, '6'}, {51.8f, K_ENTER}, {55.2f, K_ESC},
 	{55.8f, K_DOWN}, {56.4f, K_ENTER}, {57.6f, K_DOWN}, {58.2f, K_DOWN}, {58.8f, K_ENTER}, {60.2f, K_ESC},      /* Bluetooth: pair a controller */
-	{60.8f, K_DOWN}, {61.4f, K_DOWN}, {62.0f, K_ENTER}, {63.2f, K_DOWN}, {63.8f, K_DOWN}, {64.5f, K_ENTER}, {66.0f, K_ESC},         /* Time: pick a zone */
-	{66.6f, K_DOWN}, {67.2f, K_DOWN}, {68.1f, K_ENTER}, {69.6f, K_ENTER}, {70.6f, K_ESC},     /* sound effects off, on */
-	{71.4f, K_DOWN}, {72.1f, K_ENTER},                                                                        /* Apps */
-	{73.2f, K_RIGHT}, {74.0f, K_ENTER},                                                                       /* Game Store: three stores */
-	{75.2f, K_RIGHT}, {76.4f, K_RIGHT}, {77.6f, K_LEFT}, {78.6f, K_LEFT}, {79.4f, K_ENTER},                  /* SilverOS games */
-	{80.4f, K_RIGHT}, {81.2f, K_LEFT}, {82.0f, K_ENTER},                                                      /* play Snake */
-	{82.6f, K_DOWN}, {83.4f, K_RIGHT}, {84.2f, K_UP}, {85.0f, K_RIGHT}, {86.0f, K_ESC}, {86.8f, K_ESC},
-	{87.6f, K_RIGHT}, {88.4f, K_ENTER}, {90.0f, K_RIGHT}, {90.8f, K_DOWN}, {91.6f, K_ENTER}, {92.2f, 'w'}, {92.8f, K_ENTER}, {95.4f, 'p'}, {97.0f, K_ESC}, {97.7f, K_ESC}, {98.1f, K_ESC},                   /* Steam: wishlist, install with Steam */
-	{99.2f, K_RIGHT}, {100.0f, K_ENTER}, {101.6f, K_RIGHT}, {102.4f, K_ENTER}, {104.6f, K_ESC}, {105.4f, K_ESC}, {106.2f, K_ESC},                   /* Microsoft Store */
-	{107.0f, K_RIGHT}, {107.8f, K_ENTER}, {111.4f, K_ESC}, {112.2f, K_ESC},                                       /* Me and my PC */
+	{60.6f, K_DOWN}, {60.9f, K_DOWN}, {61.2f, K_DOWN}, {61.5f, K_DOWN}, {62.0f, K_ENTER}, {63.2f, K_DOWN}, {63.8f, K_DOWN}, {64.5f, K_ENTER}, {66.0f, K_ESC},         /* Time: pick a zone */
+	{66.4f, K_UP}, {66.8f, K_LEFT}, {67.1f, K_LEFT}, {67.4f, K_RIGHT}, {67.8f, K_DOWN}, {68.1f, K_DOWN}, {68.4f, K_DOWN}, {68.9f, K_ENTER}, {70.4f, K_ENTER}, {71.4f, K_ESC},     /* volume slider, sound effects off, on */
+	{72.2f, K_DOWN}, {72.9f, K_ENTER},                                                                        /* Apps */
+	{74.0f, K_RIGHT}, {74.8f, K_ENTER},                                                                       /* Game Store: three stores */
+	{76.0f, K_RIGHT}, {77.2f, K_RIGHT}, {78.4f, K_LEFT}, {79.4f, K_LEFT}, {80.2f, K_ENTER},                  /* SilverOS games */
+	{81.2f, K_RIGHT}, {82.0f, K_LEFT}, {82.8f, K_ENTER},                                                      /* play Snake */
+	{83.4f, K_DOWN}, {84.2f, K_RIGHT}, {85.0f, K_UP}, {85.8f, K_RIGHT}, {86.8f, K_ESC}, {87.6f, K_ESC},
+	{88.4f, K_RIGHT}, {89.2f, K_ENTER}, {90.8f, K_RIGHT}, {91.6f, K_DOWN}, {92.4f, K_ENTER}, {93.0f, 'w'}, {93.6f, K_ENTER}, {96.2f, 'p'}, {97.8f, K_ESC}, {98.5f, K_ESC}, {98.9f, K_ESC},                   /* Steam: wishlist, install with Steam */
+	{100.0f, K_RIGHT}, {100.8f, K_ENTER}, {102.4f, K_RIGHT}, {103.2f, K_ENTER}, {105.4f, K_ESC}, {106.2f, K_ESC}, {107.0f, K_ESC},                   /* Microsoft Store */
+	{107.8f, K_RIGHT}, {108.6f, K_ENTER}, {112.2f, K_ESC}, {113.0f, K_ESC},                                       /* Me and my PC */
 };
-#define SCRIPT_END 113.7f
+#define SCRIPT_END 114.5f
 /* where the script must have got to (-1: don't care); the demo fails if any is wrong */
 static const struct { float t; int screen, sub, open, tab, mute; const char *what; } EXPECT[] = {
 	{5.6f, 4, -1, -1, -1, -1, "Files opens"}, {16.2f, 0, -1, -1, -1, -1, "back home from Files"},
 	{17.8f, 2, -1, -1, -1, -1, "Search opens"}, {46.2f, 1, -1, -1, -1, -1, "Settings opens"}, {47.0f, 1, 1, -1, -1, -1, "Network page"}, {55.6f, 1, 0, -1, -1, -1, "back to Settings"}, {57.0f, 1, 2, -1, -1, -1, "Bluetooth page"}, {60.6f, 1, 0, -1, -1, -1, "Settings again"},
-	{64.0f, 1, 3, -1, -1, -1, "Time page"}, {68.9f, 1, -1, -1, -1, 1, "Sound effects off"}, {70.3f, 1, -1, -1, -1, 0, "Sound effects on"},
-	{72.7f, 3, 0, -1, -1, -1, "Apps grid"}, {74.4f, 3, 5, 0, -1, -1, "Game Store front"},
-	{79.8f, 3, 5, 1, 0, -1, "SilverOS games"}, {82.4f, 3, 6, -1, -1, -1, "playing Snake"},
-	{86.4f, 3, 5, 1, 0, -1, "back from Snake"}, {87.2f, 3, 5, 0, -1, -1, "back to the front"},
-	{88.8f, 3, 5, 1, 1, -1, "Steam"}, {93.8f, 3, 5, 1, 1, -1, "Steam: install"}, {98.8f, 3, 5, 0, -1, -1, "front again"},
-	{100.4f, 3, 5, 1, 2, -1, "Microsoft Store"}, {106.6f, 3, 0, -1, -1, -1, "Apps grid again"},
-	{108.4f, 3, 4, -1, -1, -1, "Me and my PC"}, {113.0f, 0, -1, -1, -1, -1, "home at the end"},
+	{64.0f, 1, 3, -1, -1, -1, "Time page"}, {69.7f, 1, -1, -1, -1, 1, "Sound effects off"}, {71.0f, 1, -1, -1, -1, 0, "Sound effects on"},
+	{73.5f, 3, 0, -1, -1, -1, "Apps grid"}, {75.2f, 3, 5, 0, -1, -1, "Game Store front"},
+	{80.6f, 3, 5, 1, 0, -1, "SilverOS games"}, {83.2f, 3, 6, -1, -1, -1, "playing Snake"},
+	{87.2f, 3, 5, 1, 0, -1, "back from Snake"}, {88.0f, 3, 5, 0, -1, -1, "back to the front"},
+	{89.6f, 3, 5, 1, 1, -1, "Steam"}, {94.6f, 3, 5, 1, 1, -1, "Steam: install"}, {99.6f, 3, 5, 0, -1, -1, "front again"},
+	{101.2f, 3, 5, 1, 2, -1, "Microsoft Store"}, {107.4f, 3, 0, -1, -1, -1, "Apps grid again"},
+	{109.2f, 3, 4, -1, -1, -1, "Me and my PC"}, {113.8f, 0, -1, -1, -1, -1, "home at the end"},
 };
 static int expect_failed;
 #endif
@@ -828,6 +841,7 @@ static void home_loop(Home *h)
 #else
 		int k;
 		while ((k = read_key(0)) != -1) handle_key_snd(h, k);
+		mouse_poll(h);
 #endif
 #ifdef RENDER
 		static const char *prof_env; static int prof_init; if (!prof_init) { prof_env = getenv("SILVER_PROFILE"); prof_init = 1; }
@@ -847,6 +861,7 @@ static void home_loop(Home *h)
 			if (t + 0.04f > SCRIPT_END) for (int k = 0; k < ns; k++) fprintf(stderr, "%-16s frames %4d  avg %6.1f ms  max %6.1f ms\n", st[k].k, st[k].n, st[k].sum / st[k].n, st[k].max);
 		}
 #endif
+		mouse_draw();
 		flip();
 #ifndef RENDER
 		if (!key_waiting()) usleep(24000);
@@ -863,6 +878,22 @@ static void home_loop(Home *h)
 #define EFI_GUID_STR "6c5c3c2e-6b0a-4f3c-9a7e-2f1d0c9b8a71"
 #define MUTE_VAR "/sys/firmware/efi/efivars/SilverMute-" EFI_GUID_STR
 #define NEXT_VAR "/sys/firmware/efi/efivars/SilverNext-" EFI_GUID_STR
+/* screen brightness: every backlight (a laptop has one), 0 to 100 percent, never fully off */
+static void backlight_set(int pct)
+{
+	DIR *d = opendir("/sys/class/backlight"); struct dirent *e;
+	while (d && (e = readdir(d))) {
+		if (e->d_name[0] == '.') continue;
+		char p[300]; int max = 0;
+		snprintf(p, sizeof p, "/sys/class/backlight/%s/max_brightness", e->d_name);
+		FILE *f = fopen(p, "r"); if (f) { if (fscanf(f, "%d", &max) != 1) max = 0; fclose(f); }
+		if (max <= 0) continue;
+		int v = max * pct / 100; if (v < 1) v = 1;
+		snprintf(p, sizeof p, "/sys/class/backlight/%s/brightness", e->d_name);
+		f = fopen(p, "w"); if (f) { fprintf(f, "%d\n", v); fclose(f); }
+	}
+	if (d) closedir(d);
+}
 /* a one-byte firmware variable the boot chooser reads: SilverMute (1 = quiet) or SilverNext (2 = start Windows once) */
 static void efi_var(const char *path, int val)
 {
@@ -942,6 +973,7 @@ static void run_session(void)
 			if (initgroups(pw->pw_name, pw->pw_gid) || setgid(pw->pw_gid) || setuid(pw->pw_uid)) _exit(1);   /* keeps 'netdev' (Wi-Fi settings) */
 			if (chdir(homedir)) { /* fine */ }
 			Home h; home_init(&h);
+			mouse_open();
 			if (back_from_game) { open_screen(&h, 3); h.sub = 5; gs.open = 1; gs.tab = GS_STEAM; h.fade = 0; }   /* back where you were */
 			home_loop(&h);
 			_exit(0);
@@ -957,6 +989,13 @@ static void run_session(void)
 			if (c == 'N' && windows_installed()) { efi_var(NEXT_VAR, 2); kill(1, SIGTERM); for (;;) pause(); }     /* restart straight into Windows */
 			if (c == 'R') { kill(1, SIGTERM); for (;;) pause(); }
 			if (c == 'P') { kill(1, SIGUSR2); for (;;) pause(); }
+			if (c == 'V' || c == 'L') {                      /* volume / brightness, 0 to 100 */
+				char ln[8]; size_t k = 0;
+				while (k + 1 < sizeof ln && read(pfd[0], &ln[k], 1) == 1 && ln[k] != '\n') k++;
+				ln[k] = 0; int pct = atoi(ln); if (pct < 0) pct = 0; if (pct > 100) pct = 100;
+				if (c == 'V') volume_set(pct); else backlight_set(pct);
+				continue;
+			}
 			if (c == 'G') {
 				size_t k = 0;
 				while (k + 1 < sizeof req && read(pfd[0], &req[k], 1) == 1 && req[k] != '\n') k++;

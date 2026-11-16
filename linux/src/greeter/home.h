@@ -747,57 +747,119 @@ static float ui_t;                              /* seconds on the home screen cl
 #include "tz.h"
 
 /* ---------------------------------------------------------------- settings */
+/* the rows of Settings, in order (the keys, the mouse and the drawing all use these) */
+enum { R_NET, R_BT, R_DISP, R_BRIGHT, R_VOL, R_TIME, R_CALM, R_SOUND, R_ABOUT, R_WIN, R_RESTART, R_OFF, R_N };
+#define SET_LY (U * 19.0f)
+#define SET_RH (U * 4.8f)
+#define SET_STEP (U * 5.25f)
+
+#ifndef RENDER
+static int volume_get(void);                  /* (sound.h) */
+#endif
+/* screen brightness: the first backlight there is (laptop panels; desktop monitors have none) */
+static int bl_value(const char *file)
+{
+#ifdef RENDER
+	return !strcmp(file, "max_brightness") ? 100 : 70;
+#else
+	DIR *d = opendir("/sys/class/backlight"); struct dirent *e; int v = -1;
+	while (d && (e = readdir(d))) {
+		if (e->d_name[0] == '.') continue;
+		char p[300]; snprintf(p, sizeof p, "/sys/class/backlight/%s/%s", e->d_name, file);
+		FILE *f = fopen(p, "r"); if (f) { if (fscanf(f, "%d", &v) != 1) v = -1; fclose(f); }
+		if (v >= 0) break;
+	}
+	if (d) closedir(d);
+	return v;
+#endif
+}
+static struct { int bri, vol; double read; } dsp = {-2, -2, -100};
+static void dsp_refresh(float t)                                     /* every couple of seconds, and when Settings opens */
+{
+	if ((double)t - dsp.read < 2.0 && dsp.bri != -2) return;
+	dsp.read = t;
+#ifdef RENDER
+	if (dsp.bri == -2) { dsp.bri = 70; dsp.vol = 65; }
+#else
+	int m = bl_value("max_brightness"), b = bl_value("brightness");
+	dsp.bri = (m > 0 && b >= 0) ? b * 100 / m : -1;
+	dsp.vol = volume_get();
+#endif
+}
+static void request_val(char c, int v);
+static void slider_adjust(Home *h, int delta)
+{
+	(void)h;
+	if (h->row == R_BRIGHT && dsp.bri >= 0) { dsp.bri = dsp.bri + delta < 5 ? 5 : dsp.bri + delta > 100 ? 100 : dsp.bri + delta; request_val('L', dsp.bri); }
+	else if (h->row == R_VOL && dsp.vol >= 0) { dsp.vol = dsp.vol + delta < 0 ? 0 : dsp.vol + delta > 100 ? 100 : dsp.vol + delta; request_val('V', dsp.vol); }
+}
+
 static void draw_settings(Home *h, float t)
 {
 	if (h->sub == 1) { draw_network(h, t); return; }
 	if (h->sub == 2) { draw_bluetooth(h, t); return; }
 	if (h->sub == 3) { draw_time(h, t); return; }
 	memcpy(fb.px, bg_sec, (size_t)W * H * 4);
-	title_block("SETTINGS", "NETWORK  BLUETOOTH  TIME  SOUND  POWER", I_SETTINGS);
+	title_block("SETTINGS", "NETWORK  BLUETOOTH  DISPLAY  SOUND  TIME  POWER", I_SETTINGS);
 	char net[80]; net_text(net, sizeof net);
 	if (t - wf.last_poll > 3 || !wf.last_poll) wf_poll(t);
+	dsp_refresh(t);
 	if (wf.ssid[0]) snprintf(net, sizeof net, "Wi-Fi  %.32s", wf.ssid);
 	else if (!strcmp(net, "not connected") && wf.adapters) snprintf(net, sizeof net, "Not connected  -  ENTER to pick Wi-Fi");
 	char disp[48]; snprintf(disp, sizeof disp, "%d x %d", W * scale, H * scale);
-	static const char *name[10] = {"Network", "Bluetooth", "Display", "Time", "Calm mode", "Sound effects", "About", "Windows", "Restart", "Shut down"};
-	static const int ic[10] = {I_NET, I_SOUND, I_SCREEN, I_INFO, I_SETTINGS, I_SOUND, I_INFO, I_PC, I_POWER, I_POWER};
-	char val[10][80];
-	snprintf(val[0], 80, "%s", net);
-	{ int c = 0; for (int i = 0; i < bt.n; i++) c += bt.d[i].connected; if (c) snprintf(val[1], 80, "%d connected", c); else snprintf(val[1], 80, "Pair headphones, controllers ..."); }
-	snprintf(val[2], 80, "%s", disp);
-	snprintf(val[3], 80, "%.60s", ZONES[tzs.cur >= 0 ? tzs.cur : 0].name);
-	snprintf(val[4], 80, "%s", h->calm_on ? "ON  -  no strobing or shaking" : "OFF");
-	snprintf(val[5], 80, "%s", h->mute_on ? "OFF  -  muted" : "ON");
-	snprintf(val[6], 80, "SilverOS 0.1.0");
-	snprintf(val[7], 80, "%s", !win_ok() ? "Not installed next to SilverOS" : h->confirm == 7 ? "PRESS ENTER AGAIN TO RESTART INTO WINDOWS" : "Restart straight into Windows");
-	snprintf(val[8], 80, "%s", h->confirm == 8 ? "PRESS ENTER AGAIN TO RESTART" : "Restart the computer");
-	snprintf(val[9], 80, "%s", h->confirm == 9 ? "PRESS ENTER AGAIN TO SHUT DOWN" : "Turn the computer off");
-	float lx = U * 6, lw = W - U * 12, ly = U * 20, rh = U * 5.2f;
-	ui_frost(lx - U * 1.2f, ly - U * 1.2f, lw + U * 2.4f, 10 * (rh + U * 0.5f) + U * 1.6f, U * 2.2f, 0.55f);
-	for (int i = 0; i < 10; i++) {
-		float y = ly + i * (rh + U * 0.5f); int sel = i == h->row, danger = i >= 7;
+	static const char *name[R_N] = {"Network", "Bluetooth", "Display", "Brightness", "Volume", "Time", "Calm mode", "Sound effects", "About", "Windows", "Restart", "Shut down"};
+	static const int ic[R_N] = {I_NET, I_SOUND, I_SCREEN, I_SCREEN, I_SOUND, I_INFO, I_SETTINGS, I_SOUND, I_INFO, I_PC, I_POWER, I_POWER};
+	char val[R_N][80];
+	snprintf(val[R_NET], 80, "%s", net);
+	{ int c = 0; for (int i = 0; i < bt.n; i++) c += bt.d[i].connected; if (c) snprintf(val[R_BT], 80, "%d connected", c); else snprintf(val[R_BT], 80, "Pair headphones, controllers ..."); }
+	snprintf(val[R_DISP], 80, "%s", disp);
+	snprintf(val[R_BRIGHT], 80, dsp.bri >= 0 ? "%d%%" : "Not adjustable on this screen", dsp.bri);
+	snprintf(val[R_VOL], 80, dsp.vol >= 0 ? "%d%%" : "No sound device", dsp.vol);
+	snprintf(val[R_TIME], 80, "%.60s", ZONES[tzs.cur >= 0 ? tzs.cur : 0].name);
+	snprintf(val[R_CALM], 80, "%s", h->calm_on ? "ON  -  no strobing or shaking" : "OFF");
+	snprintf(val[R_SOUND], 80, "%s", h->mute_on ? "OFF  -  muted" : "ON");
+	snprintf(val[R_ABOUT], 80, "SilverOS 0.1.0");
+	snprintf(val[R_WIN], 80, "%s", !win_ok() ? "Not installed next to SilverOS" : h->confirm == R_WIN ? "PRESS ENTER AGAIN TO RESTART INTO WINDOWS" : "Restart straight into Windows");
+	snprintf(val[R_RESTART], 80, "%s", h->confirm == R_RESTART ? "PRESS ENTER AGAIN TO RESTART" : "Restart the computer");
+	snprintf(val[R_OFF], 80, "%s", h->confirm == R_OFF ? "PRESS ENTER AGAIN TO SHUT DOWN" : "Turn the computer off");
+	float lx = U * 6, lw = W - U * 12, ly = SET_LY, rh = SET_RH;
+	ui_frost(lx - U * 1.2f, ly - U * 1.0f, lw + U * 2.4f, R_N * SET_STEP + U * 1.2f, U * 2.2f, 0.55f);
+	for (int i = 0; i < R_N; i++) {
+		float y = ly + i * SET_STEP; int sel = i == h->row, danger = i >= R_WIN;
 		if (sel) { sg_rrect(&fb, lx, y, lw, rh, U * 1.4f, 0, WHITE, 0.95f); sg_rrect(&fb, lx + U * 0.7f, y + rh * 0.25f, U * 0.45f, rh * 0.5f, U * 0.22f, 0, RED, 1); }
-		else if (i) sg_rect(&fb, lx + U * 3, y - U * 0.3f, lw - U * 6, sg_max(1, U * 0.08f), WHITE, 0.08f);
-		uint32_t fg = sel ? INK : WHITE;
-		if (i == 4 || i == 5) {                                              /* on/off switches */
-			int on = i == 4 ? h->calm_on : !h->mute_on;
-			float sw = U * 5.4f, shh = U * 2.8f, sx = lx + lw - U * 3 - sw, sy = y + rh / 2 - shh / 2;
+		else if (i) sg_rect(&fb, lx + U * 3, y - U * 0.25f, lw - U * 6, sg_max(1, U * 0.08f), WHITE, 0.08f);
+		uint32_t fg = sel ? INK : WHITE, sub = sel ? RGB(70, 70, 78) : RGB(160, 160, 166);
+		if (i == R_CALM || i == R_SOUND) {                                   /* on/off switches */
+			int on = i == R_CALM ? h->calm_on : !h->mute_on;
+			float sw = U * 5.4f, shh = U * 2.6f, sx = lx + lw - U * 3 - sw, sy = y + rh / 2 - shh / 2;
 			sg_rrect(&fb, sx, sy, sw, shh, shh / 2, 0, on ? RED : (sel ? RGB(170, 170, 176) : RGB(70, 70, 76)), 1);
 			sg_disc(&fb, on ? sx + sw - shh / 2 : sx + shh / 2, sy + shh / 2, shh * 0.38f, WHITE, 1);
-			icon(ic[i], lx + U * 4.2f, y + rh / 2, U * 2.0f, fg, 1);
-			sg_text(&fb, &FT, lx + U * 9, y + rh / 2 + U * 0.9f, name[i], U * 2.6f, fg, 1, 0.01f);
-			float vw = sg_text_w(&FT, val[i], U * 2.0f, 0.01f);
-			sg_text(&fb, &FT, sx - U * 2 - vw, y + rh / 2 + U * 0.7f, val[i], U * 2.0f, sel ? RGB(70, 70, 78) : RGB(160, 160, 166), 1, 0.01f);
+			icon(ic[i], lx + U * 4.2f, y + rh / 2, U * 1.9f, fg, 1);
+			sg_text(&fb, &FT, lx + U * 9, y + rh / 2 + U * 0.85f, name[i], U * 2.4f, fg, 1, 0.01f);
+			float vw = sg_text_w(&FT, val[i], U * 1.9f, 0.01f);
+			sg_text(&fb, &FT, sx - U * 2 - vw, y + rh / 2 + U * 0.65f, val[i], U * 1.9f, sub, 1, 0.01f);
 			continue;
 		}
-		icon(ic[i], lx + U * 4.2f, y + rh / 2, U * 2.0f, danger && !sel ? RGB(255, 120, 110) : fg, 1);
-		sg_text(&fb, &FT, lx + U * 9, y + rh / 2 + U * 0.9f, name[i], U * 2.6f, fg, 1, 0.01f);
-		uint32_t vc = sel ? RGB(70, 70, 78) : RGB(160, 160, 166);
+		if ((i == R_BRIGHT && dsp.bri >= 0) || (i == R_VOL && dsp.vol >= 0)) {   /* sliders: Left / Right */
+			int v = i == R_BRIGHT ? dsp.bri : dsp.vol;
+			float sw = U * 26, shh = U * 1.0f, sx = lx + lw - U * 3 - sw - U * 7, sy = y + rh / 2 - shh / 2;
+			sg_rrect(&fb, sx, sy, sw, shh, shh / 2, 0, sel ? RGB(170, 170, 176) : RGB(70, 70, 76), 1);
+			sg_rrect(&fb, sx, sy, sg_max(shh, sw * v / 100), shh, shh / 2, 0, RED, 1);
+			sg_disc(&fb, sx + sw * v / 100, sy + shh / 2, U * 1.2f, sel ? RED : WHITE, 1);
+			icon(ic[i], lx + U * 4.2f, y + rh / 2, U * 1.9f, fg, 1);
+			sg_text(&fb, &FT, lx + U * 9, y + rh / 2 + U * 0.85f, name[i], U * 2.4f, fg, 1, 0.01f);
+			float vw = sg_text_w(&FT, val[i], U * 1.9f, 0.01f);
+			sg_text(&fb, &FT, lx + lw - U * 3 - vw, y + rh / 2 + U * 0.65f, val[i], U * 1.9f, sub, 1, 0.01f);
+			continue;
+		}
+		icon(ic[i], lx + U * 4.2f, y + rh / 2, U * 1.9f, danger && !sel ? RGB(255, 120, 110) : fg, 1);
+		sg_text(&fb, &FT, lx + U * 9, y + rh / 2 + U * 0.85f, name[i], U * 2.4f, fg, 1, 0.01f);
+		uint32_t vc = sub;
 		if (h->confirm == i && danger) vc = RED;
-		float vw = sg_text_w(&FT, val[i], U * 2.0f, 0.01f);
-		sg_text(&fb, &FT, lx + lw - U * 3 - vw, y + rh / 2 + U * 0.7f, val[i], U * 2.0f, vc, 1, 0.01f);
+		float vw = sg_text_w(&FT, val[i], U * 1.9f, 0.01f);
+		sg_text(&fb, &FT, lx + lw - U * 3 - vw, y + rh / 2 + U * 0.65f, val[i], U * 1.9f, vc, 1, 0.01f);
 	}
-	foot_hints("UP DOWN  MOVE      ENTER  CHANGE      ESC  HOME");
+	foot_hints(h->row == R_BRIGHT || h->row == R_VOL ? "LEFT RIGHT  ADJUST      UP DOWN  MOVE      ESC  HOME" : "UP DOWN  MOVE      ENTER  CHANGE      ESC  HOME");
 	(void)t;
 }
 

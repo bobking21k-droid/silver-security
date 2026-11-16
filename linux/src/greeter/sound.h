@@ -252,6 +252,56 @@ static void mixer_up(int card)
 	free(ids); close(fd);
 }
 
+/* The main playback volume of a card, as a percentage: the "Master" control if there is one, else
+ * "PCM", else the first volume control. set < 0 only reads it; otherwise it is set (and every
+ * playback switch is unmuted). Returns the level, or -1 if the card has no volume control. */
+static int mixer_level(int card, int set)
+{
+	char p[64]; snprintf(p, sizeof p, "/dev/snd/controlC%d", card);
+	int fd = open(p, O_RDWR | O_CLOEXEC);
+	if (fd < 0 && set < 0) fd = open(p, O_RDONLY | O_CLOEXEC);
+	if (fd < 0) return -1;
+	struct snd_ctl_elem_list list; memset(&list, 0, sizeof list);
+	if (ioctl(fd, SNDRV_CTL_IOCTL_ELEM_LIST, &list) < 0 || !list.count) { close(fd); return -1; }
+	struct snd_ctl_elem_id *ids = calloc(list.count, sizeof *ids);
+	if (!ids) { close(fd); return -1; }
+	list.space = list.count; list.pids = ids;
+	int best = -1, rank = 0, level = -1;
+	if (ioctl(fd, SNDRV_CTL_IOCTL_ELEM_LIST, &list) == 0)
+		for (unsigned i = 0; i < list.used; i++) {
+			const char *nm = (const char *)ids[i].name;
+			if (!strstr(nm, "Playback Volume")) continue;
+			int r = !strncmp(nm, "Master", 6) ? 3 : !strncmp(nm, "PCM", 3) ? 2 : 1;
+			if (r > rank) { rank = r; best = (int)i; }
+		}
+	if (best >= 0) {
+		struct snd_ctl_elem_info info; memset(&info, 0, sizeof info); info.id = ids[best];
+		if (ioctl(fd, SNDRV_CTL_IOCTL_ELEM_INFO, &info) == 0 && info.type == SNDRV_CTL_ELEM_TYPE_INTEGER) {
+			long lo = info.value.integer.min, hi = info.value.integer.max;
+			struct snd_ctl_elem_value v; memset(&v, 0, sizeof v); v.id = ids[best];
+			unsigned cnt = info.count > 8 ? 8 : info.count;
+			if (set >= 0) {
+				for (unsigned k = 0; k < cnt; k++) v.value.integer.value[k] = lo + (hi - lo) * set / 100;
+				ioctl(fd, SNDRV_CTL_IOCTL_ELEM_WRITE, &v);
+				for (unsigned i = 0; i < list.used; i++) {                          /* and make sure nothing is muted */
+					if (!strstr((const char *)ids[i].name, "Playback Switch")) continue;
+					struct snd_ctl_elem_info in2; memset(&in2, 0, sizeof in2); in2.id = ids[i];
+					if (ioctl(fd, SNDRV_CTL_IOCTL_ELEM_INFO, &in2) < 0 || in2.type != SNDRV_CTL_ELEM_TYPE_BOOLEAN) continue;
+					struct snd_ctl_elem_value v2; memset(&v2, 0, sizeof v2); v2.id = ids[i];
+					for (unsigned k = 0; k < (in2.count > 8 ? 8 : in2.count); k++) v2.value.integer.value[k] = 1;
+					ioctl(fd, SNDRV_CTL_IOCTL_ELEM_WRITE, &v2);
+				}
+			}
+			if (ioctl(fd, SNDRV_CTL_IOCTL_ELEM_READ, &v) == 0 && hi > lo) level = (int)((v.value.integer.value[0] - lo) * 100 / (hi - lo));
+		}
+	}
+	free(ids); close(fd);
+	return level;
+}
+/* the first card that has one */
+static int volume_get(void) { for (int c = 0; c < 8; c++) { int l = mixer_level(c, -1); if (l >= 0) return l; } return -1; }
+static void volume_set(int pct) { for (int c = 0; c < 8; c++) mixer_level(c, pct); }
+
 static void hw_mask(struct snd_pcm_hw_params *p, int n, unsigned v)
 {
 	struct snd_mask *m = &p->masks[n - SNDRV_PCM_HW_PARAM_FIRST_MASK];
