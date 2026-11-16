@@ -62,6 +62,17 @@ Investigations (time-boxed to one session each; stop and write down what was lea
 - [x] **Bluetooth pairing end to end.** (time-boxed, NOT solved: see the log line of 17:45Z) BlueZ's `btvirt` failed to open a virtual controller on this
       kernel; find out why (kernel debug, strace-like tracing) or write a tiny virtual controller.
 
+## Round 2 backlog (added 2026-11-16 20:10Z; take from here when the list above is done)
+
+- [ ] Lid close -> suspend (s2idle), opt-in, only if the kernel offers it; test in QEMU if possible.
+- [ ] Steam's own window on software rendering (see the investigation above); try flags with the Steam test disk.
+- [ ] Secure Boot: sign silverboot/GRUB/kernel with our own key (sbsign exists on the build box) and test
+      with OVMF's secure-boot firmware; needs a way to enrol the key (virt-fw-vars was not allowed here).
+- [ ] Bluetooth pairing in the test PC: find why btvirt's vhci handshake fails (needs a tiny C probe in the guest).
+- [ ] Sound on new laptops: SOF firmware (not in linux-firmware; needs a download that wasn't possible here).
+- [ ] Read-only access to the Windows drive in Files (ntfs3, `ro`), carefully (hibernated volumes stay untouched).
+- [ ] Whatever real-hardware reports come back (docs/REAL-PC.md says how to report).
+
 ## Log
 
 - 2026-11-16 14:50Z  Scheduled wake-up every 2 hours (trigger trig_01N1bRKJaqCpXYm9QWZUbfic); it disables itself after the deadline.
