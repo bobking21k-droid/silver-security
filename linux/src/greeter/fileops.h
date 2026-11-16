@@ -18,7 +18,8 @@ static struct {
 	int mode;                                        /* 0 none, 1 new folder name, 2 rename, 3 delete asked */
 	char buf[96];
 	char del[320];                                   /* what D is asking about */
-	int view; uint8_t *px; int vw, vh; char vname[96];
+	int view; uint8_t *px; int vw, vh; char vname[96];     /* view: 0 none, 1 picture, 2 text */
+	char *txt, **tl; int tn, tpos;                    /* the text viewer: lines and the first one shown */
 } fo;
 
 static void fo_say(const char *m) { snprintf(fo.msg, sizeof fo.msg, "%s", m); fo.msg_t = now(); }
@@ -68,7 +69,40 @@ static void fo_poll(Home *h)
 #endif
 }
 
-static void fo_view_close(void) { free(fo.px); fo.px = NULL; fo.view = 0; }
+static int is_text(const char *name)
+{
+	const char *d = strrchr(name, '.');
+	if (!d) return 1;                                                  /* README, Makefile ... */
+	static const char *ext[] = {".txt", ".md", ".log", ".conf", ".cfg", ".ini", ".sh", ".c", ".h", ".py", ".json", ".csv", ".xml", ".html", ".css", ".js", ".yaml", ".yml", ".toml", ".rs", ".go", ".tex", ".srt"};
+	for (unsigned i = 0; i < sizeof ext / sizeof ext[0]; i++) if (!strcasecmp(d, ext[i])) return 1;
+	return 0;
+}
+static void fo_view_close(void) { free(fo.px); fo.px = NULL; free(fo.txt); fo.txt = NULL; free(fo.tl); fo.tl = NULL; fo.tn = fo.tpos = 0; fo.view = 0; }
+/* the text viewer: the first megabyte of the file, as lines (tabs become spaces, odd bytes become ?) */
+static void fo_text_open(Home *h)
+{
+	char p[360]; fo_path(h, p, sizeof p);
+	FILE *f = fopen(p, "rb");
+	if (!f) { fo_say("Can't open that file"); return; }
+	char *b = malloc((1 << 20) + 1); size_t n = b ? fread(b, 1, 1 << 20, f) : 0; fclose(f);
+	if (!b) return;
+	b[n] = 0;
+	size_t cap = 1024, cnt = 0; char **tl = malloc(cap * sizeof *tl);
+	if (!tl) { free(b); return; }
+	char *line = b;
+	for (size_t i = 0; i <= n; i++) {
+		if (b[i] == '\n' || i == n) {
+			b[i] = 0;
+			if (cnt == cap) { cap *= 2; char **t2 = realloc(tl, cap * sizeof *tl); if (!t2) break; tl = t2; }
+			tl[cnt++] = line; line = b + i + 1;
+		} else if (b[i] == '\t') b[i] = ' ';
+		else if (b[i] == '\r') b[i] = ' ';
+		else if ((unsigned char)b[i] < 32 || (unsigned char)b[i] >= 127) b[i] = '?';
+	}
+	if (cnt > 1 && !tl[cnt - 1][0]) cnt--;                             /* the empty "line" after the last newline */
+	fo_view_close(); fo.txt = b; fo.tl = tl; fo.tn = (int)cnt; fo.tpos = 0; fo.view = 2;
+	snprintf(fo.vname, sizeof fo.vname, "%s", ents[h->row].name);
+}
 static void fo_view_open(Home *h)
 {
 	char p[360]; fo_path(h, p, sizeof p);
@@ -94,6 +128,18 @@ static void fo_view_open(Home *h)
 /* returns 1 if the key was used here */
 static int fo_key(Home *h, int k)
 {
+	if (fo.view == 2) {                                               /* the text viewer */
+		int page = (int)((H - U * 14) / (U * 2.7f)) - 1; if (page < 1) page = 1;
+		if (k == K_ESC || k == K_BACK || k == K_LEFT || k == 'q') fo_view_close();
+		else if (k == K_DOWN) fo.tpos++;
+		else if (k == K_UP) fo.tpos--;
+		else if (k == ' ' || k == K_RIGHT || k == 'f') fo.tpos += page;
+		else if (k == 'b') fo.tpos -= page;
+		else if (k == 'g') fo.tpos = 0;
+		else if (k == 'G') fo.tpos = fo.tn;
+		if (fo.view == 2) { if (fo.tpos > fo.tn - 1) fo.tpos = fo.tn - 1; if (fo.tpos < 0) fo.tpos = 0; }
+		return 1;
+	}
 	if (fo.view) {                                                    /* the picture viewer */
 		if (k == K_ESC || k == K_ENTER || k == K_BACK) fo_view_close();
 		else if (k == K_LEFT || k == K_RIGHT) {
@@ -170,6 +216,7 @@ static int fo_key(Home *h, int k)
 		return 1;
 	case K_ENTER: case K_RIGHT:
 		if (nent && !ents[h->row].dir && is_image(ents[h->row].name)) { fo_view_open(h); return 1; }
+		if (nent && !ents[h->row].dir && is_text(ents[h->row].name)) { fo_text_open(h); return 1; }
 		return 0;
 	}
 	return 0;
@@ -205,8 +252,23 @@ static void fo_draw_overlay(Home *h, float t)
 }
 
 /* the picture, as large as fits, with its name */
+static void fo_text_draw(void)
+{
+	sg_clear(&fb, RGB(12, 12, 16));
+	float lh = U * 2.7f, x = U * 5, y = U * 7; int rows = (int)((H - U * 14) / lh);
+	char f1[220];
+	for (int r = 0; r < rows && fo.tpos + r < fo.tn; r++) {
+		char ln[200]; snprintf(ln, sizeof ln, "%.190s", fo.tl[fo.tpos + r]);
+		fit(ln, U * 1.9f, W - U * 10, f1, sizeof f1);
+		sg_text(&fb, &FT, x, y + r * lh, f1, U * 1.9f, RGB(225, 225, 230), 1, 0.01f);
+	}
+	char t[160]; snprintf(t, sizeof t, "%.80s    line %d of %d", fo.vname, fo.tpos + 1 > fo.tn ? fo.tn : fo.tpos + 1, fo.tn);
+	sg_text(&fb, &FC, U * 5, U * 4, t, U * 1.1f, RGB(150, 150, 160), 1, 0.2f);
+	foot_hints("UP DOWN  SCROLL      SPACE  PAGE      B  BACK A PAGE      ESC  CLOSE");
+}
 static void fo_view_draw(void)
 {
+	if (fo.view == 2) { fo_text_draw(); return; }
 	sg_clear(&fb, BLACK);
 	if (!fo.px) return;
 	float sc = sg_min((W - U * 6) / fo.vw, (H - U * 14) / fo.vh); if (sc > 4) sc = 4;

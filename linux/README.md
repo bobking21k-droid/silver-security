@@ -59,7 +59,8 @@ reference, not its content.)
    - **Files**: browse your home folder (Enter opens a folder, Backspace goes up) with a text
      preview of the selected file. Keys: `C` copy, `X` cut, `V` paste, `R` rename, `N` new
      folder, `D` then `D` again to delete (asks first); Enter on a picture (PNG, JPEG, BMP, GIF)
-     opens a full-screen viewer (Left/Right for the next picture, Esc to close).
+     opens a full-screen viewer (Left/Right for the next picture, Esc to close); Enter on a text file
+     (.txt, .md, .log, .conf, code ...) opens a text viewer (Up/Down scroll, Space next page, B back, Esc close).
    - **Search** works like Google's front page: a big search bar, and under it **your recent
      searches** (kept in `~/.config/silver/search-history`, Backspace on one forgets it) and
      **what's trending today** (Google Trends' public feed). As you type, Google's suggestions

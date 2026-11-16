@@ -13,7 +13,7 @@ vm.expect("New password:"); vm.send("Admin#Test12"); vm.expect("Retype"); vm.sen
 vm.expect("login:", 60)
 time.sleep(30)
 vm.send("silver"); vm.expect(r"~\$ ")
-vm.send("mkdir ~/0t; echo hello > ~/0t/a.txt; mkdir ~/0t/sub; echo " + PNG + " | base64 -d > ~/0t/pic.png; ls ~/0t"); print(strip(vm.expect(r"~\$ ")))
+vm.send("mkdir ~/0t; echo hello > ~/0t/a.txt; seq 1 80 | sed 's/^/this is line /' > ~/0t/z.txt; mkdir ~/0t/sub; echo " + PNG + " | base64 -d > ~/0t/pic.png; ls ~/0t"); print(strip(vm.expect(r"~\$ ")))
 def check(cmd, want, what):
     vm.send(cmd); out = strip(vm.expect(r"~\$ ")); ok = want in out
     print(("   ok: " if ok else "   FAILED: ") + what); 
@@ -38,6 +38,10 @@ vm.key("d"); time.sleep(0.8); vm.shot("f4-delete-asks"); vm.key("d"); time.sleep
 check("test ! -e ~/0t/a.txt && echo gone", "gone", "delete removed a.txt")
 vm.key("ret"); time.sleep(2.5); vm.shot("f5-picture")   # pic.png opens (it is the selected row now)
 vm.changed("f4-delete-asks", "f5-picture", 0.05)
+vm.key("esc"); time.sleep(1.5)
+vm.key("down"); time.sleep(0.5); vm.key("ret"); time.sleep(2); vm.shot("f6-text")         # z.txt opens in the text viewer
+vm.key("spc"); time.sleep(1); vm.shot("f7-text-page2")
+vm.changed("f6-text", "f7-text-page2", 0.001)
 vm.key("esc"); time.sleep(1.5)
 print("files: copy, paste, new folder, delete and the picture viewer all worked")
 vm.off()
