@@ -39,7 +39,7 @@ Real-PC essentials
 Using it
 - [x] **Files app operations.** (copy/cut/paste/delete/rename/new folder/picture viewer; tests/files-test.py) Copy, move, rename, delete (with confirm), new folder; open text
       and images (a simple viewer); mark several files.
-- [ ] **In-OS installer.** An "Install SilverOS" app on the live USB: guided steps (disk choice,
+- [x] **In-OS installer.** (Settings > Install SilverOS on the live USB: plan page, progress, done; tests/install-ui-test.py installs in QEMU and boots the result) An "Install SilverOS" app on the live USB: guided steps (disk choice,
       how much space for SilverOS, a plan screen, a progress bar), instead of `su -c silver-install`.
       Must keep the existing safety checks. Test it in the QEMU dual-boot test.
 - [ ] **First-run welcome** (language/keyboard, time zone, Wi-Fi) on the first boot of an install.
@@ -74,3 +74,4 @@ Investigations (time-boxed to one session each; stop and write down what was lea
 - 2026-11-16 15:45Z  Batch committed+pushed (demo 24 checks, dual-boot PASS, steam security test PASS). Memory ~80 MB in use at login. tests/boot-time.py added (QEMU without KVM is ~76 s to login, not meaningful for real hardware).
 - 2026-11-16 16:00Z  Settings > Display: choose interface size (x1-x3), saved in ~/.config/silver/scale. README known limits added.
 - 2026-11-16 16:35Z  Kernel hardened (no DEBUG_FS, KALLSYMS_ALL, BINFMT_MISC, X86_MSR). tests/run-all.sh: ALL PASSED (demo checks, power, keyboard, display, idle, mouse, firewall, dual-boot).
+- 2026-11-16 17:00Z  In-OS installer page (plan, progress bar, done) built on silver-install --plan/--yes; install + boot verified in QEMU.

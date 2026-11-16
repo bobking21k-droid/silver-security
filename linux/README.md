@@ -256,6 +256,12 @@ password, or type `skip` to look around without one. Signing in as `silver` need
 
 ## Install next to Windows (dual boot)
 
+**From the home screen (easiest):** on the USB stick, open Settings > *Install SilverOS*. It shows
+the plan (disk, free space, Windows found, warnings); Enter installs, a progress bar runs, and it
+says when to remove the stick. It uses only free (unallocated) space, same as the command below.
+Note: this page does not ask for the admin password; the installer itself still refuses to touch
+anything but free space. The typed way still works:
+
 Before you start, in Windows:
 
 1. **Back up anything important.** The installer only writes to free space, but this is your disk.

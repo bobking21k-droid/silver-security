@@ -653,6 +653,7 @@ static void handle_key(Home *h, int k)
 		if (h->sub == 2) { if (bt_key(k)) h->sub = 0; break; }                 /* Bluetooth */
 		if (h->sub == 3) { if (tz_key(k)) h->sub = 0; break; }                 /* Time */
 		if (h->sub == 4) { if (kb_key(k)) h->sub = 0; break; }                 /* Keyboard */
+		if (h->sub == 5) { if (ins_key(k)) h->sub = 0; break; }                 /* Install */
 		if ((k == K_LEFT || k == K_RIGHT) && (h->row == R_BRIGHT || h->row == R_VOL)) { slider_adjust(h, k == K_RIGHT ? 5 : -5); break; }
 		if (k == K_ESC || k == K_LEFT || k == K_BACK) { h->screen = 0; h->fade = 0; }
 		else if (k == K_UP && h->row > 0) { h->row--; h->confirm = 0; }
@@ -665,6 +666,7 @@ static void handle_key(Home *h, int k)
 			else if (h->row == R_DISP) scale_cycle();
 			else if (h->row == R_CALM) calm_toggle(h);
 			else if (h->row == R_SOUND) mute_toggle(h);
+			else if (h->row == R_WIN && ins_live()) { h->sub = 5; ins_open(); }
 			else if (h->row == R_WIN) { if (win_ok()) { if (h->confirm == R_WIN) request('N'); else h->confirm = R_WIN; } }      /* Windows: asks twice */
 			else if (h->row == R_RESTART || h->row == R_OFF) { if (h->confirm == h->row) request(h->row == R_RESTART ? 'R' : 'P'); else h->confirm = h->row; }
 		}
@@ -1133,6 +1135,18 @@ static void run_session(void)
 			if (c == 'S' || c == 's') { efi_mute(c == 'S'); muted = c == 'S'; continue; }
 			if (c == 'X' || c == 'x') { backlight_power(c == 'x'); continue; }
 			if (c == 'N' && windows_installed()) { efi_var(NEXT_VAR, 2); kill(1, SIGTERM); for (;;) pause(); }     /* restart straight into Windows */
+			if ((c == 'I' || c == 'J') && access("/etc/silver-installed", F_OK) != 0) {     /* the installer, from the live USB only */
+				static int started;                                                  /* one install per boot */
+				if (c == 'J' && started) continue;
+				if (c == 'J') started = 1;
+				const char *cmd = c == 'I' ? "/sbin/silver-install --plan > " INS_PLAN " 2>&1; echo \"EXIT $?\" >> " INS_PLAN
+				                           : "/sbin/silver-install --yes > " INS_LOG " 2>&1; echo \"EXIT $?\" >> " INS_LOG;
+				if (c == 'I') { FILE *z = fopen(INS_PLAN, "w"); if (z) fclose(z); }
+				pid_t a = fork();
+				if (a == 0) { if (fork() == 0) { setsid(); execl("/bin/sh", "sh", "-c", cmd, (char *)NULL); } _exit(0); }
+				if (a > 0) waitpid(a, NULL, 0);
+				continue;
+			}
 			if (c == 'R') { kill(1, SIGTERM); for (;;) pause(); }
 			if (c == 'P') { kill(1, SIGUSR2); for (;;) pause(); }
 			if (c == 'K') {                                  /* a keyboard layout, by id (checked: letters and - only, and the file must exist) */

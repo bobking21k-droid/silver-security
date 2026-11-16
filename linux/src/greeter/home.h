@@ -748,6 +748,7 @@ static float ui_t;                              /* seconds on the home screen cl
 #include "bt.h"
 #include "tz.h"
 #include "kb.h"
+#include "install.h"
 
 /* ---------------------------------------------------------------- settings */
 /* the rows of Settings, in order (the keys, the mouse and the drawing all use these) */
@@ -817,6 +818,7 @@ static void draw_settings(Home *h, float t)
 	if (h->sub == 2) { draw_bluetooth(h, t); return; }
 	if (h->sub == 3) { draw_time(h, t); return; }
 	if (h->sub == 4 && h->screen == 1) { draw_keyboard(h, t); return; }
+	if (h->sub == 5 && h->screen == 1) { draw_install(h, t); return; }
 	memcpy(fb.px, bg_sec, (size_t)W * H * 4);
 	title_block("SETTINGS", "NETWORK  BLUETOOTH  DISPLAY  SOUND  TIME  KEYBOARD  POWER", I_SETTINGS);
 	char net[80]; net_text(net, sizeof net);
@@ -826,7 +828,8 @@ static void draw_settings(Home *h, float t)
 	else if (!strcmp(net, "not connected") && wf.adapters) snprintf(net, sizeof net, "Not connected  -  ENTER to pick Wi-Fi");
 	char disp[80]; snprintf(disp, sizeof disp, "%d x %d  size x%d  -  ENTER: change", W * scale, H * scale, scale);
 	if (scale_next) snprintf(disp, sizeof disp, "size x%d after restart  -  ENTER: change", scale_next);
-	static const char *name[R_N] = {"Network", "Bluetooth", "Display", "Brightness", "Volume", "Time", "Keyboard", "Calm mode", "Sound effects", "About", "Windows", "Restart", "Shut down"};
+	const char *name[R_N] = {"Network", "Bluetooth", "Display", "Brightness", "Volume", "Time", "Keyboard", "Calm mode", "Sound effects", "About", "Windows", "Restart", "Shut down"};
+	if (ins_live()) name[R_WIN] = "Install SilverOS";
 	static const int ic[R_N] = {I_NET, I_SOUND, I_SCREEN, I_SCREEN, I_SOUND, I_INFO, I_TERM, I_SETTINGS, I_SOUND, I_INFO, I_PC, I_POWER, I_POWER};
 	char val[R_N][80];
 	snprintf(val[R_NET], 80, "%s", net);
@@ -840,7 +843,7 @@ static void draw_settings(Home *h, float t)
 	snprintf(val[R_CALM], 80, "%s", h->calm_on ? "ON  -  no strobing or shaking" : "OFF");
 	snprintf(val[R_SOUND], 80, "%s", h->mute_on ? "OFF  -  muted" : "ON");
 	snprintf(val[R_ABOUT], 80, "SilverOS 0.1.0");
-	snprintf(val[R_WIN], 80, "%s", !win_ok() ? "Not installed next to SilverOS" : h->confirm == R_WIN ? "PRESS ENTER AGAIN TO RESTART INTO WINDOWS" : "Restart straight into Windows");
+	snprintf(val[R_WIN], 80, "%s", ins_live() ? "Put SilverOS on this computer, next to Windows" : !win_ok() ? "Not installed next to SilverOS" : h->confirm == R_WIN ? "PRESS ENTER AGAIN TO RESTART INTO WINDOWS" : "Restart straight into Windows");
 	snprintf(val[R_RESTART], 80, "%s", h->confirm == R_RESTART ? "PRESS ENTER AGAIN TO RESTART" : "Restart the computer");
 	snprintf(val[R_OFF], 80, "%s", h->confirm == R_OFF ? "PRESS ENTER AGAIN TO SHUT DOWN" : "Turn the computer off");
 	float lx = U * 6, lw = W - U * 12, ly = SET_LY, rh = SET_RH;
