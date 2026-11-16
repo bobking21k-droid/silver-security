@@ -34,7 +34,7 @@ Real-PC essentials
       to the greeter's text input and the console (`loadkmap` maps built from kbd's keymaps).
 - [x] **Idle behaviour.** (done: dim after 2 min, screen off after 10, wake on key/mouse, battery-low banner, power saving on battery, cpufreq drivers + schedutil default in the kernel; testing) Screen dimming/blanking after inactivity and wake on key/mouse; CPU
       frequency governor for laptops (power saving on battery); battery low warning.
-- [ ] **Resolution/scaling.** Display row: pick a mode when the monitor offers several; HiDPI scale.
+- [x] **Resolution/scaling.** (UI size x1/x2/x3 chosen in Settings > Display, used from next start; picking a different screen mode is NOT done: needs a GPU driver mode-set) Display row: pick a mode when the monitor offers several; HiDPI scale.
 
 Using it
 - [x] **Files app operations.** (copy/cut/paste/delete/rename/new folder/picture viewer; tests/files-test.py) Copy, move, rename, delete (with confirm), new folder; open text
@@ -72,3 +72,4 @@ Investigations (time-boxed to one session each; stop and write down what was lea
 - 2026-11-16 15:20Z  Idle dim/off/wake, battery banner, silver-power (governor on battery), kernel cpufreq (intel/amd pstate, schedutil default).
 - 2026-11-16 15:40Z  Files app: copy/move/delete/rename/new folder + picture viewer. Security review: fixed root symlink bug in Steam session; docs/SECURITY.md.
 - 2026-11-16 15:45Z  Batch committed+pushed (demo 24 checks, dual-boot PASS, steam security test PASS). Memory ~80 MB in use at login. tests/boot-time.py added (QEMU without KVM is ~76 s to login, not meaningful for real hardware).
+- 2026-11-16 16:00Z  Settings > Display: choose interface size (x1-x3), saved in ~/.config/silver/scale. README known limits added.

@@ -55,7 +55,7 @@
 #define BLOOD RGB(232, 16, 24)
 
 static Font FD, FT, FC;                       /* Silver Scrawl, Inter, Michroma */
-static int W, H, scale = 1, fb_w, fb_h, stride, calm, muted;
+static int W, H, scale = 1, scale_pref = 0, fb_w, fb_h, stride, calm, muted;   /* scale_pref: 0 automatic, 1..3 = your choice (Settings > Display) */
 static float U;                               /* 1% of the screen height */
 static uint32_t *fbmem, *canvas;
 static Surf fb;
@@ -137,6 +137,11 @@ static int fb_open(void)
 	if (ioctl(fd, FBIOGET_VSCREENINFO, &v) || ioctl(fd, FBIOGET_FSCREENINFO, &f) || v.bits_per_pixel != 32) { close(fd); return -1; }
 	fb_w = v.xres; fb_h = v.yres; stride = f.line_length / 4;
 	scale = fb_w > 2100 ? 2 : 1;
+#ifndef RENDER
+	{ FILE *sf = fopen("/home/silver/.config/silver/scale", "r"); int sv = 0;      /* your choice, if any */
+	  if (sf) { if (fscanf(sf, "%d", &sv) != 1) sv = 0; fclose(sf); }
+	  if (sv >= 1 && sv <= 3 && fb_w / sv >= 640 && fb_h / sv >= 360) { scale = sv; scale_pref = sv; } }
+#endif
 	W = fb_w / scale; H = fb_h / scale;
 	fbmem = mmap(NULL, (size_t)f.line_length * v.yres, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
 	close(fd);
@@ -657,6 +662,7 @@ static void handle_key(Home *h, int k)
 			else if (h->row == R_BT) { h->sub = 2; bt_open(); }
 			else if (h->row == R_TIME) { h->sub = 3; tz_open(); }
 			else if (h->row == R_KEYB) { h->sub = 4; kb_open(); }
+			else if (h->row == R_DISP) scale_cycle();
 			else if (h->row == R_CALM) calm_toggle(h);
 			else if (h->row == R_SOUND) mute_toggle(h);
 			else if (h->row == R_WIN) { if (win_ok()) { if (h->confirm == R_WIN) request('N'); else h->confirm = R_WIN; } }      /* Windows: asks twice */

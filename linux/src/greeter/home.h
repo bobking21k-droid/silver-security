@@ -751,6 +751,20 @@ static float ui_t;                              /* seconds on the home screen cl
 
 /* ---------------------------------------------------------------- settings */
 /* the rows of Settings, in order (the keys, the mouse and the drawing all use these) */
+static int scale_next;                                  /* the size chosen in Settings > Display, used from the next start */
+static void scale_cycle(void)
+{
+#ifndef RENDER
+	int c = scale_next ? scale_next : scale;
+	c = c % 3 + 1;
+	if (fb_w / c < 640 || fb_h / c < 360) c = 1;
+	scale_next = c;
+	char p[300]; snprintf(p, sizeof p, "%s/.config", homedir); mkdir(p, 0755);
+	snprintf(p, sizeof p, "%s/.config/silver", homedir); mkdir(p, 0755);
+	snprintf(p, sizeof p, "%s/.config/silver/scale", homedir);
+	FILE *f = fopen(p, "w"); if (f) { fprintf(f, "%d\n", c); fclose(f); }
+#endif
+}
 enum { R_NET, R_BT, R_DISP, R_BRIGHT, R_VOL, R_TIME, R_KEYB, R_CALM, R_SOUND, R_ABOUT, R_WIN, R_RESTART, R_OFF, R_N };
 #define SET_LY (U * 19.0f)
 #define SET_RH (U * 4.5f)
@@ -810,7 +824,8 @@ static void draw_settings(Home *h, float t)
 	dsp_refresh(t);
 	if (wf.ssid[0]) snprintf(net, sizeof net, "Wi-Fi  %.32s", wf.ssid);
 	else if (!strcmp(net, "not connected") && wf.adapters) snprintf(net, sizeof net, "Not connected  -  ENTER to pick Wi-Fi");
-	char disp[48]; snprintf(disp, sizeof disp, "%d x %d", W * scale, H * scale);
+	char disp[80]; snprintf(disp, sizeof disp, "%d x %d  size x%d  -  ENTER: change", W * scale, H * scale, scale);
+	if (scale_next) snprintf(disp, sizeof disp, "size x%d after restart  -  ENTER: change", scale_next);
 	static const char *name[R_N] = {"Network", "Bluetooth", "Display", "Brightness", "Volume", "Time", "Keyboard", "Calm mode", "Sound effects", "About", "Windows", "Restart", "Shut down"};
 	static const int ic[R_N] = {I_NET, I_SOUND, I_SCREEN, I_SCREEN, I_SOUND, I_INFO, I_TERM, I_SETTINGS, I_SOUND, I_INFO, I_PC, I_POWER, I_POWER};
 	char val[R_N][80];

@@ -23,6 +23,7 @@ bash tests/make-fake-windows-disk.sh "$t/disk.img" "$t/vars.fd" > /dev/null 2>&1
 run demo-checks bash -c 'bash scripts/render-demo.sh 2>&1 | tee /dev/stderr | grep -q "checks passed" && ! grep -q "CHECK FAILED"'
 run power     python3 tests/power-test.py $(vmargs power)
 run keyboard  python3 tests/keyboard-test.py $(vmargs keyboard)
+run display   python3 tests/display-test.py $(vmargs display)
 run idle      python3 tests/idle-test.py $(vmargs idle)
 run mouse     python3 tests/mouse-test.py $(vmargs mouse)
 run firewall  python3 tests/firewall-test.py $(vmargs firewall)
