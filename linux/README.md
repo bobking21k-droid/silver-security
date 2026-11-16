@@ -394,11 +394,14 @@ in [docs/SECURITY.md](docs/SECURITY.md).
 
 ## Known limits
 
+(For a first try on real hardware see [docs/REAL-PC.md](docs/REAL-PC.md).)
+
 - Never run on a real PC yet: everything was tested in QEMU (BIOS and UEFI). Real GPU, Wi-Fi,
   Bluetooth pairing, lid switch, touchpad, brightness/volume keys and CPU power saving are written
   but untested on hardware.
 - Steam's own window crashes on software rendering in the test VM (its browser engine's GPU
   process); a real GPU should be better, but this is not proven.
+- Sound on newer Intel/AMD laptops needs "SOF" firmware, which is not in the linux-firmware package and could not be downloaded here; desktops and older laptops (HDA) are covered.
 - Secure Boot must be off (images are not signed; plan in docs/SECURITY.md). With BitLocker on, Windows may ask for its recovery key once after that change.
 - Bluetooth pairing is untested: no virtual Bluetooth adapter could be made to work in the test PC (see docs/GOAL-48H.md log).
 - The interface size can be changed (Settings > Display) but the screen's resolution can't: it is whatever the firmware gave us.
