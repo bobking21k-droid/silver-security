@@ -131,7 +131,7 @@ vm.key("ret"); time.sleep(2.5); vm.shot("files")
 vm.key("down"); time.sleep(1.5); vm.shot("files-2"); vm.key("esc"); time.sleep(1.5)
 vm.key("up"); time.sleep(0.8); vm.key("ret"); time.sleep(2); vm.key("l"); time.sleep(0.5); vm.key("o"); time.sleep(0.5); vm.key("f"); time.sleep(0.5); vm.key("i"); time.sleep(0.5); vm.key("ret"); time.sleep(6); vm.shot("search")
 vm.key("esc"); time.sleep(1.5); vm.key("left"); time.sleep(0.8); vm.key("ret"); time.sleep(2.5); vm.shot("settings")
-for k in ["down", "down", "down"]: vm.key(k); time.sleep(0.5)
+for k in ["down"] * 7: vm.key(k); time.sleep(0.5)          # Sound effects is the 8th row
 vm.key("ret"); time.sleep(1.5); vm.shot("settings-sound-off")                      # Sound effects off (also for the boot chooser)
 vm.key("esc"); time.sleep(1.5); vm.key("down"); time.sleep(0.8); vm.key("ret"); time.sleep(2.5); vm.shot("apps")
 vm.key("right"); time.sleep(0.5); vm.key("ret"); time.sleep(2); vm.shot("game-store")     # three stores
