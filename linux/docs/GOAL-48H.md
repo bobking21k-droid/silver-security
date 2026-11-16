@@ -93,3 +93,4 @@ Investigations (time-boxed to one session each; stop and write down what was lea
 - 2026-11-16 19:30Z  Files: text viewer (Enter on .txt/.md/.log/code; scroll, page). ASan/UBSan run of the demo greeter: no errors (only exit-time leaks).
 - 2026-11-16 19:45Z  F12 screenshot to ~/Pictures (hand-written PNG, verified with CRC/zlib check; tests/screenshot-test.py).
 - 2026-11-16 20:00Z  Accented/non-Latin letters (UTF-8) can be typed in search, file names, login. German umlaut test passes.
+- 2026-11-16 20:50Z  Full suite: ALL 11 PASSED (demo, power, keyboard, display, screenshot, idle, mouse, firewall, install-ui, welcome, dual-boot) on the current branch head.
