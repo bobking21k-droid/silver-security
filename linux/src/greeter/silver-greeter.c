@@ -611,8 +611,15 @@ static void search_go(Home *h)
 	yt_search(&yt);
 	h->focus = yt.state == Y_RESULTS ? 1 : 0;
 }
+#include "buttons.h"
+
 static void handle_key(Home *h, int k)
 {
+	if (pwr_show) {                                                          /* the "Shut down?" panel has the keys */
+		if (k == K_ENTER) request('P');
+		else if (k == K_ESC || k == K_BACK) pwr_show = 0;
+		return;
+	}
 	switch (h->screen) {
 	case 0:
 		if (k == K_LEFT) h->sel &= ~1;
@@ -773,6 +780,7 @@ static void home_frame(Home *h, float t, float dt)
 	}
 	if (h->screen && h->fade < 1) sg_rect(&fb, 0, 0, W, H, BLACK, 1 - h->fade);
 	else if (!h->screen && h->fade < 1) sg_rect(&fb, 0, 0, W, H, BLACK, 1 - h->fade);
+	pwr_draw(t);
 }
 
 #ifdef RENDER
@@ -842,6 +850,7 @@ static void home_loop(Home *h)
 		int k;
 		while ((k = read_key(0)) != -1) handle_key_snd(h, k);
 		mouse_poll(h);
+		buttons_poll(h);
 #endif
 #ifdef RENDER
 		static const char *prof_env; static int prof_init; if (!prof_init) { prof_env = getenv("SILVER_PROFILE"); prof_init = 1; }
@@ -891,6 +900,17 @@ static void backlight_set(int pct)
 		int v = max * pct / 100; if (v < 1) v = 1;
 		snprintf(p, sizeof p, "/sys/class/backlight/%s/brightness", e->d_name);
 		f = fopen(p, "w"); if (f) { fprintf(f, "%d\n", v); fclose(f); }
+	}
+	if (d) closedir(d);
+}
+/* the screen's backlight on or off (lid closed / opened); machines without a backlight are left alone */
+static void backlight_power(int on)
+{
+	DIR *d = opendir("/sys/class/backlight"); struct dirent *e;
+	while (d && (e = readdir(d))) {
+		if (e->d_name[0] == '.') continue;
+		char p[300]; snprintf(p, sizeof p, "/sys/class/backlight/%s/bl_power", e->d_name);
+		FILE *f = fopen(p, "w"); if (f) { fprintf(f, "%d\n", on ? 0 : 4); fclose(f); }
 	}
 	if (d) closedir(d);
 }
@@ -950,7 +970,17 @@ static void run_game(struct passwd *pw, char *req)
 		execle("/usr/lib/silver/steam-session", "steam-session", pw->pw_name, action, app, (char *)NULL, env);
 		_exit(127);
 	}
-	if (g > 0) { int st; waitpid(g, &st, 0); }
+	if (g > 0) {                                      /* Steam runs: two power-button presses within 3 s shut down */
+		int st; double last = -10; buttons_open();
+		for (;;) {
+			if (waitpid(g, &st, WNOHANG) == g) break;
+			int lid, p = buttons_read(&lid);
+			if (lid) backlight_power(!bt_in.lid_closed);
+			for (; p > 0; p--) { if (now() - last < 3) { kill(1, SIGUSR2); for (;;) pause(); } last = now(); }
+			usleep(100000);
+		}
+		buttons_close();
+	}
 	struct termios raw = saved_tio;                                  /* back to the home screen's terminal setup */
 	raw.c_lflag &= ~(ICANON | ECHO | ISIG); raw.c_iflag &= ~(ICRNL | IXON); raw.c_cc[VMIN] = 1; raw.c_cc[VTIME] = 0;
 	tcsetattr(tty_fd, TCSANOW, &raw);
@@ -974,6 +1004,7 @@ static void run_session(void)
 			if (chdir(homedir)) { /* fine */ }
 			Home h; home_init(&h);
 			mouse_open();
+			buttons_open();
 			if (back_from_game) { open_screen(&h, 3); h.sub = 5; gs.open = 1; gs.tab = GS_STEAM; h.fade = 0; }   /* back where you were */
 			home_loop(&h);
 			_exit(0);
@@ -986,6 +1017,7 @@ static void run_session(void)
 			if (n <= 0) { c = 'T'; break; }
 			if (c == 'T') break;
 			if (c == 'S' || c == 's') { efi_mute(c == 'S'); muted = c == 'S'; continue; }
+			if (c == 'X' || c == 'x') { backlight_power(c == 'x'); continue; }
 			if (c == 'N' && windows_installed()) { efi_var(NEXT_VAR, 2); kill(1, SIGTERM); for (;;) pause(); }     /* restart straight into Windows */
 			if (c == 'R') { kill(1, SIGTERM); for (;;) pause(); }
 			if (c == 'P') { kill(1, SIGUSR2); for (;;) pause(); }

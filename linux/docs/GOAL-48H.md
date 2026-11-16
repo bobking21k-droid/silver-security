@@ -25,7 +25,7 @@ dual-boot test passes (`tests/dualboot-test.py`) and the demo checks pass (`scri
 ## Backlog, in priority order
 
 Real-PC essentials
-- [ ] **Power button and lid.** The power button does nothing today. Read ACPI button / lid events
+- [x] **Power button and lid.** (power button tested in QEMU; lid closed = screen off is written but untested: no lid in a VM; sleep-on-lid not done) The power button does nothing today. Read ACPI button / lid events
       (kernel input events), show a "Shut down?" panel on the power button (Enter confirms), and
       handle lid close (dim/blank the screen; suspend if the kernel supports it and it is safe).
       Test: QEMU `system_powerdown` must bring up the panel and shut the VM down on confirm.
@@ -67,3 +67,4 @@ Investigations (time-boxed to one session each; stop and write down what was lea
 - 2026-11-16 14:50Z  Scheduled wake-up every 2 hours (trigger trig_01N1bRKJaqCpXYm9QWZUbfic); it disables itself after the deadline.
 - 2026-11-16 14:49Z  Goal created. (Earlier in this session: Steam launcher + games layer, Bluetooth,
   Wi-Fi, firewall, clock, time zones, mouse, brightness/volume, Play in Windows, memory cuts.)
+- 2026-11-16 15:15Z  Power button: "Shut down?" panel (Enter/Esc/press again), also during Steam (2 presses in 3 s); lid close blanks the screen. tests/power-test.py passes.

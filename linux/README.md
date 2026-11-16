@@ -102,6 +102,9 @@ reference, not its content.)
      main playback control (and unmutes it). Brightness works on screens with a backlight (laptop
      panels); on a desktop monitor it says so. The privileged side of the home screen makes the
      change, asked by the unprivileged side with a one-line request.
+   - **The power button** (and the lid) work: a press shows "Shut down?" (Enter confirms, Esc
+     cancels, the button again shuts down now); closing a laptop lid turns the screen off. During
+     a Steam session, two presses within three seconds shut down. Sleep on lid close is not done.
    - **Settings > Time** picks your time zone from about 50 (with today's daylight-saving rules built
      in, so no zone database is needed); every zone shows its current time. The **clock is set
      from the internet** at boot and when Wi-Fi connects (`/sbin/silver-time`): first from the
