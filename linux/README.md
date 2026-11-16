@@ -409,4 +409,4 @@ in [docs/SECURITY.md](docs/SECURITY.md).
 - The interface size can be changed (Settings > Display) but the screen's resolution can't: it is whatever the firmware gave us.
 - Accented and non-Latin letters can be typed into the home screen's search, file-name and login
   boxes (UTF-8); Wi-Fi passwords stay ASCII-only. Not every symbol exists in the built-in fonts.
-- The laptop lid blanks the screen but does not suspend.
+- The laptop lid blanks the screen. Sleep on lid close is opt-in (`echo sleep > ~/.config/silver/lid`) and **untested**: in the virtual PC a suspended computer did not wake again, and real laptops differ. If it doesn't wake, hold the power button.

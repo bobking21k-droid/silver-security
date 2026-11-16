@@ -1072,9 +1072,31 @@ static void keymap_apply_saved(void)
 	FILE *f = fopen(p, "r"); if (f) { if (fgets(id, sizeof id, f)) id[strcspn(id, "\r\n")] = 0; fclose(f); }
 	if (id[0] && strcmp(id, "us")) keymap_apply(id);
 }
+/* opt-in: ~/.config/silver/lid says "sleep" -> closing the lid puts the computer to sleep (and it wakes when you open it) */
+static int lid_sleep_wanted(void)
+{
+	struct passwd *pw = getpwnam(user); char p[320], w[16] = "";
+	if (!pw) return 0;
+	snprintf(p, sizeof p, "%s/.config/silver/lid", pw->pw_dir);
+	int fd = open(p, O_RDONLY | O_NOFOLLOW); if (fd < 0) return 0;
+	ssize_t n = read(fd, w, sizeof w - 1); close(fd);
+	return n >= 5 && !strncmp(w, "sleep", 5);
+}
+static void lid_go_to_sleep(void)
+{
+	char st[64] = ""; int fd = open("/sys/power/state", O_RDWR); if (fd < 0) return;
+	ssize_t n = read(fd, st, sizeof st - 1); if (n < 0) n = 0; st[n] = 0;
+	const char *mode = strstr(st, "freeze") ? "freeze" : strstr(st, "mem") ? "mem" : NULL;
+	if (mode && write(fd, mode, strlen(mode)) < 0) { /* it refused: stay awake */ }
+	close(fd);                                        /* (the write returns when the computer wakes up) */
+}
 /* the screen's backlight on or off (lid closed / opened); machines without a backlight are left alone */
 static void backlight_power(int on)
 {
+	static int slept;
+	if (on) slept = 0;
+	else if (!slept && lid_sleep_wanted()) slept = 1;
+	int sleep_now = !on && slept == 1; if (sleep_now) slept = 2;
 	DIR *d = opendir("/sys/class/backlight"); struct dirent *e;
 	while (d && (e = readdir(d))) {
 		if (e->d_name[0] == '.') continue;
@@ -1082,6 +1104,7 @@ static void backlight_power(int on)
 		FILE *f = fopen(p, "w"); if (f) { fprintf(f, "%d\n", on ? 0 : 4); fclose(f); }
 	}
 	if (d) closedir(d);
+	if (sleep_now) { lid_go_to_sleep(); backlight_power(1); }
 }
 /* a one-byte firmware variable the boot chooser reads: SilverMute (1 = quiet) or SilverNext (2 = start Windows once) */
 static void efi_var(const char *path, int val)
