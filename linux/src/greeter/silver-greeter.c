@@ -579,6 +579,45 @@ static void open_screen(Home *h, int s)
 	h->fs = 0;
 	if (s == 3) h->sub = 0;
 }
+/*
+ * First run: on the first start of an installed SilverOS the home screen walks through Keyboard,
+ * Time and Network (the pages from Settings; Esc moves to the next), then remembers it did so in
+ * ~/.config/silver/welcomed.
+ */
+static int wel;                                                         /* 0 not running, else 1 Keyboard, 2 Time, 3 Network */
+static void wel_next(Home *h)
+{
+	if (!wel) return;
+	if (++wel == 2) { h->sub = 3; tz_open(); }
+	else if (wel == 3) { h->sub = 1; wf_open(); }
+	else {
+		wel = 0; h->screen = 0; h->fade = 0;
+#ifndef RENDER
+		char p[300]; snprintf(p, sizeof p, "%s/.config", homedir); mkdir(p, 0755);
+		snprintf(p, sizeof p, "%s/.config/silver", homedir); mkdir(p, 0755);
+		snprintf(p, sizeof p, "%s/.config/silver/welcomed", homedir);
+		FILE *f = fopen(p, "w"); if (f) { fputs("1\n", f); fclose(f); }
+#endif
+	}
+}
+static void wel_start(Home *h)
+{
+#ifndef RENDER
+	char p[300]; snprintf(p, sizeof p, "%s/.config/silver/welcomed", homedir);
+	if (access("/etc/silver-installed", F_OK) != 0 || access(p, F_OK) == 0) return;      /* the live USB, or already welcomed */
+	wel = 1; open_screen(h, 1); h->sub = 4; kb_open();
+#else
+	(void)h;
+#endif
+}
+static void wel_draw(void)
+{
+	if (!wel) return;
+	char b[80]; snprintf(b, sizeof b, "WELCOME  -  STEP %d OF 3  -  ESC FOR THE NEXT", wel);
+	float w = sg_text_w(&FC, b, U * 1.1f, 0.2f) + U * 4, x = W - w - U * 3, y = U * 3;
+	ui_frost(x, y, w, U * 3.6f, U * 1.8f, 0.8f);
+	sg_text(&fb, &FC, x + U * 2, y + U * 2.3f, b, U * 1.1f, WHITE, 1, 0.2f);
+}
 static void calm_toggle(Home *h)
 {
 	h->calm_on ^= 1;
@@ -649,10 +688,10 @@ static void handle_key(Home *h, int k)
 		else if (k == K_ENTER) open_screen(h, h->sel + 1);
 		break;
 	case 1:                                                                     /* settings */
-		if (h->sub == 1) { if (wf_key(k)) h->sub = 0; break; }                 /* Network */
+		if (h->sub == 1) { if (wf_key(k)) { h->sub = 0; wel_next(h); } break; }                 /* Network */
 		if (h->sub == 2) { if (bt_key(k)) h->sub = 0; break; }                 /* Bluetooth */
-		if (h->sub == 3) { if (tz_key(k)) h->sub = 0; break; }                 /* Time */
-		if (h->sub == 4) { if (kb_key(k)) h->sub = 0; break; }                 /* Keyboard */
+		if (h->sub == 3) { if (tz_key(k)) { h->sub = 0; wel_next(h); } break; }                 /* Time */
+		if (h->sub == 4) { if (kb_key(k)) { h->sub = 0; wel_next(h); } break; }                 /* Keyboard */
 		if (h->sub == 5) { if (ins_key(k)) h->sub = 0; break; }                 /* Install */
 		if ((k == K_LEFT || k == K_RIGHT) && (h->row == R_BRIGHT || h->row == R_VOL)) { slider_adjust(h, k == K_RIGHT ? 5 : -5); break; }
 		if (k == K_ESC || k == K_LEFT || k == K_BACK) { h->screen = 0; h->fade = 0; }
@@ -859,6 +898,7 @@ static void home_frame(Home *h, float t, float dt)
 	if (h->screen && h->fade < 1) sg_rect(&fb, 0, 0, W, H, BLACK, 1 - h->fade);
 	else if (!h->screen && h->fade < 1) sg_rect(&fb, 0, 0, W, H, BLACK, 1 - h->fade);
 	battery_draw(t);
+	wel_draw();
 	pwr_draw(t);
 }
 
@@ -1121,6 +1161,7 @@ static void run_session(void)
 			Home h; home_init(&h);
 			mouse_open();
 			buttons_open();
+			if (!back_from_game) wel_start(&h);
 			if (back_from_game) { open_screen(&h, 3); h.sub = 5; gs.open = 1; gs.tab = GS_STEAM; h.fade = 0; }   /* back where you were */
 			home_loop(&h);
 			_exit(0);

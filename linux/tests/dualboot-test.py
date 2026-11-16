@@ -126,6 +126,8 @@ vm.expect("login:", 120)
 t0 = time.time()
 for at, name in [(2.0, "intro-1"), (6.0, "intro-2"), (9.0, "intro-3"), (12.0, "intro-4"), (15.0, "intro-5"), (22.0, "home")]:
     time.sleep(max(0, t0 + at - time.time())); vm.shot(name)
+for _ in range(3): vm.key("esc"); time.sleep(2.5)                      # first-run welcome: Keyboard, Time, Network, then home
+time.sleep(2); vm.shot("home")
 vm.key("right"); time.sleep(1); vm.key("down"); time.sleep(1.5); vm.shot("home-files-selected")
 vm.key("ret"); time.sleep(2.5); vm.shot("files")
 vm.key("down"); time.sleep(1.5); vm.shot("files-2"); vm.key("esc"); time.sleep(1.5)

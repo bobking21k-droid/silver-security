@@ -42,7 +42,7 @@ Using it
 - [x] **In-OS installer.** (Settings > Install SilverOS on the live USB: plan page, progress, done; tests/install-ui-test.py installs in QEMU and boots the result) An "Install SilverOS" app on the live USB: guided steps (disk choice,
       how much space for SilverOS, a plan screen, a progress bar), instead of `su -c silver-install`.
       Must keep the existing safety checks. Test it in the QEMU dual-boot test.
-- [ ] **First-run welcome** (language/keyboard, time zone, Wi-Fi) on the first boot of an install.
+- [x] **First-run welcome** (keyboard, time zone, Wi-Fi pages in turn; tests/welcome-test.py) (language/keyboard, time zone, Wi-Fi) on the first boot of an install.
 
 Quality
 - [ ] **Boot time.** Measure time from power-on to home screen (QEMU + `-d` timestamps); remove
@@ -75,3 +75,4 @@ Investigations (time-boxed to one session each; stop and write down what was lea
 - 2026-11-16 16:00Z  Settings > Display: choose interface size (x1-x3), saved in ~/.config/silver/scale. README known limits added.
 - 2026-11-16 16:35Z  Kernel hardened (no DEBUG_FS, KALLSYMS_ALL, BINFMT_MISC, X86_MSR). tests/run-all.sh: ALL PASSED (demo checks, power, keyboard, display, idle, mouse, firewall, dual-boot).
 - 2026-11-16 17:00Z  In-OS installer page (plan, progress bar, done) built on silver-install --plan/--yes; install + boot verified in QEMU.
+- 2026-11-16 17:20Z  First-run welcome on installed systems (Keyboard > Time > Network, then home). Dual-boot test passes with it.
