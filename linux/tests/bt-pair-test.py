@@ -21,9 +21,9 @@ vm.send("silver"); vm.expect(r"~\$ ")
 vm.send("su"); vm.expect("Password:"); vm.send("Admin#Test12"); vm.expect(r"# ")
 def run(c, t=60):
     vm.send(c); return strip(vm.expect(r"# ", t))
-run("mkdir -p /run/bt && mount -o ro $(findfs LABEL=BTTEST) /run/bt && cp /run/bt/btvirt /tmp/btvirt && chmod +x /tmp/btvirt")
+run("mkdir -p /run/bt && mount -o ro $(findfs LABEL=BTTEST) /run/bt && cp /run/bt/btvirt /run/bt/vhci-blocking.so /tmp/ && chmod +x /tmp/btvirt")
 print(run("modprobe hci_vhci; ls -l /dev/vhci"))
-run("(/tmp/btvirt -l2 > /tmp/btvirt.log 2>&1 &); sleep 4; cat /tmp/btvirt.log | head -5")
+run("(LD_PRELOAD=/tmp/vhci-blocking.so /tmp/btvirt -l2 > /tmp/btvirt.log 2>&1 &); sleep 4; cat /tmp/btvirt.log | head -5")
 print(run("bluetoothctl list; ls /sys/class/bluetooth"))
 # the second adapter becomes the "device": discoverable, accepts pairing without a PIN
 run("(printf 'agent NoInputNoOutput\\ndefault-agent\\nlist\\n'; sleep 3; for a in $(bluetoothctl list | awk '{print $2}' | tail -1); do printf \"select $a\\npower on\\nsystem-alias SilverPeer\\ndiscoverable on\\npairable on\\n\"; done; sleep 300) | bluetoothctl > /tmp/peer.log 2>&1 &")
