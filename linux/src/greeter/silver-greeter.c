@@ -179,6 +179,11 @@ static int read_key(int wait_ms)
 	}
 	if (c == '\r' || c == '\n') return K_ENTER;
 	if (c == 8 || c == 127) return K_BACK;
+	if (c >= 0xC2 && c < 0xF5) {                                   /* a letter beyond ASCII, as UTF-8 */
+		int more = c >= 0xF0 ? 3 : c >= 0xE0 ? 2 : 1; unsigned cp = c & (0x3F >> more);
+		for (int i = 0; i < more; i++) { unsigned char b; if (poll(&p, 1, 30) <= 0 || read(tty_fd, &b, 1) != 1 || (b & 0xC0) != 0x80) return -1; cp = (cp << 6) | (b & 63); }
+		return cp >= 0xA0 && cp <= 0x10FFFF ? (int)(K_UCP + cp) : -1;
+	}
 	return c;
 }
 #endif
@@ -510,7 +515,7 @@ static void lock_loop(void)
 		char *dst = field ? pass : user;
 		size_t cap = field ? sizeof pass - 1 : sizeof user - 1, n = strlen(dst);
 		if (c == '\t') { field ^= 1; continue; }
-		if (c == K_BACK) { if (n) dst[n - 1] = 0; continue; }
+		if (c == K_BACK) { if (n) ucp_pop(dst); continue; }
 		if (c == 21) { dst[0] = 0; continue; }
 		if (c == K_ENTER) {
 			if (field == 0) { field = 1; if (account_open(user)) return; continue; }
@@ -524,7 +529,7 @@ static void lock_loop(void)
 			tcflush(tty_fd, TCIFLUSH);
 			continue;
 		}
-		if (c >= 32 && c < 127 && n < cap) { dst[n] = (char)c; dst[n + 1] = 0; status = ""; }
+		if (ucp_ok(c) && n + 4 < cap) { ucp_add(dst, cap + 1, c); status = ""; }
 	}
 }
 #endif
@@ -755,9 +760,9 @@ static void handle_key(Home *h, int k)
 		}
 		if (k == 9) { y->mode ^= 1; if (y->q[0] && y->state != Y_IDLE) search_go(h); else sug_typed(); break; }
 		size_t n = strlen(y->q);
-		if (k == K_BACK && n) { y->q[n - 1] = 0; h->focus = 0; sug_typed(); }
+		if (k == K_BACK && n) { ucp_pop(y->q); h->focus = 0; sug_typed(); }
 		else if (k == 21) { y->q[0] = 0; h->focus = 0; sug_typed(); }
-		else if (k >= 32 && k < 127 && n + 1 < sizeof y->q) { y->q[n] = (char)k; y->q[n + 1] = 0; h->focus = 0; sug_typed(); }
+		else if (ucp_ok(k)) { ucp_add(y->q, sizeof y->q, k); h->focus = 0; sug_typed(); }
 		else if (k == K_ENTER && y->q[0]) search_go(h);
 		break;
 	}
@@ -771,9 +776,9 @@ static void handle_key(Home *h, int k)
 			else if (k == 9) { h->fs_scope ^= 1; fs_refresh(h); }
 			else if (k == K_UP && h->row > 0) h->row--;
 			else if (k == K_DOWN && h->row + 1 < search_count(sr)) h->row++;
-			else if (k == K_BACK && n) { sr->q[n - 1] = 0; fs_refresh(h); }
+			else if (k == K_BACK && n) { ucp_pop(sr->q); fs_refresh(h); }
 			else if (k == 21) { sr->q[0] = 0; fs_refresh(h); }
-			else if (k >= 32 && k < 127 && n < 40) { sr->q[n] = (char)k; sr->q[n + 1] = 0; fs_refresh(h); }
+			else if (ucp_ok(k) && n < 38) { ucp_add(sr->q, sizeof sr->q, k); fs_refresh(h); }
 			else if (k == K_ENTER && search_count(sr)) {
 				const SRes *r = search_item(sr, h->row);
 				if (r->node >= 0) {

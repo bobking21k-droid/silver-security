@@ -38,6 +38,25 @@ static float sg_atan2f_approx(float y, float x)
 #define K_ESC 27
 #define K_ENTER 13
 #define K_BACK 127
+/* letters beyond ASCII (accents, Cyrillic, Greek ...) arrive as K_UCP + the Unicode code point */
+#define K_UCP 0x10000
+static int ucp_ok(int k) { return (k >= 32 && k < 127) || k >= K_UCP + 0xA0; }
+static void ucp_add(char *b, size_t cap, int k)         /* append the letter k to b (cap = size of b) if it fits */
+{
+	size_t n = strlen(b); unsigned char t[4]; int l;
+	if (k < K_UCP) { t[0] = (unsigned char)k; l = 1; }
+	else { unsigned cp = (unsigned)(k - K_UCP);
+		if (cp < 0x800) { t[0] = 0xC0 | (cp >> 6); t[1] = 0x80 | (cp & 63); l = 2; }
+		else if (cp < 0x10000) { t[0] = 0xE0 | (cp >> 12); t[1] = 0x80 | ((cp >> 6) & 63); t[2] = 0x80 | (cp & 63); l = 3; }
+		else { t[0] = 0xF0 | (cp >> 18); t[1] = 0x80 | ((cp >> 12) & 63); t[2] = 0x80 | ((cp >> 6) & 63); t[3] = 0x80 | (cp & 63); l = 4; } }
+	if (n + (size_t)l + 1 <= cap) { memcpy(b + n, t, (size_t)l); b[n + (size_t)l] = 0; }
+}
+static void ucp_pop(char *b)                             /* remove the last letter (all its bytes) */
+{
+	size_t n = strlen(b); if (!n) return;
+	n--; while (n > 0 && ((unsigned char)b[n] & 0xC0) == 0x80) n--;
+	b[n] = 0;
+}
 #define K_SHOT 1010                      /* F12: screenshot */
 
 /* ================================================================ the cracks */

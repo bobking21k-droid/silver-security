@@ -29,7 +29,7 @@ Real-PC essentials
       (kernel input events), show a "Shut down?" panel on the power button (Enter confirms), and
       handle lid close (dim/blank the screen; suspend if the kernel supports it and it is safe).
       Test: QEMU `system_powerdown` must bring up the panel and shut the VM down on confirm.
-- [x] **Keyboard layouts.** (24 layouts; German tested end to end in QEMU; accented letters show in the console but are not yet typed into the home screen's boxes) US only today. Add Settings > Keyboard: common layouts (UK, DE, FR, ES,
+- [x] **Keyboard layouts.** (24 layouts; German tested end to end in QEMU incl. typing an umlaut into the boxes) US only today. Add Settings > Keyboard: common layouts (UK, DE, FR, ES,
       IT, PT/BR, NL, SE/NO/DK/FI, PL, CZ, TR, RU, US-international, Dvorak, Colemak...), applied
       to the greeter's text input and the console (`loadkmap` maps built from kbd's keymaps).
 - [x] **Idle behaviour.** (done: dim after 2 min, screen off after 10, wake on key/mouse, battery-low banner, power saving on battery, cpufreq drivers + schedutil default in the kernel; testing) Screen dimming/blanking after inactivity and wake on key/mouse; CPU
@@ -81,3 +81,4 @@ Investigations (time-boxed to one session each; stop and write down what was lea
 - 2026-11-16 19:05Z  Kernel audit for real PCs: added touchpad/I2C/LPSS/pinctrl, VMD, SD/eMMC, Intel 2.5G + USB ethernet, USB-C/USB4, laptop vendor drivers. SOF audio firmware unavailable offline (documented). docs/REAL-PC.md checklist. Full suite passes.
 - 2026-11-16 19:30Z  Files: text viewer (Enter on .txt/.md/.log/code; scroll, page). ASan/UBSan run of the demo greeter: no errors (only exit-time leaks).
 - 2026-11-16 19:45Z  F12 screenshot to ~/Pictures (hand-written PNG, verified with CRC/zlib check; tests/screenshot-test.py).
+- 2026-11-16 20:00Z  Accented/non-Latin letters (UTF-8) can be typed in search, file names, login. German umlaut test passes.

@@ -66,8 +66,8 @@ static int kb_key(int k)
 	if (k == K_UP && kb.sel > 0) kb.sel--;
 	else if (k == K_DOWN && kb.sel + 1 < kb.n) kb.sel++;
 	else if (k == K_ENTER) kb_choose(kb.sel);
-	else if (k == K_BACK) { size_t n = strlen(kb.test); if (n) kb.test[n - 1] = 0; }
-	else if (k >= 32 && k < 127 && strlen(kb.test) + 1 < sizeof kb.test) { size_t n = strlen(kb.test); kb.test[n] = (char)k; kb.test[n + 1] = 0; }
+	else if (k == K_BACK) { size_t n = strlen(kb.test); if (n) ucp_pop(kb.test); }
+	else if (ucp_ok(k)) ucp_add(kb.test, sizeof kb.test, k);
 	return 0;
 }
 

@@ -19,5 +19,7 @@ for _ in range(5): vm.key("down"); time.sleep(0.4)             # to German
 vm.key("ret"); time.sleep(3)                                   # use it (loads the keymap)
 vm.key("y"); time.sleep(1); vm.shot("k2-de-y")                 # German: the Y key types z
 vm.changed("k1-us-y", "k2-de-y", 0.003)
+vm.key("apostrophe"); time.sleep(1); vm.shot("k3-de-ae")                   # German: the key right of L types a-umlaut, now typed into the box too
+vm.changed("k2-de-y", "k3-de-ae", 0.00005)
 vm.off()
 print("keyboard: layout chosen; see k1-us-y.png (y) and k2-de-y.png (z)")

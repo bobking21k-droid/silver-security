@@ -152,8 +152,8 @@ static int fo_key(Home *h, int k)
 	if (fo.mode == 1 || fo.mode == 2) {                               /* typing a name */
 		size_t n = strlen(fo.buf);
 		if (k == K_ESC) fo.mode = 0;
-		else if (k == K_BACK && n) fo.buf[n - 1] = 0;
-		else if (k >= 32 && k < 127 && k != '/' && n + 1 < sizeof fo.buf) { fo.buf[n] = (char)k; fo.buf[n + 1] = 0; }
+		else if (k == K_BACK && n) ucp_pop(fo.buf);
+		else if (ucp_ok(k) && k != '/') ucp_add(fo.buf, sizeof fo.buf, k);
 		else if (k == K_ENTER && n) {
 			char to[420]; snprintf(to, sizeof to, "%s%s%s", cwd, strcmp(cwd, "/") ? "/" : "", fo.buf);
 			if (path_exists(to)) fo_say("There is already one with that name");

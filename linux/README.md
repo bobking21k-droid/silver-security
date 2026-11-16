@@ -407,6 +407,6 @@ in [docs/SECURITY.md](docs/SECURITY.md).
 - Secure Boot must be off (images are not signed; plan in docs/SECURITY.md). With BitLocker on, Windows may ask for its recovery key once after that change.
 - Bluetooth pairing is untested: no virtual Bluetooth adapter could be made to work in the test PC (see docs/GOAL-48H.md log).
 - The interface size can be changed (Settings > Display) but the screen's resolution can't: it is whatever the firmware gave us.
-- Accented letters from other keyboard layouts show in the console but are not yet typed into the
-  home screen's text boxes.
+- Accented and non-Latin letters can be typed into the home screen's search, file-name and login
+  boxes (UTF-8); Wi-Fi passwords stay ASCII-only. Not every symbol exists in the built-in fonts.
 - The laptop lid blanks the screen but does not suspend.

@@ -827,8 +827,8 @@ static int gstore_key(int k, int *playing)
 		if (k == K_ENTER) { gs_open_detail(s, gs.tab); return 0; }
 	}
 	if (gs.focus == 0 && k == K_DOWN && s->state == Y_RESULTS) { gs.focus = 1; return 0; }
-	if (k == K_BACK) { if (n) { s->q[n - 1] = 0; gs.focus = 0; } else gs.open = 0; }
-	else if (k >= 32 && k < 127 && n + 1 < sizeof s->q) { s->q[n] = (char)k; s->q[n + 1] = 0; gs.focus = 0; }
+	if (k == K_BACK) { if (n) { ucp_pop(s->q); gs.focus = 0; } else gs.open = 0; }
+	else if (ucp_ok(k)) { ucp_add(s->q, sizeof s->q, k); gs.focus = 0; }
 	else if (k == K_ENTER) { gs_load(gs.tab); gs.focus = 1; }
 	return 0;
 }
