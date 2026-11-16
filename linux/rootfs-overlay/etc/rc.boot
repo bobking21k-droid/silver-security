@@ -35,6 +35,7 @@ for dev in /sys/class/net/*; do
   ip link set "$n" up
   udhcpc -b -i "$n" -s /etc/udhcpc/default.script >/dev/null 2>&1 &
 done
+/sbin/silver-power >/dev/null 2>&1 &                  # laptops: power saving on battery
 # the clock: set from the internet once the network is up (see silver-time)
 /sbin/silver-time >/dev/null 2>&1 &
 echo "  * network: Wi-Fi (silver-wifi, background)"

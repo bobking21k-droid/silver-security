@@ -85,7 +85,11 @@ static int key_waiting(void) { struct pollfd p = {tty_fd, POLLIN, 0}; return pol
 #endif
 
 #define STB_IMAGE_IMPLEMENTATION
-#define STBI_ONLY_JPEG
+#define STBI_NO_PSD
+#define STBI_NO_TGA
+#define STBI_NO_HDR
+#define STBI_NO_PIC
+#define STBI_NO_PNM
 #define STBI_NO_STDIO
 #define STBI_NO_LINEAR
 #include "../common/stb_image.h"
@@ -526,6 +530,16 @@ static void request_val(char c, int v)
 	(void)c; (void)v;
 #endif
 }
+/* "Kde": a short name for the privileged side (a keyboard layout) */
+static void request_name(char c, const char *name)
+{
+#ifndef RENDER
+	char m[40]; int n = snprintf(m, sizeof m, "%c%s\n", c, name);
+	if (req_fd >= 0 && n > 0 && n < (int)sizeof m) { if (write(req_fd, m, (size_t)n) < 0) { /* parent gone */ } }
+#else
+	(void)c; (void)name;
+#endif
+}
 static void request_game(const char *action, const char *app)
 {
 #ifndef RENDER
@@ -612,6 +626,7 @@ static void search_go(Home *h)
 	h->focus = yt.state == Y_RESULTS ? 1 : 0;
 }
 #include "buttons.h"
+#include "fileops.h"
 
 static void handle_key(Home *h, int k)
 {
@@ -632,6 +647,7 @@ static void handle_key(Home *h, int k)
 		if (h->sub == 1) { if (wf_key(k)) h->sub = 0; break; }                 /* Network */
 		if (h->sub == 2) { if (bt_key(k)) h->sub = 0; break; }                 /* Bluetooth */
 		if (h->sub == 3) { if (tz_key(k)) h->sub = 0; break; }                 /* Time */
+		if (h->sub == 4) { if (kb_key(k)) h->sub = 0; break; }                 /* Keyboard */
 		if ((k == K_LEFT || k == K_RIGHT) && (h->row == R_BRIGHT || h->row == R_VOL)) { slider_adjust(h, k == K_RIGHT ? 5 : -5); break; }
 		if (k == K_ESC || k == K_LEFT || k == K_BACK) { h->screen = 0; h->fade = 0; }
 		else if (k == K_UP && h->row > 0) { h->row--; h->confirm = 0; }
@@ -640,6 +656,7 @@ static void handle_key(Home *h, int k)
 			if (h->row == R_NET) { h->sub = 1; wf_open(); }
 			else if (h->row == R_BT) { h->sub = 2; bt_open(); }
 			else if (h->row == R_TIME) { h->sub = 3; tz_open(); }
+			else if (h->row == R_KEYB) { h->sub = 4; kb_open(); }
 			else if (h->row == R_CALM) calm_toggle(h);
 			else if (h->row == R_SOUND) mute_toggle(h);
 			else if (h->row == R_WIN) { if (win_ok()) { if (h->confirm == R_WIN) request('N'); else h->confirm = R_WIN; } }      /* Windows: asks twice */
@@ -717,6 +734,7 @@ static void handle_key(Home *h, int k)
 			}
 			break;
 		}
+		if (fo_key(h, k)) break;                                                 /* copy, paste, delete, pictures ... */
 		if (k == '/') { h->fs = 1; fs_prepare(h); h->sr.q[0] = 0; fs_refresh(h); break; }
 		if (k == K_ESC) { h->screen = 0; h->fade = 0; }
 		else if (k == K_UP && h->row > 0) { h->row--; files_preview(h); }
@@ -751,6 +769,57 @@ static void handle_key_snd(Home *h, int k)
 
 #include "mouse.h"
 
+/* ---- idle: dim after a while, switch the screen off after longer, wake on any key or mouse move.
+ * Times (seconds) can be changed in ~/.config/silver/idle (two numbers: dim off). ---- */
+static int idle_state;                                 /* 0 awake, 1 dimmed, 2 screen off */
+static int idle_saved_bri = -2;
+static int idle_dim_s = 120, idle_off_s = 600;
+static void idle_read_config(void)
+{
+	char p[300]; snprintf(p, sizeof p, "%s/.config/silver/idle", homedir);
+	FILE *f = fopen(p, "r"); int a, b;
+	if (f) { if (fscanf(f, "%d %d", &a, &b) == 2 && a >= 3 && b > a) { idle_dim_s = a; idle_off_s = b; } fclose(f); }
+}
+static void idle_set(int st)
+{
+	if (st == idle_state) return;
+	int was = idle_state; idle_state = st;
+	if (st >= 1 && was == 0) { idle_saved_bri = bl_value("max_brightness") > 0 ? bl_value("brightness") * 100 / bl_value("max_brightness") : -1; if (idle_saved_bri > 8) request_val('L', idle_saved_bri / 4 < 3 ? 3 : idle_saved_bri / 4); }
+	if (st == 2) request('X');
+	if (st == 0) {
+		if (was == 2) request('x');
+		if (idle_saved_bri > 0) request_val('L', idle_saved_bri);
+		idle_saved_bri = -2;
+	}
+}
+/* battery: the first one, and whether it is draining */
+static int battery_percent(int *draining)
+{
+	DIR *d = opendir("/sys/class/power_supply"); struct dirent *e; int pct = -1; *draining = 0;
+	while (d && (e = readdir(d))) {
+		if (strncmp(e->d_name, "BAT", 3)) continue;
+		char p[300], st[32] = ""; FILE *f;
+		snprintf(p, sizeof p, "/sys/class/power_supply/%s/capacity", e->d_name);
+		if ((f = fopen(p, "r"))) { if (fscanf(f, "%d", &pct) != 1) pct = -1; fclose(f); }
+		snprintf(p, sizeof p, "/sys/class/power_supply/%s/status", e->d_name);
+		if ((f = fopen(p, "r"))) { if (!fgets(st, sizeof st, f)) st[0] = 0; fclose(f); }
+		*draining = !strncmp(st, "Discharging", 11);
+		break;
+	}
+	if (d) closedir(d);
+	return pct;
+}
+static void battery_draw(float t)
+{
+	static double chk; static int pct = -1, drain;
+	if (now() - chk > 10) { pct = battery_percent(&drain); chk = now(); }
+	if (pct < 0 || !drain || pct > 15) return;
+	char m[32]; snprintf(m, sizeof m, "BATTERY LOW  %d%%", pct);
+	float w = sg_text_w(&FC, m, U * 1.2f, 0.2f) + U * 4, x = W - w - U * 3, y = U * 2.2f;
+	sg_rrect(&fb, x, y, w, U * 3.6f, U * 1.8f, 0, RGB(200, 40, 40), 0.55f + 0.4f * (pct <= 5 ? 0.5f + 0.5f * sg_sin(t * 6) : 1));
+	sg_text(&fb, &FC, x + U * 2, y + U * 2.4f, m, U * 1.2f, WHITE, 1, 0.2f);
+}
+
 static void sample_sys(Home *h, float t)
 {
 	if (t - h->last_sample < 0.5f) return;
@@ -771,15 +840,17 @@ static void home_frame(Home *h, float t, float dt)
 	ui_t = t;
 	{ int was = dl.state; dl_poll(); if (was == DL_RUN && dl.state == DL_DONE) snd('r'); else if (was == DL_RUN && dl.state == DL_FAIL) snd('e'); }
 	if (h->fs) search_tick(&h->sr, 0.004);
+	fo_poll(h);
 	switch (h->screen) {
 	case 0: home_draw(h, 1, t, 99); break;
 	case 1: draw_settings(h, t); break;
 	case 2: draw_search(h, t); break;
 	case 3: if (h->sub == 1 || h->sub == 4) sample_sys(h, t); draw_apps(h, t); break;
-	case 4: if (h->fs) draw_files_search(h, t); else draw_files(h, t); break;
+	case 4: if (fo.view) fo_view_draw(); else if (h->fs) draw_files_search(h, t); else draw_files(h, t); break;
 	}
 	if (h->screen && h->fade < 1) sg_rect(&fb, 0, 0, W, H, BLACK, 1 - h->fade);
 	else if (!h->screen && h->fade < 1) sg_rect(&fb, 0, 0, W, H, BLACK, 1 - h->fade);
+	battery_draw(t);
 	pwr_draw(t);
 }
 
@@ -800,7 +871,7 @@ static const struct { float t; int k; } SCRIPT[] = {
 	{49.4f, 's'}, {49.6f, 'i'}, {49.8f, 'l'}, {50.0f, 'v'}, {50.2f, 'e'}, {50.4f, 'r'}, {50.6f, '2'}, {50.8f, '0'}, {51.0f, '2'}, {51.2f, '6'}, {51.8f, K_ENTER}, {55.2f, K_ESC},
 	{55.8f, K_DOWN}, {56.4f, K_ENTER}, {57.6f, K_DOWN}, {58.2f, K_DOWN}, {58.8f, K_ENTER}, {60.2f, K_ESC},      /* Bluetooth: pair a controller */
 	{60.6f, K_DOWN}, {60.9f, K_DOWN}, {61.2f, K_DOWN}, {61.5f, K_DOWN}, {62.0f, K_ENTER}, {63.2f, K_DOWN}, {63.8f, K_DOWN}, {64.5f, K_ENTER}, {66.0f, K_ESC},         /* Time: pick a zone */
-	{66.4f, K_UP}, {66.8f, K_LEFT}, {67.1f, K_LEFT}, {67.4f, K_RIGHT}, {67.8f, K_DOWN}, {68.1f, K_DOWN}, {68.4f, K_DOWN}, {68.9f, K_ENTER}, {70.4f, K_ENTER}, {71.4f, K_ESC},     /* volume slider, sound effects off, on */
+	{66.4f, K_UP}, {66.8f, K_LEFT}, {67.1f, K_LEFT}, {67.4f, K_RIGHT}, {67.8f, K_DOWN}, {68.1f, K_DOWN}, {68.4f, K_DOWN}, {68.65f, K_DOWN}, {68.9f, K_ENTER}, {70.4f, K_ENTER}, {71.4f, K_ESC},     /* volume slider, sound effects off, on */
 	{72.2f, K_DOWN}, {72.9f, K_ENTER},                                                                        /* Apps */
 	{74.0f, K_RIGHT}, {74.8f, K_ENTER},                                                                       /* Game Store: three stores */
 	{76.0f, K_RIGHT}, {77.2f, K_RIGHT}, {78.4f, K_LEFT}, {79.4f, K_LEFT}, {80.2f, K_ENTER},                  /* SilverOS games */
@@ -848,9 +919,21 @@ static void home_loop(Home *h)
 		if (t > SCRIPT_END) return;
 #else
 		int k;
-		while ((k = read_key(0)) != -1) handle_key_snd(h, k);
+		static double idle_cfg;
+		if (!idle_cfg) act_t = now();
+		if (now() - idle_cfg > 5) { idle_cfg = now(); idle_read_config(); }                 /* (re-read every few seconds) */
+		while ((k = read_key(0)) != -1) {
+			act_t = now();
+			if (idle_state) idle_set(0);                     /* the key that woke it does nothing else */
+			else handle_key_snd(h, k);
+		}
+		double prev_act = act_t;
 		mouse_poll(h);
-		buttons_poll(h);
+		if (buttons_poll(h)) act_t = now();
+		if (act_t != prev_act && idle_state) idle_set(0);
+		{ double idle = now() - act_t; int want = idle > idle_off_s ? 2 : idle > idle_dim_s ? 1 : 0; if (want > idle_state) idle_set(want); }
+		if (pwr_show) act_t = now();
+		if (idle_state == 2) { sg_clear(&fb, BLACK); flip(); usleep(300000); continue; }      /* screen off: nothing to draw */
 #endif
 #ifdef RENDER
 		static const char *prof_env; static int prof_init; if (!prof_init) { prof_env = getenv("SILVER_PROFILE"); prof_init = 1; }
@@ -870,10 +953,13 @@ static void home_loop(Home *h)
 			if (t + 0.04f > SCRIPT_END) for (int k = 0; k < ns; k++) fprintf(stderr, "%-16s frames %4d  avg %6.1f ms  max %6.1f ms\n", st[k].k, st[k].n, st[k].sum / st[k].n, st[k].max);
 		}
 #endif
+#ifndef RENDER
+		if (idle_state == 1) sg_rect(&fb, 0, 0, W, H, BLACK, 0.55f);     /* (also dims screens with no backlight control) */
+#endif
 		mouse_draw();
 		flip();
 #ifndef RENDER
-		if (!key_waiting()) usleep(24000);
+		if (!key_waiting()) usleep(idle_state == 1 ? 120000 : 24000);
 #endif
 	}
 }
@@ -902,6 +988,28 @@ static void backlight_set(int pct)
 		f = fopen(p, "w"); if (f) { fprintf(f, "%d\n", v); fclose(f); }
 	}
 	if (d) closedir(d);
+}
+/* load a keyboard layout into the kernel (all consoles share it); returns 1 if it was applied */
+static int keymap_apply(const char *id)
+{
+	if (!*id) return 0;
+	for (const char *c = id; *c; c++) if (!((*c >= 'a' && *c <= 'z') || *c == '-')) return 0;
+	char path[80]; snprintf(path, sizeof path, "/usr/share/keymaps/%s.bkmap", id);
+	int fd = open(path, O_RDONLY);
+	if (fd < 0) return 0;
+	pid_t p = fork();
+	if (p == 0) { dup2(fd, 0); execl("/bin/busybox", "loadkmap", (char *)NULL); _exit(127); }
+	close(fd);
+	if (p > 0) { int st; waitpid(p, &st, 0); return WIFEXITED(st) && WEXITSTATUS(st) == 0; }
+	return 0;
+}
+/* your saved layout, at start */
+static void keymap_apply_saved(void)
+{
+	char p[300], id[24] = "";
+	snprintf(p, sizeof p, "%s/.config/silver/keymap", homedir);
+	FILE *f = fopen(p, "r"); if (f) { if (fgets(id, sizeof id, f)) id[strcspn(id, "\r\n")] = 0; fclose(f); }
+	if (id[0] && strcmp(id, "us")) keymap_apply(id);
 }
 /* the screen's backlight on or off (lid closed / opened); machines without a backlight are left alone */
 static void backlight_power(int on)
@@ -1021,6 +1129,12 @@ static void run_session(void)
 			if (c == 'N' && windows_installed()) { efi_var(NEXT_VAR, 2); kill(1, SIGTERM); for (;;) pause(); }     /* restart straight into Windows */
 			if (c == 'R') { kill(1, SIGTERM); for (;;) pause(); }
 			if (c == 'P') { kill(1, SIGUSR2); for (;;) pause(); }
+			if (c == 'K') {                                  /* a keyboard layout, by id (checked: letters and - only, and the file must exist) */
+				char ln[24]; size_t k = 0;
+				while (k + 1 < sizeof ln && read(pfd[0], &ln[k], 1) == 1 && ln[k] != '\n') k++;
+				ln[k] = 0; keymap_apply(ln);
+				continue;
+			}
 			if (c == 'V' || c == 'L') {                      /* volume / brightness, 0 to 100 */
 				char ln[8]; size_t k = 0;
 				while (k + 1 < sizeof ln && read(pfd[0], &ln[k], 1) == 1 && ln[k] != '\n') k++;
@@ -1107,6 +1221,7 @@ int main(int argc, char **argv)
 			snprintf(p, sizeof p, "%s/.config/silver/mute", homedir);
 			if (access(p, F_OK) == 0) muted = 1;
 			tz_load();                                            /* your time zone */
+			keymap_apply_saved();                                 /* and your keyboard layout */
 		}
 	}
 	tcgetattr(tty_fd, &saved_tio);

@@ -1,0 +1,26 @@
+# SilverOS keyboard layouts: id|kbd map name|what the Settings page calls it
+# (scripts/build-keymaps.sh compiles each with loadkeys from the kbd sources; any that fail are left out)
+us|us|English (US)
+uk|uk|English (UK)
+us-intl|us-acentos|English (US, international)
+dvorak|dvorak|Dvorak
+colemak|en-latin9|Colemak
+de|de-latin1|German
+fr|fr-latin9|French (AZERTY)
+be|be-latin1|Belgian
+ch|sg|Swiss German
+es|es|Spanish
+latam|la-latin1|Latin American
+pt|pt-latin9|Portuguese
+br|br-abnt2|Brazilian (ABNT2)
+it|it|Italian
+nl|nl|Dutch
+se|sv-latin1|Swedish
+no|no-latin1|Norwegian
+dk|dk-latin1|Danish
+fi|fi|Finnish
+pl|pl2|Polish
+cz|cz|Czech
+hu|hu|Hungarian
+tr|trq|Turkish (Q)
+jp|jp106|Japanese (106 keys)

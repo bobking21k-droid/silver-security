@@ -15,10 +15,12 @@
 #pragma once
 
 #ifdef RENDER
+static double act_t;
 static void mouse_open(void) {}
 static void mouse_poll(Home *h) { (void)h; }
 static void mouse_draw(void) {}
 #else
+static double act_t;                                  /* when you last touched anything (idle dimming) */
 static struct { int fd, pkt, have; unsigned char buf[64]; float x, y; int btn, shown; double last; } ms = {.fd = -1, .pkt = 3};
 
 static void mouse_open(void)
@@ -85,10 +87,10 @@ static void mouse_poll(Home *h)
 			int dx = (signed char)p[1], dy = -(signed char)p[2], wheel = ms.pkt == 4 ? (signed char)p[3] : 0, btn = p[0] & 7;
 			off += ms.pkt;
 			float sp = W / 1280.0f * 1.4f;
-			if (dx || dy) { ms.x = sg_clamp(ms.x + dx * sp, 0, (float)W - 1); ms.y = sg_clamp(ms.y + dy * sp, 0, (float)H - 1); ms.shown = 1; ms.last = now(); if (mouse_hover(h)) snd('m'); }
-			if (wheel) { ms.shown = 1; ms.last = now(); handle_key_snd(h, wheel < 0 ? K_DOWN : K_UP); }
-			if ((btn & 1) && !(ms.btn & 1)) { ms.shown = 1; ms.last = now(); mouse_hover(h); handle_key_snd(h, K_ENTER); }   /* left: Enter */
-			if ((btn & 2) && !(ms.btn & 2)) { ms.shown = 1; ms.last = now(); handle_key_snd(h, K_ESC); }                      /* right: back */
+			if (dx || dy) { ms.x = sg_clamp(ms.x + dx * sp, 0, (float)W - 1); ms.y = sg_clamp(ms.y + dy * sp, 0, (float)H - 1); ms.shown = 1; ms.last = act_t = now(); if (mouse_hover(h)) snd('m'); }
+			if (wheel) { ms.shown = 1; ms.last = act_t = now(); handle_key_snd(h, wheel < 0 ? K_DOWN : K_UP); }
+			if ((btn & 1) && !(ms.btn & 1)) { ms.shown = 1; ms.last = act_t = now(); mouse_hover(h); handle_key_snd(h, K_ENTER); }   /* left: Enter */
+			if ((btn & 2) && !(ms.btn & 2)) { ms.shown = 1; ms.last = act_t = now(); handle_key_snd(h, K_ESC); }                      /* right: back */
 			ms.btn = btn;
 		}
 		if (off) { memmove(ms.buf, ms.buf + off, (size_t)(ms.have - off)); ms.have -= off; }

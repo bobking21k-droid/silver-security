@@ -105,6 +105,16 @@ reference, not its content.)
    - **The power button** (and the lid) work: a press shows "Shut down?" (Enter confirms, Esc
      cancels, the button again shuts down now); closing a laptop lid turns the screen off. During
      a Steam session, two presses within three seconds shut down. Sleep on lid close is not done.
+   - **Settings > Keyboard** picks the layout from 24 (German, French, Spanish, Dvorak, Colemak ...),
+     with a box to try it. Layouts are small binary keymaps compiled at build time from the kbd
+     project's data and loaded with BusyBox's `loadkmap` by the privileged side; the kernel has
+     one keymap for all consoles, so the text consoles follow. Letters that a layout types as
+     accents show in the console but are not yet typed into the home screen's own boxes (plain ASCII).
+   - **Idle:** after 2 minutes without a key or mouse move the screen dims, after 10 it goes dark
+     (laptops also lower the backlight), and any key or mouse move wakes it; the waking key does
+     nothing else. Change the times in `~/.config/silver/idle` (two numbers, seconds). A low
+     battery (15% and falling) shows a warning. On a laptop on battery the CPUs are asked to save
+     power (`/sbin/silver-power`); the kernel now includes the Intel and AMD CPU speed drivers.
    - **Settings > Time** picks your time zone from about 50 (with today's daylight-saving rules built
      in, so no zone database is needed); every zone shows its current time. The **clock is set
      from the internet** at boot and when Wi-Fi connects (`/sbin/silver-time`): first from the

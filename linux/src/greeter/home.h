@@ -630,6 +630,7 @@ static void row_box(float x, float y, float w, float h, int sel, float pulse)
 }
 
 /* ---------------------------------------------------------------- files */
+static void fo_draw_overlay(Home *h, float t);          /* (fileops.h) */
 static void draw_files(Home *h, float t)
 {
 	memcpy(fb.px, bg_sec, (size_t)W * H * 4);
@@ -673,7 +674,8 @@ static void draw_files(Home *h, float t)
 		sg_text(&fb, &FT, px + U * 2, py + U * 4.2f, ents[h->row].name, U * 2.4f, WHITE, 1, 0.01f);
 		cap_text(px + U * 2, py + U * 6.4f, "FOLDER  -  ENTER TO OPEN", U * 0.85f, RGB(150, 150, 156), 1, 0);
 	}
-	foot_hints("UP DOWN  move      ENTER  open      BACKSPACE  up a level      /  search      ESC  home");
+	fo_draw_overlay(h, t);
+	foot_hints("ENTER  open      C  copy      X  cut      V  paste      D  delete      R  rename      N  new folder      ESC  home");
 	(void)t;
 }
 
@@ -745,13 +747,14 @@ static float ui_t;                              /* seconds on the home screen cl
 #include "wifi.h"
 #include "bt.h"
 #include "tz.h"
+#include "kb.h"
 
 /* ---------------------------------------------------------------- settings */
 /* the rows of Settings, in order (the keys, the mouse and the drawing all use these) */
-enum { R_NET, R_BT, R_DISP, R_BRIGHT, R_VOL, R_TIME, R_CALM, R_SOUND, R_ABOUT, R_WIN, R_RESTART, R_OFF, R_N };
+enum { R_NET, R_BT, R_DISP, R_BRIGHT, R_VOL, R_TIME, R_KEYB, R_CALM, R_SOUND, R_ABOUT, R_WIN, R_RESTART, R_OFF, R_N };
 #define SET_LY (U * 19.0f)
-#define SET_RH (U * 4.8f)
-#define SET_STEP (U * 5.25f)
+#define SET_RH (U * 4.5f)
+#define SET_STEP (U * 4.95f)
 
 #ifndef RENDER
 static int volume_get(void);                  /* (sound.h) */
@@ -799,16 +802,17 @@ static void draw_settings(Home *h, float t)
 	if (h->sub == 1) { draw_network(h, t); return; }
 	if (h->sub == 2) { draw_bluetooth(h, t); return; }
 	if (h->sub == 3) { draw_time(h, t); return; }
+	if (h->sub == 4 && h->screen == 1) { draw_keyboard(h, t); return; }
 	memcpy(fb.px, bg_sec, (size_t)W * H * 4);
-	title_block("SETTINGS", "NETWORK  BLUETOOTH  DISPLAY  SOUND  TIME  POWER", I_SETTINGS);
+	title_block("SETTINGS", "NETWORK  BLUETOOTH  DISPLAY  SOUND  TIME  KEYBOARD  POWER", I_SETTINGS);
 	char net[80]; net_text(net, sizeof net);
 	if (t - wf.last_poll > 3 || !wf.last_poll) wf_poll(t);
 	dsp_refresh(t);
 	if (wf.ssid[0]) snprintf(net, sizeof net, "Wi-Fi  %.32s", wf.ssid);
 	else if (!strcmp(net, "not connected") && wf.adapters) snprintf(net, sizeof net, "Not connected  -  ENTER to pick Wi-Fi");
 	char disp[48]; snprintf(disp, sizeof disp, "%d x %d", W * scale, H * scale);
-	static const char *name[R_N] = {"Network", "Bluetooth", "Display", "Brightness", "Volume", "Time", "Calm mode", "Sound effects", "About", "Windows", "Restart", "Shut down"};
-	static const int ic[R_N] = {I_NET, I_SOUND, I_SCREEN, I_SCREEN, I_SOUND, I_INFO, I_SETTINGS, I_SOUND, I_INFO, I_PC, I_POWER, I_POWER};
+	static const char *name[R_N] = {"Network", "Bluetooth", "Display", "Brightness", "Volume", "Time", "Keyboard", "Calm mode", "Sound effects", "About", "Windows", "Restart", "Shut down"};
+	static const int ic[R_N] = {I_NET, I_SOUND, I_SCREEN, I_SCREEN, I_SOUND, I_INFO, I_TERM, I_SETTINGS, I_SOUND, I_INFO, I_PC, I_POWER, I_POWER};
 	char val[R_N][80];
 	snprintf(val[R_NET], 80, "%s", net);
 	{ int c = 0; for (int i = 0; i < bt.n; i++) c += bt.d[i].connected; if (c) snprintf(val[R_BT], 80, "%d connected", c); else snprintf(val[R_BT], 80, "Pair headphones, controllers ..."); }
@@ -816,6 +820,8 @@ static void draw_settings(Home *h, float t)
 	snprintf(val[R_BRIGHT], 80, dsp.bri >= 0 ? "%d%%" : "Not adjustable on this screen", dsp.bri);
 	snprintf(val[R_VOL], 80, dsp.vol >= 0 ? "%d%%" : "No sound device", dsp.vol);
 	snprintf(val[R_TIME], 80, "%.60s", ZONES[tzs.cur >= 0 ? tzs.cur : 0].name);
+	kb_load();
+	snprintf(val[R_KEYB], 80, "%.60s", kb.n ? kb.label[kb.cur] : "English (US)");
 	snprintf(val[R_CALM], 80, "%s", h->calm_on ? "ON  -  no strobing or shaking" : "OFF");
 	snprintf(val[R_SOUND], 80, "%s", h->mute_on ? "OFF  -  muted" : "ON");
 	snprintf(val[R_ABOUT], 80, "SilverOS 0.1.0");

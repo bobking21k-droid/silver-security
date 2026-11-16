@@ -8,6 +8,9 @@ cp -a "$TOP/rootfs-overlay/." "$ROOTFS/"
 find "$ROOTFS" -name .keep -delete
 cp "$WORK/stage/bin/busybox" "$ROOTFS/bin/busybox"
 mkdir -p "$ROOTFS/etc/ssl"; cp "$SOURCES/cacert.pem" "$ROOTFS/etc/ssl/cacert.pem"
+# keyboard layouts (scripts/build-keymaps.sh): small binary keymaps, loaded with BusyBox loadkmap
+bash "$TOP/scripts/build-keymaps.sh" >/dev/null
+mkdir -p "$ROOTFS/usr/share/keymaps"; cp "$WORK/keymaps/"* "$ROOTFS/usr/share/keymaps/"
 # Wi-Fi / Bluetooth / graphics firmware and kernel modules, and the big media files, live in
 # games.sqfs (scripts/build-pack.sh) so they stay on the stick or disk instead of in memory
 mkdir -p "$ROOTFS/lib"
