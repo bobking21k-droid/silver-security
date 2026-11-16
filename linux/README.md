@@ -90,6 +90,9 @@ reference, not its content.)
      work (built from source in the games layer, with PulseAudio's Bluetooth audio); the
      adapter's firmware (Intel, Realtek, MediaTek, Qualcomm, Broadcom USB) is in the image.
      Not done: Bluetooth audio in the home screen's own sounds (games and Steam use it).
+     Tested against real BlueZ only for the "no adapter" state (a virtual machine has no
+     Bluetooth hardware, and BlueZ's virtual controller would not run on this kernel); pairing
+     itself is untested, and the page parses `bluetoothctl`'s documented output.
    - **Apps**: a grid of apps: Terminal (a shell on the console; `exit` returns here), the
      **Game Store**, **Me and my PC**, a live System Monitor and About.
      - **Game Store** (`src/greeter/gstore.h`): opens on three panels side by side, picked with
@@ -252,6 +255,20 @@ Undo it with `bcdedit /set {bootmgr} path \EFI\Microsoft\Boot\bootmgfw.efi`.
 Hold **Shift** while SilverOS starts loading (after you pick it in the chooser) to get a plain
 text menu: SilverOS, SilverOS (verbose boot), Windows, Firmware setup.
 
+## Memory
+
+SilverOS keeps almost nothing in RAM. On the live USB the in-memory system is **7 MB** (the
+programs and scripts). The drivers (kernel modules), the Wi-Fi / Bluetooth / graphics firmware,
+the Search background clip and the dancer all live in `games.sqfs` on the stick or disk and are
+read only when used (the clip and dancer are memory-mapped, so their pages can be dropped).
+Measured in a virtual PC at the home screen: the whole system uses about **140 MB**, of which
+the home-screen program is about 22 MB (at 1280x800; screen buffers grow with the resolution).
+It frees what it doesn't need: the privileged parent hands its screen buffers back while the
+home screen runs, two background buffers are dropped once the cracked glass is baked, and the
+frosted-glass cache is capped at 1.5 screens. An installed SilverOS runs from its own disk.
+Steam is the exception: on the live USB its files (1 GB of its own, then your games) would sit
+in RAM, so the Game Store tells you to install SilverOS first.
+
 ## The games layer
 
 SilverOS itself is small and static (musl). Steam and Windows games need the opposite: glibc,
@@ -264,12 +281,19 @@ the Game Store says Steam isn't available.
 What works and what is untested, plainly:
 
 - Verified in the virtual PC: the layer mounts, drivers load, Xorg starts with glamor and DRI3,
-  OpenGL 4.5 and the Vulkan loader work (software rendering there), Steam's 32-bit client starts
-  in Big Picture mode and runs its updater, the home screen comes back afterwards.
-- **Not verified, because it needs a real internet connection, a Steam account and a real GPU:**
-  Steam's update download, sign-in, installing a game, Proton, and speed on real graphics hardware.
-  Expect rough edges; the session log is `~/.local/state/silver/steam-session.log` and Xorg's is
-  `Xorg.log` beside it, Steam's own `~/.local/share/Steam/logs/`.
+  OpenGL 4.5 and the Vulkan loader work (software rendering there), Steam's launcher unpacks
+  and runs, Steam downloads and installs its own client and runtime (about 1 GB; it updates
+  itself after that), and the home screen comes back when Steam exits.
+- **Not working in my tests, and unresolved:** Steam's own window. In the virtual PC (no real
+  GPU, so everything is drawn by the CPU) Steam's browser engine starts but its graphics
+  process crashes, so no Steam window appears. SilverOS then starts Steam with its
+  software-rendering flags and hides software Vulkan from it, which did not fix it there. A
+  real AMD or Intel GPU takes a different path (glamor, hardware OpenGL) that I could not test.
+  Extra Steam flags can go on one line in `~/.config/silver/steam-args`.
+- **Not verified, because it needs a real GPU and a Steam account:** sign-in, installing a game,
+  Proton, and speed on real graphics hardware. Expect rough edges; the session log is
+  `~/.local/state/silver/steam-session.log`, Xorg's is `Xorg.log` beside it, and Steam's own
+  logs are in `~/.local/share/Steam/logs/`.
 - **Graphics cards:** AMD (Radeon HD 7000 and newer) and Intel (Ivy Bridge and newer) are the
   good case. **Nvidia uses the open nouveau driver**: it works for the desktop, but is slow for
   games on most cards, and Vulkan games (Proton) need NVK, which this build does not include.
