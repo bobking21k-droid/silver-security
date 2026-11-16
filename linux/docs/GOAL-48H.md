@@ -73,3 +73,4 @@ Investigations (time-boxed to one session each; stop and write down what was lea
 - 2026-11-16 15:40Z  Files app: copy/move/delete/rename/new folder + picture viewer. Security review: fixed root symlink bug in Steam session; docs/SECURITY.md.
 - 2026-11-16 15:45Z  Batch committed+pushed (demo 24 checks, dual-boot PASS, steam security test PASS). Memory ~80 MB in use at login. tests/boot-time.py added (QEMU without KVM is ~76 s to login, not meaningful for real hardware).
 - 2026-11-16 16:00Z  Settings > Display: choose interface size (x1-x3), saved in ~/.config/silver/scale. README known limits added.
+- 2026-11-16 16:35Z  Kernel hardened (no DEBUG_FS, KALLSYMS_ALL, BINFMT_MISC, X86_MSR). tests/run-all.sh: ALL PASSED (demo checks, power, keyboard, display, idle, mouse, firewall, dual-boot).

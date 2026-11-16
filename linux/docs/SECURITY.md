@@ -27,6 +27,9 @@ What was looked at, what was found, what was fixed, what is left. Not a professi
 - **The Steam session runs Xorg as root**: needed for GPU/KMS access without a login manager.
   The Steam client itself runs as the user.
 
+## Done: kernel tightened
+`DEBUG_FS`, `KALLSYMS_ALL`, `BINFMT_MISC` and `X86_MSR` are now off (the whole test suite, `tests/run-all.sh`, passes on that kernel).
+
 ## Worth tightening (not done yet)
 - Kernel options: `INIT_ON_FREE_DEFAULT_ON`, `ZERO_CALL_USED_REGS`, `DEBUG_FS` off, `IO_URING`
   off (large attack surface), `X86_MSR` off, `BPF_JIT_ALWAYS_ON`, `BINFMT_MISC` off,
