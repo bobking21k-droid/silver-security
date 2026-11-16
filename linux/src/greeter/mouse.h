@@ -102,7 +102,7 @@ static void mouse_draw(void)
 	if (ms.fd < 0 || !ms.shown) return;
 	float idle = (float)(now() - ms.last), a = idle < 4 ? 1 : sg_sat(1 - (idle - 4) / 1.5f);
 	if (a <= 0) return;
-	float u = U * 0.9f, x = ms.x, y = ms.y;
+	float u = U * 1.25f, x = ms.x, y = ms.y;
 	V2 o[3] = {{x - u * 0.15f, y - u * 0.25f}, {x - u * 0.15f, y + u * 2.1f}, {x + u * 1.5f, y + u * 1.55f}};
 	V2 i[3] = {{x + u * 0.15f, y + u * 0.35f}, {x + u * 0.15f, y + u * 1.45f}, {x + u * 0.95f, y + u * 1.2f}};
 	sg_tri(&fb, o[0], o[1], o[2], BLACK, 0.85f * a);
