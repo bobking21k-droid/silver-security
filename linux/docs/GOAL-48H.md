@@ -97,3 +97,4 @@ Investigations (time-boxed to one session each; stop and write down what was lea
 - 2026-11-16 21:15Z  Bluetooth (round 2): a raw probe (tests/vhci-probe.c) shows /dev/vhci DOES answer the create request, but only after a short delay (poll before read). A blocking-open LD_PRELOAD shim (tests/vhci-blocking.c) did not make btvirt work, so the exact reason is still open. Pairing remains untested.
 - 2026-11-16 21:40Z  Lid sleep: opt-in via ~/.config/silver/lid = sleep (freeze/mem). Written, compiles, power test passes; suspend itself NOT verified (QEMU never woke from freeze with system_wakeup).
 - 2026-11-16 21:20Z  Full suite on the head with lid-sleep option: ALL 11 PASSED.
+- 2026-11-18 14:50Z  DEADLINE. Final state: branch head 4d76f45 (all 11 suite tests passed on it, plus lid-sleep untested resume). Final ISO + demo sent. Scheduled wake-ups disabled.
