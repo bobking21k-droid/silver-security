@@ -1,0 +1,26 @@
+#!/bin/sh
+# silver-wifi: looks after Wi-Fi. Started once at boot (rc.boot), it keeps watching, so adapters
+# that appear later (firmware still loading, a USB stick plugged in) are picked up too.
+# For every wireless interface: unblock the radio, bring it up, run wpa_supplicant (the networks
+# you join are saved in /etc/wpa_supplicant/wpa_supplicant.conf), and run wpa_cli in action mode
+# so a DHCP address is fetched each time it connects (/etc/wpa_action.sh).
+# The home screen (Settings > Network) talks to wpa_supplicant's control socket; members of the
+# "netdev" group may use it.
+CONF=/etc/wpa_supplicant/wpa_supplicant.conf
+[ -f "$CONF" ] || { umask 077; printf 'ctrl_interface=DIR=/run/wpa_supplicant GROUP=netdev\nupdate_config=1\n' > "$CONF"; }
+chmod 600 "$CONF"
+mkdir -p /run/wpa_supplicant
+for r in /sys/class/rfkill/rfkill*; do [ -w "$r/soft" ] && [ "$(cat "$r/type" 2>/dev/null)" = wlan ] && echo 0 > "$r/soft"; done
+while :; do
+  for d in /sys/class/net/*; do
+    n=${d##*/}
+    [ -d "$d/wireless" ] || [ -d "$d/phy80211" ] || continue
+    [ -S "/run/wpa_supplicant/$n" ] && continue
+    grep -qx "$n" /run/silver-wifi.skip 2>/dev/null && continue          # (the automated test's access point)
+    ip link set "$n" up 2>/dev/null
+    wpa_supplicant -B -i "$n" -c "$CONF" -P "/run/wpa_supplicant.$n.pid" >/dev/null 2>&1 || continue
+    sleep 1
+    wpa_cli -B -p /run/wpa_supplicant -i "$n" -a /etc/wpa_action.sh >/dev/null 2>&1
+  done
+  sleep 4
+done
