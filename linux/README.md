@@ -15,31 +15,35 @@ reference, not its content.)
 
 1. **The chooser** (`src/silverboot`, our own UEFI program in C): the screen splits exactly in
    half along a torn seam that glows red and beats like a heart. On the left is SilverOS: a
-   bright white room where a broken, flat-shaded 3D pencil turns slowly in the air among its
-   splinters, and time crawls until you press a key or move the mouse. On the right is
+   bright white room where the SilverOS emblem (nested triangles of silver mosaic around a
+   violet gem) turns slowly, each layer on its own, and time crawls until you press a key or
+   move the mouse. On the right is
    Windows, in full colour: sky, sun, clouds, hills and four glass panes. Shards of each world
    drift across the seam into the other, and every change of selection cuts with a brief red
    strobe. Use <- -> or the mouse, then press Enter or click; `1` and `2` jump straight to a
    system; `C` turns on calm mode (no strobing). It starts SilverOS after 8 s if untouched.
 2. **Pick SilverOS:** a fake modern Windows boot appears (black, the blue four-pane logo, the
    ring of dots chasing round), then flips upside-down in grey and melts, in pure black and white: columns drip at their own speeds, blocks slip
-   sideways and flip to negative. A white flash, the four-pane logo flickers (with one red cut),
+   sideways and flip to negative. A white flash, the emblem flickers (with one red cut),
    and then the system check runs (CPU, GPU, RAM, STORAGE) with values read from the real
    hardware, each confirmed by a beating red dot.
-3. **The greeter** (`src/greeter`): a red dot beats in the dark. A white hexagonal pencil rises
-   up the middle, bows and snaps (time slows for a beat, splinters fly), and the screen
-   **cracks**: fractures race out from the break, and two jagged ones split the glass into four
-   panes that light up as **Settings, Search, Apps and Files**. The intro plays once per boot;
+3. **The greeter** (`src/greeter`): the emblem's violet gem glows and beats in the dark. Its
+   three silver layers spin in from outside, each locking into place, and with a flash the
+   emblem is complete. It then shrinks into the middle of the screen while two clean lines run
+   out from it and open the glass into four panes: **Settings, Search, Apps and Files**. The intro plays once per boot;
    any key skips it. Add `silver.calm` to the kernel command line (or turn on Calm mode in
    Settings) to turn off its shake and flashes.
    **Sound:** everything has sound effects, all made by code at boot (no sound files):
    - the chooser: a low breathing drone, a whoosh and click (or a soft chime) as you move
-     between the sides, a tick each second of the countdown, a deep thump on Enter;
+     between the sides, with the emblem's metallic clink on the SilverOS side, a tick each second
+     of the countdown, a deep thump on Enter;
    - the fake Windows: a soft start-up bloom (an original chime), a tape stop as it flips, a
      sinking, crackling drone as it melts, electric zaps on the flashes; the system check
      ticks, rattles and beeps "OK" over a heartbeat; picking Windows sounds like glass breaking;
-   - the intro: a heartbeat, a rising whoosh, wood creaking, the snap with a deep boom, glass
-     shattering, cracks ticking and a soft chord as the panes light up;
+   - the intro: the gem's glassy swell and soft beat, a fluttering whoosh for each spinning
+     layer and a metallic clink as it locks, a tone rising to the lock, then a deep hit, a bright
+     chord and a shower of sparkles, two sheens "shinging" across, a low hum, and a whoosh, four
+     ticks and a soft chord as the panes open;
    - the home screen and every section: clicks as you move, whooshes as you open and go back,
      key taps as you type, a two-note chime when search results arrive, a low buzz on errors.
 
@@ -165,7 +169,7 @@ reference, not its content.)
      (Enter twice to confirm).
 
    Signing in is passwordless by default; an account with a password gets a card over the
-   cracked glass first. The home screen runs as the signed-in user, not root: the greeter forks,
+   glass first. The home screen runs as the signed-in user, not root: the greeter forks,
    the child drops privileges, and the privileged parent only does what the child asks through
    a pipe (open the terminal, restart, shut down).
 5. **Pick Windows:** the screen shatters like glass and Windows Boot Manager starts as normal.
@@ -313,7 +317,7 @@ read only when used (the clip and dancer are memory-mapped, so their pages can b
 Measured in a virtual PC at the home screen: the whole system uses about **140 MB**, of which
 the home-screen program is about 22 MB (at 1280x800; screen buffers grow with the resolution).
 It frees what it doesn't need: the privileged parent hands its screen buffers back while the
-home screen runs, two background buffers are dropped once the cracked glass is baked, and the
+home screen runs, and the
 frosted-glass cache is capped at 1.5 screens. An installed SilverOS runs from its own disk.
 Steam is the exception: on the live USB its files (1 GB of its own, then your games) would sit
 in RAM, so the Game Store tells you to install SilverOS first.

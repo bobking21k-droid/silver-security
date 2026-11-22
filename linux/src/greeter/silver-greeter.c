@@ -2,10 +2,10 @@
  * silver-greeter -- the SilverOS sign-in and home screen, drawn straight onto /dev/fb0 with sgfx.
  *
  * Intro (once per boot, ~4 s, any key skips):
- *   black, a cold light and dust -> a red dot beats -> a white hexagonal pencil rises up the
- *   middle, bows and SNAPS (time slows for a beat, splinters fly) -> the screen CRACKS:
- *   fractures race out from the break, and two jagged ones split the glass into four panes ->
- *   the panes light up as SETTINGS, SEARCH, APPS and FILES.
+ *   black, a cold light and dust -> the violet gem glows and pulses -> the emblem's three
+ *   silver layers spin in from outside, each locking into place -> a flash as it completes ->
+ *   the emblem shrinks into the middle of the screen while the four panes open along clean
+ *   lines: SETTINGS, SEARCH, APPS and FILES.
  *
  * Home: arrow keys choose a pane, Enter opens it, Esc comes back (see home.h). Each section
  * works: browse and preview files, search files/apps/settings, a terminal and a live system
@@ -48,6 +48,7 @@
 
 #include "../common/fonts.h"
 #include "../common/sgfx.h"
+#include "../common/emblem.h"
 
 #define WHITE RGB(255, 255, 255)
 #define BLACK RGB(0, 0, 0)
@@ -118,14 +119,13 @@ static void ui_release(void)
 {
 	free(fb.px); fb.px = NULL; free(canvas); canvas = NULL; free(qmap); qmap = NULL;
 	free(bg_dark); free(bg_light); free(bg_sec); bg_dark = bg_light = bg_sec = NULL;
-	free(bk_dark); free(bk_light); bk_dark = bk_light = NULL;
 }
 static int ui_again(void)
 {
 	fb = sg_surf(malloc((size_t)W * H * 4), W, H);
 	qmap = malloc((size_t)W * H); bg_dark = malloc((size_t)W * H * 4); bg_light = malloc((size_t)W * H * 4); bg_sec = malloc((size_t)W * H * 4);
 	if (!fb.px || !qmap || !bg_dark || !bg_light || !bg_sec) return -1;
-	gen_cracks(); bake_home();
+	bake_home();
 	return 0;
 }
 static int fb_open(void)
@@ -188,126 +188,6 @@ static int read_key(int wait_ms)
 }
 #endif
 
-/* ================================================================ the pencil */
-static V2 rot(V2 o, float c, float s, float x, float y) { return (V2){o.x + x * c - y * s, o.y + x * s + y * c}; }
-
-/* The pencil lies along a local x axis from -0.5 (eraser) to +0.5 (point), in units of its
- * length; local y is across it. It is a hexagonal pencil, so three faces show: lit, middle and
- * shaded. Parts: eraser, crimped metal ferrule, white lacquered body, sharpened wood, graphite. */
-enum { P_ERASER, P_FERRULE, P_BODY, P_WOOD, P_LEAD, P_N };
-static const float PX[P_N + 1] = {-0.50f, -0.445f, -0.365f, 0.30f, 0.445f, 0.50f};
-static const uint32_t PCOL[P_N][3] = {
-	{RGB(92, 92, 98), RGB(52, 52, 58), RGB(22, 22, 26)},                 /* eraser: black rubber */
-	{RGB(240, 240, 246), RGB(168, 170, 180), RGB(78, 80, 90)},             /* ferrule */
-	{RGB(252, 252, 254), RGB(214, 214, 220), RGB(118, 118, 128)},          /* lacquer */
-	{RGB(232, 222, 206), RGB(198, 186, 168), RGB(126, 116, 102)},          /* wood */
-	{RGB(110, 112, 122), RGB(56, 58, 66), RGB(22, 22, 26)},                /* graphite */
-};
-static float pencil_hw(float x)                               /* half width at x */
-{
-	const float B = 0.045f;
-	if (x < PX[1]) return B * 0.93f;
-	if (x < PX[2]) return B * 1.04f;
-	if (x < PX[3]) return B;
-	if (x < PX[4]) return B + (0.013f - B) * (x - PX[3]) / (PX[4] - PX[3]);
-	return 0.013f * (1 - (x - PX[4]) / (PX[5] - PX[4]));
-}
-
-/* draw the part of the pencil between local xa and xb (units of L) at origin o, angle (c, s) */
-static void pencil_span(V2 o, float c, float s, float L, float xa, float xb, float a)
-{
-	static const float FV[4] = {-1.0f, -0.36f, 0.36f, 1.0f};               /* the three faces across the width */
-	for (int pass = 0; pass < 2; pass++)
-		for (int p = 0; p < P_N; p++) {
-			float x0 = sg_max(xa, PX[p]), x1 = sg_min(xb, PX[p + 1]);
-			if (x1 <= x0) continue;
-			int steps = (p == P_WOOD || p == P_LEAD) ? 4 : 1;
-			for (int k = 0; k < steps; k++) {
-				float u0 = x0 + (x1 - x0) * k / steps, u1 = x0 + (x1 - x0) * (k + 1) / steps;
-				float h0 = pencil_hw(u0) * L, h1 = pencil_hw(u1 - 1e-4f) * L;
-				if (pass == 0) {                                               /* a dark outline under everything */
-					V2 q[4] = {rot(o, c, s, u0 * L, -h0), rot(o, c, s, u1 * L, -h1), rot(o, c, s, u1 * L, h1), rot(o, c, s, u0 * L, h0)};
-					sg_poly(&fb, q, 4, RGB(6, 6, 8), a, U * 0.22f);
-					continue;
-				}
-				for (int f = 0; f < 3; f++) {
-					V2 q[4] = {rot(o, c, s, u0 * L, FV[f] * h0), rot(o, c, s, u1 * L, FV[f] * h1), rot(o, c, s, u1 * L, FV[f + 1] * h1), rot(o, c, s, u0 * L, FV[f + 1] * h0)};
-					sg_poly(&fb, q, 4, PCOL[p][f], a, 0.5f);
-				}
-			}
-			if (pass == 0) continue;
-			if (p == P_FERRULE)                                                   /* crimped rings */
-				for (int r = 0; r < 5; r++) {
-					float rx = PX[1] + (PX[2] - PX[1]) * (0.15f + 0.17f * r);
-					if (rx < xa || rx > xb) continue;
-					float h = pencil_hw(rx) * L, d = L * 0.0045f;
-					V2 q[4] = {rot(o, c, s, rx * L - d, -h), rot(o, c, s, rx * L + d, -h), rot(o, c, s, rx * L + d, h), rot(o, c, s, rx * L - d, h)};
-					sg_poly(&fb, q, 4, BLACK, 0.35f * a, 0.5f);
-				}
-			if (p == P_BODY) {                                                    /* a long highlight down the lit face, a black band by the ferrule */
-				float h = pencil_hw(0) * L, ha = sg_max(xa, PX[2] + 0.02f), hb = sg_min(xb, PX[3] - 0.04f);
-				if (hb > ha) {
-					V2 q[4] = {rot(o, c, s, ha * L, -h * 0.80f), rot(o, c, s, hb * L, -h * 0.80f), rot(o, c, s, hb * L, -h * 0.66f), rot(o, c, s, ha * L, -h * 0.66f)};
-					sg_poly(&fb, q, 4, WHITE, 0.9f * a, 0.5f);
-				}
-				float b0 = PX[2] + 0.012f, b1 = PX[2] + 0.032f;
-				if (b0 >= xa && b1 <= xb) {
-					V2 q[4] = {rot(o, c, s, b0 * L, -h), rot(o, c, s, b1 * L, -h), rot(o, c, s, b1 * L, h), rot(o, c, s, b0 * L, h)};
-					sg_poly(&fb, q, 4, RGB(14, 14, 16), a, 0.5f);
-				}
-			}
-			if (p == P_WOOD && PX[3] >= xa)                                       /* scalloped lacquer where it was sharpened */
-				for (int f = 0; f < 3; f++) {
-					float h = pencil_hw(PX[3]) * L, v0 = (-1 + f * 0.666f) * h, v1 = v0 + 0.666f * h;
-					V2 q[3] = {rot(o, c, s, PX[3] * L, v0), rot(o, c, s, PX[3] * L, v1), rot(o, c, s, (PX[3] + 0.035f - 0.01f * f) * L, (v0 + v1) / 2)};
-					sg_poly(&fb, q, 3, PCOL[P_BODY][f], a, 0.5f);
-				}
-		}
-	if (xa <= PX[0]) {                                                            /* the eraser's rounded end: a low dome, not a ball */
-		float h = pencil_hw(PX[0]) * L;
-		for (int f = 0; f < 3; f++) {
-			static const float FV[4] = {-1.0f, -0.36f, 0.36f, 1.0f};
-			V2 q[4] = {rot(o, c, s, PX[0] * L, FV[f] * h), rot(o, c, s, PX[0] * L, FV[f + 1] * h),
-				   rot(o, c, s, PX[0] * L - h * 0.45f * (1 - sg_abs(FV[f + 1]) * 0.7f), FV[f + 1] * h * 0.8f), rot(o, c, s, PX[0] * L - h * 0.45f * (1 - sg_abs(FV[f]) * 0.7f), FV[f] * h * 0.8f)};
-			sg_poly(&fb, q, 4, PCOL[P_ERASER][f], a, 0.5f);
-		}
-	}
-}
-
-/* the splintered end at the break (local x = 0), pointing toward `dir` (+1 or -1) */
-static void pencil_break(V2 o, float c, float s, float L, int dir, unsigned seed, float a)
-{
-	float h = pencil_hw(0) * L;
-	for (int k = 0; k < 7; k++) {
-		float v0 = -1 + k * (2.0f / 7), v1 = v0 + 2.0f / 7, r = (float)((seed * 2654435761u + (unsigned)k * 40503u) >> 20 & 1023) / 1023.0f;
-		float len = L * (0.012f + 0.045f * r * r) * dir, vm = (v0 + v1) / 2 + (r - 0.5f) * 0.2f;
-		uint32_t col = (k == 0 || k == 6) ? PCOL[P_BODY][k == 0 ? 0 : 2] : PCOL[P_WOOD][k < 3 ? 0 : k < 5 ? 1 : 2];
-		V2 q[3] = {rot(o, c, s, 0, v0 * h), rot(o, c, s, 0, v1 * h), rot(o, c, s, len, vm * h)};
-		sg_poly(&fb, q, 3, col, a, 0.5f);
-	}
-	V2 g = rot(o, c, s, dir * L * 0.004f, 0);                                     /* the graphite core, snapped */
-	sg_disc(&fb, g.x, g.y, h * 0.30f, PCOL[P_LEAD][2], a);
-}
-
-/* The pencil standing upright, eraser up, point down, centred on (cx, cy). snap 0 = whole; above 0 the two halves are drawn apart, turned by the angles given. */
-static void pencil(float cx, float cy, float L, float snap, float ang_top, float ang_bot, V2 off_top, V2 off_bot, float bend, float a)
-{
-	const float up = 1.5707963f;                                                     /* local +x points down the screen */
-	if (snap <= 0) {
-		if (bend == 0) { pencil_span((V2){cx, cy}, sg_cos(up), sg_sin(up), L, -0.5f, 0.5f, a); return; }
-		float t1 = up - bend, t2 = up + bend;                                        /* straining: bowing at the middle */
-		pencil_span((V2){cx, cy}, sg_cos(t2), sg_sin(t2), L, -0.5f, 0.001f, a);
-		pencil_span((V2){cx, cy}, sg_cos(t1), sg_sin(t1), L, -0.001f, 0.5f, a);
-		return;
-	}
-	float t1 = up + ang_top, t2 = up + ang_bot;
-	V2 ot = {cx + off_top.x, cy + off_top.y}, ob = {cx + off_bot.x, cy + off_bot.y};
-	pencil_span(ot, sg_cos(t1), sg_sin(t1), L, -0.5f, 0, a);
-	pencil_break(ot, sg_cos(t1), sg_sin(t1), L, 1, 7, a);
-	pencil_span(ob, sg_cos(t2), sg_sin(t2), L, 0, 0.5f, a);
-	pencil_break(ob, sg_cos(t2), sg_sin(t2), L, -1, 3, a);
-}
-
 /* ================================================================ intro */
 static void shake_frame(float dx, float dy)
 {
@@ -327,82 +207,81 @@ static void home_init(Home *h)
 	h->mute_on = muted;
 }
 
-#define T_DOT 0.25f
-#define T_PEN 0.55f
-#define T_SNAP 1.95f
-#define T_OPEN 3.10f
+#define T_GEM 0.25f      /* the gem appears */
+#define T_FORM 0.55f     /* the layers start to come in */
+#define T_LOCK 1.95f     /* the last layer locks: the emblem is complete */
+#define T_OPEN 3.10f     /* the panes open */
 #define T_END 3.95f
 #include "sound.h"
 
-/* after the snap, time runs slow for a moment (the SUPERHOT beat), then catches up */
-static float slowmo(float ct) { return ct < 0 ? ct : ct < 0.55f ? ct * 0.30f : 0.165f + (ct - 0.55f) * 1.25f; }
+/* the emblem during the intro at time t (seconds); R is its full size */
+static Emblem intro_emblem(float t)
+{
+	Emblem e = emblem_rest();
+	e.t = t;
+	/* the three layers: when each starts, which way it spins, where it comes from */
+	static const float start[3] = {T_FORM + 0.50f, T_FORM + 0.25f, T_FORM}, spin[3] = {3.6f, -3.0f, 2.4f}, from[3] = {3.2f, 2.4f, 0.15f};
+	for (int l = 0; l < 3; l++) {
+		float dur = T_LOCK - start[l] - (2 - l) * 0.25f;             /* inner lands first, outer last, at T_LOCK */
+		float u = sg_sat((t - start[l]) / dur), eu = sg_ease_out(u);
+		e.rot[l] = spin[l] * (1 - eu) * (1 - eu);
+		e.scale[l] = sg_lerp(from[l], 1, eu);
+		e.alpha[l] = sg_sat(u * 3.0f);
+	}
+	/* the gem: there first, beating, then flaring when everything locks */
+	float lt = t - T_LOCK;
+	e.alpha[3] = sg_smooth((t - T_GEM) / 0.35f);
+	e.scale[3] = 1;
+	if (lt < 0) e.gem = 0.6f + 0.7f * sg_heart(t - T_GEM, 0.82f);
+	else e.gem = 1 + 1.4f * sg_sat(1 - lt / 0.7f);
+	e.rot[3] = lt < 0 ? -0.6f * (1 - sg_smooth((t - T_GEM) / (T_LOCK - T_GEM))) : 0;
+	/* after the lock: two sheens run across it */
+	if (lt > 0.05f && lt < 0.75f) e.shine = sg_lerp(-1.4f, 1.4f, (lt - 0.05f) / 0.7f);
+	else if (lt > 0.85f && lt < 1.35f) e.shine = sg_lerp(-1.4f, 1.4f, (lt - 0.85f) / 0.5f);
+	return e;
+}
 
 static void intro(Home *h)
 {
-	float PL = sg_min(H * 0.62f, W * 0.6f), cx = W / 2.0f, cy = H / 2.0f;
-	enum { NS = 34 };
-	static struct { float vx, vy, spin, size, kind; } sp[NS];
-	for (int i = 0; i < NS; i++) sp[i] = (typeof(sp[0])){(sg_frand() - .5f) * 2.4f, -0.4f - sg_frand() * 1.4f, (sg_frand() - .5f) * 16, 0.3f + sg_frand() * 0.9f, sg_frand()};
+	float cx = W / 2.0f, cy = H / 2.0f, RB = sg_min(H * 0.20f, W * 0.17f);   /* the triangle is 3 x RB tall */
 	snd('I');
 	double t0 = now();
 	for (;;) {
-		float t = (float)(now() - t0), ct = t - T_SNAP, st = slowmo(ct);
+		float t = (float)(now() - t0), lt = t - T_LOCK;
 		if (t > T_END) break;
 		if (key_waiting()) { snd('x'); break; }               /* skipped: stop the sound too */
 		sg_clear(&fb, BLACK);
 		float open = sg_sat((t - T_OPEN) / 0.75f);
-		/* a cold light from above, and dust hanging in it, before the glass appears */
+		/* a cold light from above, and dust hanging in it, before the panes appear */
 		float lit = sg_sat((t - 0.1f) / 0.6f) * (1 - open);
 		if (lit > 0) {
-			sg_glow(&fb, cx, cy - H * 0.1f, H * 0.62f, RGB(40, 40, 46), lit);
-			sg_glow(&fb, cx, cy, H * 0.30f, RGB(28, 28, 32), lit);
+			sg_glow(&fb, cx, cy - H * 0.1f, H * 0.62f, RGB(38, 36, 50), lit);
+			sg_glow(&fb, cx, cy, H * 0.30f, RGB(26, 24, 36), lit);
 			for (int i = 0; i < 40; i++) {
 				float x = sg_fract(i * 0.6180339f + t * 0.010f * (1 + i % 3)) * W, y = sg_fract(i * 0.4142135f - t * 0.018f) * H;
 				float d = sg_abs(x - cx) / (W * 0.4f);
 				sg_disc(&fb, x, y, U * (0.08f + 0.06f * (i % 3)), WHITE, 0.30f * lit * sg_sat(1 - d));
 			}
 		}
-		home_draw(h, open, t, ct);                            /* the glass (once open) and the cracks, growing from the break */
+		home_draw(h, open, t, lt);                            /* the panes, once they open */
 
-		float hb = sg_heart(t - T_DOT, 0.82f);                /* a red dot beating in the dark, where the pencil will break */
-		if (t > T_DOT && t < T_SNAP) {
-			float grow = sg_smooth((t - T_DOT) / 0.3f);
-			sg_glow(&fb, cx, cy, U * (6 + 5 * hb), BLOOD, 0.45f * grow * (0.5f + 0.5f * hb));
-			sg_disc(&fb, cx, cy, U * (0.7f + 0.7f * hb) * grow, BLOOD, grow);
+		/* the emblem: big in the middle, then shrinking into the centre of the panes */
+		Emblem e = intro_emblem(t);
+		float k = sg_ease_io(open), R = sg_lerp(RB, HOME_EMBLEM_R, k);
+		if (open <= 0) emblem_draw(&fb, cx, cy + R * 0.5f, R, &e);   /* (centred on its height, not its middle) */
+		else if (open < 1) center_mark(&e, R, k);       /* (once open, the home screen draws it) */
+		if (lt > 0 && lt < 0.7f) {                             /* the lock: a flash of light and a ring going out */
+			float q = lt / 0.7f;
+			sg_glow(&fb, cx, cy + RB * 0.5f, RB * 1.4f * sg_sat(lt * 6), RGB(170, 120, 255), (calm ? 0.25f : 0.55f) * (1 - q));
+			sg_ring(&fb, cx, cy + RB * 0.5f, H * 0.62f * sg_ease_out(q), sg_max(1, U * 0.35f * (1 - q)), WHITE, 0.45f * (1 - q));
+			sg_ring(&fb, cx, cy + RB * 0.5f, H * 0.48f * sg_ease_out(q), sg_max(1, U * 0.22f * (1 - q)), RGB(150, 100, 255), 0.45f * (1 - q));
 		}
-		if (t > T_PEN && st < 1.3f) {
-			float in = sg_ease_out(sg_sat((t - T_PEN) / 0.7f));
-			float strain = (t > T_SNAP - 0.6f && t < T_SNAP) ? (t - T_SNAP + 0.6f) / 0.6f : 0;
-			float shk = calm ? 0 : sg_sin(t * 120) * U * 0.25f * strain * strain;
-			float y0 = cy + (1 - in) * H * 0.85f;
-			float fade = sg_sat(1.3f - st * 1.1f) * sg_sat(in * 3);
-			if (ct <= 0) pencil(cx + shk, y0, PL, 0, 0, 0, (V2){0, 0}, (V2){0, 0}, 0.05f * strain * strain, fade);
-			else {
-				float k = st;                                   /* the halves fly apart, turning, then drop */
-				V2 ot = {-k * H * 0.22f, -k * H * 0.10f + k * k * H * 0.9f}, ob = {k * H * 0.20f, k * H * 0.08f + k * k * H * 0.9f};
-				pencil(cx, cy, PL, 1, -k * 2.4f - 0.08f, k * 2.0f + 0.06f, ot, ob, 0, fade);
-			}
-			if (ct > 0)
-				for (int i = 0; i < NS; i++) {                  /* splinters of wood and lacquer, flecks of graphite */
-					float x = cx + sp[i].vx * st * H * 0.9f, y = cy + sp[i].vy * st * H * 0.7f + st * st * H * 1.4f, sz = sp[i].size * U * 1.3f, an = sp[i].spin * st;
-					V2 o = {x, y}; float c = sg_cos(an), s = sg_sin(an), al = sg_sat(1.4f - st * 1.3f);
-					if (sp[i].kind < 0.55f) sg_tri(&fb, rot(o, c, s, -sz * 1.4f, -sz * 0.12f), rot(o, c, s, sz * 1.4f, 0), rot(o, c, s, -sz * 1.4f, sz * 0.12f), PCOL[P_WOOD][(int)(sp[i].kind * 5) % 3], al);
-					else if (sp[i].kind < 0.8f) sg_tri(&fb, rot(o, c, s, -sz * 0.6f, -sz * 0.3f), rot(o, c, s, sz * 0.7f, -sz * 0.1f), rot(o, c, s, -sz * 0.1f, sz * 0.5f), PCOL[P_BODY][(int)(sp[i].kind * 7) % 3], al);
-					else sg_disc(&fb, x, y, sz * 0.22f, PCOL[P_LEAD][1], al);
-				}
+		if (!calm && lt > 0) {                                  /* a small thump, and a short soft flash */
+			float th = sg_sat(1 - lt / 0.30f);
+			shake_frame(sg_sin(t * 97) * U * 0.5f * th * th, sg_cos(t * 83) * U * 0.5f * th * th);
+			if (lt < 0.06f) sg_rect(&fb, 0, 0, W, H, WHITE, 0.35f * (1 - lt / 0.06f));
 		}
-		if (ct > 0 && ct < 0.6f) {                              /* the impact: a flash and a shock ring */
-			float k = ct / 0.6f;
-			sg_glow(&fb, cx, cy, U * 24 * sg_sat(ct * 8), WHITE, 0.7f * (1 - k));
-			sg_ring(&fb, cx, cy, H * 0.6f * sg_ease_out(k), sg_max(1, U * 0.5f * (1 - k)), WHITE, 0.5f * (1 - k));
-			sg_ring(&fb, cx, cy, H * 0.45f * sg_ease_out(k), sg_max(1, U * 0.25f * (1 - k)), BLOOD, 0.4f * (1 - k));
-		}
-		if (!calm && ct > 0) {                                  /* a thump on the snap, a white flash for one beat */
-			float th = sg_sat(1 - ct / 0.45f);
-			shake_frame(sg_sin(t * 97) * U * 1.2f * th * th, sg_cos(t * 83) * U * 1.2f * th * th);
-			if (ct < 0.07f) sg_rect(&fb, 0, 0, W, H, WHITE, 0.8f * (1 - ct / 0.07f));
-		}
-		if (t < T_SNAP) sg_text_c(&fb, &FC, W / 2.0f, H - U * 3.4f, "CONTAINS FLASHING LIGHTS  /  ANY KEY SKIPS", U * 0.9f, WHITE, 0.5f * sg_sat((T_PEN + 1.0f - t) * 3) * sg_sat((t - 0.15f) * 4), 0.26f);
+		if (t < T_LOCK) sg_text_c(&fb, &FC, W / 2.0f, H - U * 3.4f, "CONTAINS FLASHING LIGHTS  /  ANY KEY SKIPS", U * 0.9f, WHITE, 0.5f * sg_sat((T_FORM + 1.0f - t) * 3) * sg_sat((t - 0.15f) * 4), 0.26f);
 		flip();
 	}
 }
@@ -434,11 +313,10 @@ static void red_text(float x, float y, const char *str, float size, float alpha,
 	sg_text(&fb, &FD, x, y, str, size, WHITE, alpha, 0);
 }
 
-/* the cracked glass, with a password card over it */
+/* the glass, with a password card over it */
 static void lock_frame(float alpha, float shake)
 {
 	memcpy(fb.px, bg_dark, (size_t)W * H * 4);
-	for (int i = 0; i < nck; i++) crack_draw(&fb, &ck[i], 99, 0.8f);
 	char hm[8], date[48];
 	clock_text(hm, date);
 	float t = (float)now(), beat = sg_heart(t, 0.9f);
@@ -889,7 +767,6 @@ static void sample_sys(Home *h, float t)
 
 static void home_frame(Home *h, float t, float dt)
 {
-	if (bk_light && bg_dark) { free(bg_dark); free(bg_light); bg_dark = bg_light = NULL; }   /* the baked copies replace them */
 	for (int q = 0; q < 4; q++) h->blend[q] += (((h->screen == 0 && q == h->sel) ? 1.f : 0.f) - h->blend[q]) * sg_min(1, dt * 11);
 	h->fade = sg_min(1, h->fade + dt * 6);
 	frost_static = h->screen == 1 || h->screen == 3 || h->screen == 4;   /* these screens sit on still glass */
@@ -1267,9 +1144,9 @@ int main(int argc, char **argv)
 		 W, H, argc > 1 ? argv[1] : "greeter.mp4");
 	outpipe = popen(cmd, "w");
 	{ const char *f = getenv("SILVER_FETCH"); if (f) snprintf(yt.fetch, sizeof yt.fetch, "%s", f); }
-	gen_cracks(); bake_home();
+	bake_home();
 	Home h; home_init(&h);
-	if (argc > 4) {                                   /* the password card, over the cracked glass */
+	if (argc > 4) {                                   /* the password card, over the glass */
 		strcpy(pass, "12345678");
 		for (int f = 0; f < 70; f++) lock_frame(sg_sat(f / 15.f), 0);
 	}
@@ -1331,7 +1208,7 @@ int main(int argc, char **argv)
 	signal(SIGPIPE, SIG_IGN);
 	audio_start(calm, muted);                                /* the sound process: it opens the card as root, then drops root */
 	sg_clear(&fb, BLACK); flip();
-	gen_cracks(); bake_home();
+	bake_home();
 	if (mkdir("/run/silver-greeter", 0700) == 0) { Home h; home_init(&h); intro(&h); }     /* the full intro plays once per boot */
 	free(canvas); canvas = NULL;                      /* (the intro's screen-shake scratch buffer) */
 	tcflush(tty_fd, TCIFLUSH);

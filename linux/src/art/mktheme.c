@@ -39,12 +39,12 @@ int main(int argc, char **argv)
 	if (scenes_init(1280, 720)) return 1;
 	Surf s = sg_surf(malloc((size_t)W * H * 4), W, H);
 	Chooser c; c.windows_found = 1;
-	chooser_init(&c);                                   /* sets up the pencil's shards */
+	chooser_init(&c);
 
-	/* background: the white room, a small broken pencil, the title */
+	/* background: the white room, a small emblem, the title */
 	white_room(&s, 0, W);
-	sg_blob(&s, W / 2.0f, 96, 150, 9, BLACK, 0.10f);
-	pencil(&s, W / 2.0f, 58, 7.2f, 2.0f, 0.12f, 0);
+	sg_blob(&s, W / 2.0f, 104, 90, 7, BLACK, 0.10f);
+	{ Emblem e = emblem_rest(); e.light_bg = 1; e.t = 1; emblem_draw(&s, W / 2.0f, 62 + 13, 26, &e); }
 	sg_text_c(&s, &FD, W / 2.0f, 172, name, 66, INK, 1, 0.0f);
 	sg_text_c(&s, &FC, W / 2.0f, 202, "CHOOSE YOUR SYSTEM", 10.5f, RGB(96, 98, 108), 1, 0.30f);
 	uint32_t hc = RGB(84, 86, 96);
@@ -66,8 +66,12 @@ int main(int argc, char **argv)
 	for (int i = 0; i < 3; i++) {
 		sg_clear(&t, WHITE);
 		float ix = 86, iy = 64;
-		if (i == 0) { sg_disc(&t, ix, iy, 30, BLACK, 1); sg_ring(&t, ix, iy, 17, 5, WHITE, 1); sg_disc(&t, ix, iy, 5, WHITE, 1); }
-		else if (i == 1) logo4(&t, ix, iy, 56, BLACK, BLACK, BLACK, BLACK, 1);
+		if (i == 0) { Emblem e = emblem_rest(); e.light_bg = 1; e.gem = 0; emblem_draw(&t, ix, iy + 10, 20, &e); }
+		else if (i == 1) {                                  /* four panes */
+			float g = 56 * 0.055f, w = (56 - g) / 2;
+			sg_rrect(&t, ix - 28, iy - 28, w, w, 1, 0, BLACK, 1); sg_rrect(&t, ix + g / 2, iy - 28, w, w, 1, 0, BLACK, 1);
+			sg_rrect(&t, ix - 28, iy + g / 2, w, w, 1, 0, BLACK, 1); sg_rrect(&t, ix + g / 2, iy + g / 2, w, w, 1, 0, BLACK, 1);
+		}
 		else for (int k = -1; k <= 1; k++) sg_disc(&t, ix + k * 20, iy, 6.5f, BLACK, 1);
 		sg_text(&t, &FD, 148, 80, labels[i], 46, BLACK, 1, -0.015f);
 		save(dir, files[i], &t);

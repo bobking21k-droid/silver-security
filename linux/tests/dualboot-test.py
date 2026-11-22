@@ -121,7 +121,7 @@ print("== 2. power on from disk: chooser must appear")
 vm = VM(with_iso=False, testap=True)
 vm.expect("silverboot.efi", 60); time.sleep(4); vm.shot("chooser")
 vm.key("ret"); time.sleep(0.9); vm.shot("melt"); time.sleep(3.2); vm.shot("checks")
-print("== 3. SilverOS boots from disk: crack intro, four-pane home, sections, terminal as the user")
+print("== 3. SilverOS boots from disk: emblem intro, four-pane home, sections, terminal as the user")
 vm.expect("login:", 120)
 t0 = time.time()
 for at, name in [(2.0, "intro-1"), (6.0, "intro-2"), (9.0, "intro-3"), (12.0, "intro-4"), (15.0, "intro-5"), (22.0, "home")]:

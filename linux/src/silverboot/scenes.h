@@ -2,7 +2,7 @@
  * silverboot scenes -- everything the boot chooser draws, independent of UEFI so the same
  * code runs in the real boot program (silverboot.c) and in the desktop preview (preview.c).
  *
- *   chooser      split screen: SilverOS (white world, broken 3D pencil) | Windows (colour)
+ *   chooser      split screen: SilverOS (white world, the emblem turning) | Windows (colour)
  *   transition   pick SilverOS: classic Windows scene -> flips grey -> melts -> logo flicker
  *   checks       black-and-white hardware check
  *   shatter      pick Windows: the screen breaks apart
@@ -11,6 +11,7 @@
  */
 #pragma once
 #include "../common/sgfx.h"
+#include "../common/emblem.h"
 
 extern void *sb_alloc(size_t bytes);
 extern const uint8_t font_scrawl[], font_text[], font_caption[];
@@ -124,7 +125,7 @@ static void panes3d(Surf *s, float cx, float cy, float size, float t, float dim)
 	sg3_flush(&g, s, 0, 0, 1);
 }
 
-/* ================================================================ SilverOS world: white room, broken pencil */
+/* ================================================================ SilverOS world: white room, the emblem */
 static void white_room(Surf *s, int x0, int x1)
 {
 	int hz = (int)(H * 0.62f);
@@ -148,83 +149,20 @@ static void white_room(Surf *s, int x0, int x1)
 	sg_noclip(s);
 }
 
-typedef struct { float x; float r; float jag[6]; } Ring;
-static V3 pen_xf(V3 p, float bend, float gap, const float *m)   /* m: yaw, tilt, roll, cy, cz */
+/* The emblem over the white room. Its layers turn slowly on their own, like the emblem's own
+   animation; while time crawls (nothing pressed) they barely move, and a key press (burst)
+   spins them on and lets them drift apart a little. dim: the Windows side is selected. */
+static void chooser_emblem(Surf *s, float cx, float cy, float R, float t, float real_t, float burst, float dim)
 {
-	p = v3_rotx(p, m[2]);                       /* roll around its own axis */
-	p = v3_rotz(p, bend); p.x += gap;           /* this half: hinge at the break */
-	p = v3_roty(p, m[0]); p = v3_rotz(p, m[1]);
-	p.y += m[3]; p.z += m[4];
-	return p;
-}
-static V3 ring_pt(const Ring *r, int k, float bend, float gap, const float *m)
-{
-	float a = (k % 6) * (SG_PI / 3) + SG_PI / 6;
-	return pen_xf(v3(r->x + r->jag[k % 6], r->r * sg_cos(a), r->r * sg_sin(a)), bend, gap, m);
-}
-static void band(Sg3 *g, const Ring *a, const Ring *b, float bend, float gap, const float *m, uint32_t dark, uint32_t light)
-{
-	for (int k = 0; k < 6; k++) {
-		V3 q[4] = {ring_pt(a, k, bend, gap, m), ring_pt(a, k + 1, bend, gap, m), ring_pt(b, k + 1, bend, gap, m), ring_pt(b, k, bend, gap, m)};
-		sg3_face(g, q, 4, dark, light, 1, 0);
-	}
-}
-
-#define NSHARD 34
-static struct { V3 o, v, ax; float size, spin, ph; int kind; } shard[NSHARD];
-
-static void pencil(Surf *s, float cx, float cy, float unit, float t, float burst, float dim)
-{
-	static Sg3 g;
-	static const Ring ER0 = {-9.6f, 0.76f, {0}}, ER1 = {-8.6f, 0.76f, {0}}, FE0 = {-8.6f, 0.86f, {0}}, FE1 = {-7.6f, 0.86f, {0}},
-		B0 = {-7.6f, 0.8f, {0}}, BRK = {0, 0.8f, {0.50f, -0.36f, 0.42f, -0.52f, 0.28f, -0.30f}},
-		B1 = {6.4f, 0.8f, {0}}, TIP = {8.5f, 0.24f, {0}};
-	static const uint32_t body_d = RGB(6, 6, 8), body_l = RGB(98, 98, 106), met_d = RGB(104, 106, 116), met_l = RGB(236, 236, 242),
-		er_d = RGB(64, 64, 70), er_l = RGB(160, 160, 168), wood_d = RGB(136, 136, 146), wood_l = RGB(238, 238, 242);
-	g.cx = cx; g.cy = cy; g.focal = 30 * unit; g.light = v3_norm(v3(-0.42f, -0.74f, -0.52f)); g.ambient = 0.16f; g.n = 0;
-
-	float open = 0.24f + 0.05f * sg_sin(t * 1.3f) + burst * 0.30f;        /* how far the break has opened */
-	float gap = 0.75f + 0.22f * sg_sin(t * 0.9f) + burst * 1.4f;
-	float m[5] = {0.22f + 0.38f * sg_sin(t * 0.45f), -0.36f + 0.04f * sg_sin(t * 0.6f), t * 0.35f, 0.18f * sg_sin(t * 0.8f), 30};
-
-	/* back half: eraser, ferrule, body up to the break */
-	band(&g, &ER0, &ER1, -open, -gap, m, er_d, er_l);
-	band(&g, &FE0, &FE1, -open, -gap, m, met_d, met_l);
-	band(&g, &B0, &BRK, -open, -gap, m, body_d, body_l);
-	{ V3 cap[6]; for (int k = 0; k < 6; k++) cap[k] = ring_pt(&ER0, 5 - k, -open, -gap, m); sg3_face(&g, cap, 6, er_d, er_l, 1, 0); }
-	/* front half: body, sharpened wood, lead */
-	band(&g, &BRK, &B1, open, gap, m, body_d, body_l);
-	band(&g, &B1, &TIP, open, gap, m, wood_d, wood_l);
-	V3 apex = pen_xf(v3(9.35f, 0, 0), open, gap, m);
-	for (int k = 0; k < 6; k++) {
-		V3 q[3] = {ring_pt(&TIP, k, open, gap, m), ring_pt(&TIP, k + 1, open, gap, m), apex};
-		sg3_face(&g, q, 3, BLACK, RGB(70, 70, 78), 1, 0);
-	}
-	/* the broken ends: splintered wood around a dark core */
-	V3 cb = pen_xf(v3(0.55f, 0, 0), -open, -gap, m), cf = pen_xf(v3(-0.55f, 0, 0), open, gap, m);
-	for (int k = 0; k < 6; k++) {
-		V3 q[3] = {cb, ring_pt(&BRK, k, -open, -gap, m), ring_pt(&BRK, k + 1, -open, -gap, m)};
-		sg3_face(&g, q, 3, wood_d, wood_l, 1, 0);
-		V3 r[3] = {cf, ring_pt(&BRK, k + 1, open, gap, m), ring_pt(&BRK, k, open, gap, m)};
-		sg3_face(&g, r, 3, wood_d, wood_l, 1, 0);
-	}
-	/* shards hanging in the air around the break */
-	for (int i = 0; i < NSHARD; i++) {
-		float k = 0.5f + 0.5f * sg_sin(t * 0.7f + shard[i].ph) + burst * 3.2f, a = shard[i].ph * 7 + t * shard[i].spin;
-		V3 c = v3_add(shard[i].o, v3_mul(shard[i].v, k));
-		c = v3_rotz(v3_roty(c, m[0] * 0.6f), m[1]); c.y += m[3]; c.z += m[4];
-		V3 q[3] = {v3(-1, -0.55f, 0), v3(1.15f, -0.2f, 0), v3(-0.25f, 1.0f, 0)};
-		for (int j = 0; j < 3; j++) {
-			V3 p = v3_mul(q[j], shard[i].size);
-			p = v3_rotx(v3_roty(v3_rotz(p, a), a * 0.7f + shard[i].ax.x), shard[i].ax.y);
-			q[j] = v3_add(p, c);
-		}
-		if (shard[i].kind == 0) sg3_face(&g, q, 3, body_d, body_l, 1, 1);
-		else if (shard[i].kind == 1) sg3_face(&g, q, 3, wood_d, wood_l, 1, 1);
-		else sg3_face(&g, q, 3, RGB(40, 40, 46), RGB(150, 150, 158), 1, 1);
-	}
-	for (int i = 0; i < g.n; i++) g.f[i].col = sg_mix(g.f[i].col, RGB(176, 178, 186), dim * 0.5f);
-	sg3_flush(&g, s, sg_max(1.4f, U * 0.2f), sg_mix(BLACK, RGB(150, 152, 160), dim * 0.5f), 1);
+	Emblem e = emblem_rest();
+	e.light_bg = 1; e.t = real_t;
+	e.rot[0] = t * 0.55f; e.rot[1] = -t * 0.80f; e.rot[2] = t * 1.15f; e.rot[3] = -t * 0.40f;
+	for (int l = 0; l < 3; l++) e.scale[l] = 1 + burst * (0.05f + 0.06f * (2 - l));
+	for (int l = 0; l < 4; l++) e.alpha[l] = 1 - 0.40f * dim;
+	e.gem = 0.9f + 0.3f * sg_heart(real_t, 0.9f) + burst * 0.8f;
+	float sw = sg_fract(real_t / 5.5f) * 5.5f;                 /* a sheen every few seconds */
+	if (sw < 0.8f) e.shine = sg_lerp(-1.4f, 1.4f, sw / 0.8f);
+	emblem_draw(s, cx, cy + R * 0.5f, R, &e);                  /* centred on its height */
 }
 
 /* ================================================================ shards crossing the seam */
@@ -334,13 +272,6 @@ static void bake_backgrounds(const Chooser *c)
 
 static void chooser_init(Chooser *c)
 {
-	for (int i = 0; i < NSHARD; i++) {
-		shard[i].o = v3((sg_frand() - .5f) * 3.6f, (sg_frand() - .5f) * 3.6f - 0.5f, (sg_frand() - .5f) * 3.4f);
-		shard[i].v = v3((sg_frand() - .5f) * 4.2f, (sg_frand() - .64f) * 4.0f, (sg_frand() - .5f) * 3.6f);
-		shard[i].ax = v3(sg_frand() * 6, sg_frand() * 6, 0);
-		shard[i].size = 0.18f + sg_frand() * sg_frand() * 0.95f; shard[i].spin = (sg_frand() - .5f) * 2.6f;
-		shard[i].ph = sg_frand() * 6.28f; shard[i].kind = i % 4 == 3 ? 1 : i % 7 == 5 ? 2 : 0;
-	}
 	for (int i = 0; i < NCROSS; i++) {
 		cross_[i].y = (i + sg_frand()) / NCROSS; cross_[i].ph = sg_frand();
 		cross_[i].speed = 0.05f + sg_frand() * 0.10f; cross_[i].size = 0.7f + sg_frand() * sg_frand() * 3.0f;
@@ -386,9 +317,9 @@ static void chooser_draw(Surf *s, const Chooser *c)
 
 	/* SilverOS side */
 	sg_clip(s, 0, 0, mid + (int)(W * 0.02f), H);
-	float unit = sg_min(W * 0.5f, H * 0.8f) * 0.0335f, pcy = H * 0.37f;
-	sg_blob(s, W * 0.25f, H * 0.655f, unit * 9.5f, U * 1.9f, BLACK, 0.20f * (1 - 0.5f * b));
-	pencil(s, W * 0.25f, pcy, unit, t, c->burst, b);
+	float R = sg_min(W * 0.5f, H * 0.8f) * 0.165f, pcy = H * 0.37f;
+	sg_blob(s, W * 0.25f, H * 0.655f, R * 1.6f, U * 1.9f, BLACK, 0.20f * (1 - 0.5f * b));   /* its shadow on the floor */
+	chooser_emblem(s, W * 0.25f, pcy, R, t, c->real_t, c->burst, b);
 	sg_noclip(s);
 	/* Windows side */
 	clouds(s, mid + (int)(W * 0.02f), W, t * 6 + c->real_t * 0.4f, b);
@@ -448,12 +379,6 @@ static void chooser_draw(Surf *s, const Chooser *c)
 }
 
 /* ================================================================ transition: Windows boots, flips, melts */
-static void logo4(Surf *s, float cx, float cy, float size, uint32_t a, uint32_t b, uint32_t c, uint32_t d, float al)
-{
-	float g = size * 0.055f, w = (size - g) / 2, r = size * 0.02f;
-	sg_rrect(s, cx - size / 2, cy - size / 2, w, w, r, 0, a, al); sg_rrect(s, cx + g / 2, cy - size / 2, w, w, r, 0, b, al);
-	sg_rrect(s, cx - size / 2, cy + g / 2, w, w, r, 0, c, al); sg_rrect(s, cx + g / 2, cy + g / 2, w, w, r, 0, d, al);
-}
 
 static uint32_t *melt_px;          /* the melting image (feedback buffer) */
 static int melt_steps;
@@ -599,7 +524,10 @@ static int trans_frame(Surf *s, float t)
 				if (inv == 1) sg_glow(s, W / 2.0f, H / 2.0f, size * 1.25f, WHITE, 0.22f);
 				else if (inv == 2) sg_glow(s, W / 2.0f, H / 2.0f, size * 1.3f, BLACK, 0.0f);
 				else if (!inv) sg_blob(s, W / 2.0f, H / 2.0f + size * 0.06f, size * 0.9f, size * 0.9f, RGB(120, 124, 140), 0.22f);
-				logo4(s, W / 2.0f + jx, H / 2.0f, size * zoom, fg, fg, fg, fg, 1);
+				(void)fg;
+				Emblem e = emblem_rest(); float R = size * zoom * 0.42f;
+				e.light_bg = inv == 1 ? 0 : 1; e.gem = inv == 2 ? 0.4f : 1.2f; e.t = t;
+				emblem_draw(s, W / 2.0f + jx, H / 2.0f + R * 0.5f, R, &e);
 			}
 			return 0;
 		}
@@ -608,7 +536,7 @@ static int trans_frame(Surf *s, float t)
 	if (t < 0.45f) {                                        /* 5. and out */
 		sg_clear(s, RGB(250, 250, 246));
 		sg_blob(s, W / 2.0f, H / 2.0f + size * 0.06f, size * 0.9f, size * 0.9f, RGB(120, 124, 140), 0.22f);
-		logo4(s, W / 2.0f, H / 2.0f, size * zoom, RGB(66, 68, 78), RGB(66, 68, 78), RGB(66, 68, 78), RGB(66, 68, 78), 1);
+		{ Emblem e = emblem_rest(); float R = size * zoom * 0.42f; e.light_bg = 1; e.t = t; emblem_draw(s, W / 2.0f, H / 2.0f + R * 0.5f, R, &e); }
 		sg_rect(s, 0, 0, W, H, BLACK, sg_smooth(t / 0.45f));
 		return 0;
 	}

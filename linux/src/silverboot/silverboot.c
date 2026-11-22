@@ -1,8 +1,8 @@
 /*
  * silverboot -- the SilverOS boot chooser. A UEFI application written from scratch.
  *
- * The screen splits down the middle: SilverOS on the left (a white world with a broken
- * low-poly pencil), Windows on the right (in colour). Time in the scene barely moves until
+ * The screen splits down the middle: SilverOS on the left (a white world with the
+ * SilverOS emblem turning), Windows on the right (in colour). Time in the scene barely moves until
  * you do: press a key or move the mouse and the shards come alive.
  *
  *   <- / ->, mouse hover   choose          Enter, click    start
