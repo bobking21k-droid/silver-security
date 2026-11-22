@@ -99,12 +99,13 @@ static void glitch(float amt, float seed)
 }
 
 static void parade_bg(float t);
+static float scene_focus = 0.74f;                       /* where across the screen the clip's centre sits (home: 0.5) */
 static void scene_bg(float t)
 {
 	clip_load();
 	if (clip.n) {                                       /* the clip, looping */
 		float len = clip_len(), u = fmodf(s_age, len);
-		clip_draw((int)(u * clip.fps), 1.22f, 0.74f);       /* (darkened, scanlined and calmed at the top as it is drawn) */
+		clip_draw((int)(u * clip.fps), 1.22f, scene_focus);       /* (darkened, scanlined and calmed at the top as it is drawn) */
 		if (s_age > 1.0f && u < 0.20f) glitch(1 - u / 0.20f, u + 1);           /* tear the picture where it loops */
 		else if (len - u < 0.10f) glitch(1 - (len - u) / 0.10f, len - u);
 	} else {                                            /* no clip: just the turning swirl */

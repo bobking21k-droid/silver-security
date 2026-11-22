@@ -903,7 +903,7 @@ static void home_emblem(float t, float sc)
 /* reveal: 0..1 how far the cosmic colours have spread (1 = whole screen); t: time; sc: seconds
    since the emblem cracked (99 once settled) */
 /* the Search pane's clip as the home background, timed by the home screen's own clock */
-static void home_clip_bg(float t) { float keep = s_age; s_age = t; scene_bg(t); s_age = keep; }
+static void home_clip_bg(float t) { float keep = s_age; s_age = t; scene_focus = 0.5f; scene_bg(t); scene_focus = 0.74f; s_age = keep; }   /* centred: off-centre, the clip runs out on the left and its edge smears */
 
 static void home_draw(const Home *h, float reveal, float t, float sc)
 {
