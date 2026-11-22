@@ -4,7 +4,7 @@
 #   - the games layer (glibc, Mesa, Xorg, PulseAudio, BlueZ, 32-bit libraries; scripts/build-games.sh)
 #   - the kernel modules (Wi-Fi, Bluetooth and graphics drivers, signed) with their lookup tables
 #   - the Wi-Fi, Bluetooth and graphics firmware
-#   - the Search background clip and the dancer
+#   - the Search background clip, the moving home backgrounds and the dancer
 # Run after the kernel is built. Needs both Buildroot layers built; otherwise it does nothing.
 set -euo pipefail
 source "$(dirname "$0")/../config.sh"
@@ -64,6 +64,8 @@ if [[ -d "$t64/usr/lib" && -d "$t32/usr/lib" ]]; then
   # the Search background clip and the dancer (optional, see make-search-bg.sh / make-dancer.py)
   mkdir -p "$g/usr/share/silver"
   for a in search-bg.svid dancer.sprite; do [[ -f "$WORK/assets/$a" ]] && cp "$WORK/assets/$a" "$g/usr/share/silver/"; done
+  # moving home-screen backgrounds (optional, see make-background.sh)
+  if compgen -G "$WORK/assets/backgrounds/*.svic" > /dev/null; then mkdir -p "$g/usr/share/silver/backgrounds"; cp "$WORK/assets/backgrounds/"*.svic "$g/usr/share/silver/backgrounds/"; fi
   [[ -d "$TOP/games-overlay/etc" ]] && cp -a "$TOP/games-overlay/etc/." "$g/usr/etc-games/"
   # the library cache, made here for the paths the running system will see
   mkdir -p "$g/etc"; cp "$g/usr/etc-games/ld.so.conf" "$g/etc/ld.so.conf"

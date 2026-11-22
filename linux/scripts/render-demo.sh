@@ -14,7 +14,7 @@ SILVER_BOOT_WAV="$tmp/boot.wav" "$tmp/preview" "$w" "$h" silver  | ffmpeg -v err
 SILVER_BOOT_WAV="$tmp/win.wav" "$tmp/preview" "$w" "$h" windows | ffmpeg -v error -y -f rawvideo -pix_fmt bgr0 -s "${w}x${h}" -r 30 -i - "${enc[@]}" "$tmp/pick-windows.mp4"
 ffmpeg -v error -y -i "$tmp/pick-windows.mp4" -i "$tmp/win.wav" -map 0:v -map 1:a -c:v copy -c:a aac -b:a 192k -shortest "$out/silveros-pick-windows.mp4"
 # live search results and thumbnails when the downloader is built and the network is reachable
-SILVER_SOUND_OUT="$tmp/greeter.wav" SILVER_FETCH="$WORK/stage/sbin/silver-fetch" SILVER_CA_FILE="$SOURCES/cacert.pem" SILVER_SEARCH_BG="$WORK/assets/search-bg.svid" SILVER_DANCER="$WORK/assets/dancer.sprite" \
+SILVER_SOUND_OUT="$tmp/greeter.wav" SILVER_FETCH="$WORK/stage/sbin/silver-fetch" SILVER_CA_FILE="$SOURCES/cacert.pem" SILVER_SEARCH_BG="$WORK/assets/search-bg.svid" SILVER_BG_DIR="$WORK/assets/backgrounds" SILVER_DANCER="$WORK/assets/dancer.sprite" \
   "$tmp/greeter-render" "$tmp/greeter.mp4" "$w" "$h"
 # chooser -> transition -> check, a beat of black (the kernel starting), then the login,
 # with the chooser's sound under it and the greeter's sound placed where the greeter starts

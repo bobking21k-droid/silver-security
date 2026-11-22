@@ -37,10 +37,13 @@ reference, not its content.)
    cosmic colours of its gem splash out, a violet, blue and pink nebula full of stars flooding
    down to the far corner. The four buttons, **Settings, Search, Apps and Files**, appear in a row
    as dark glass cards, and the cracked emblem keeps spinning in its corner.
-   **Backgrounds:** click the emblem (or press **B**) to choose the home screen's background.
-   Two previews side by side: **Cosmic**, the nebula it lands on (the default), and **Search**, the
-   moving black-and-red clip from the Search pane, looping behind the buttons. Left/Right (or the mouse)
-   choose, Enter or a click uses it, Esc goes back; your choice is kept in
+   **Backgrounds:** click the emblem (or press **B**) to choose the home screen's background from
+   a row of previews: **Cosmic**, the nebula it lands on (the default), **Search**, the moving
+   black-and-red clip from the Search pane, and any moving backgrounds made with
+   `scripts/make-background.sh <clip> <name> [w:h:x:y]` (it crops the clip, e.g. out of a screen
+   recording, to fill a 16:9 screen and stores it in `work/assets/backgrounds/`, not in git: only
+   use clips you have the right to use; the build puts them in the image). Left/Right (or the
+   mouse) choose, Enter or a click uses it, Esc goes back; your choice is kept in
    `~/.config/silver/background`. The intro plays once per boot;
    any key skips it. Add `silver.calm` to the kernel command line (or turn on Calm mode in
    Settings) to turn off its shake and flashes.

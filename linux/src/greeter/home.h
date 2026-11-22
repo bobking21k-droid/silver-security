@@ -128,19 +128,98 @@ static void bake_cosmic(uint32_t *dst)
 		}
 }
 
-/* which background: 0 cosmic (the default), 1 the Search pane's moving clip (see rooms.h);
-   your choice lives in ~/.config/silver/background */
-enum { BG_COSMIC, BG_SEARCH, BG_N };
-static const char *BG_NAME[BG_N] = {"Cosmic", "Search"}, *BG_KEY[BG_N] = {"cosmic", "search"};
+/* Moving backgrounds: clips made by scripts/make-background.sh, found in
+   /usr/share/silver/backgrounds/ (or $SILVER_BG_DIR). Each file is mapped, not copied, so a clip
+   costs no memory until it plays. "SVIC" u16 w, h, frames, fps, 32-byte name, then YUV 4:2:0 frames. */
+#define VCLIP_MAX 6
+typedef struct { int w, h, n, fps; char name[33], file[64]; const uint8_t *frames; } VClip;
+static VClip vclip[VCLIP_MAX];
+static int nvclip, vclip_tried;
+static void vclip_scan(void)
+{
+	if (vclip_tried) return;
+	vclip_tried = 1;
+	const char *dir = getenv("SILVER_BG_DIR"); if (!dir) dir = "/usr/share/silver/backgrounds";
+	DIR *d = opendir(dir); if (!d) return;
+	char names[VCLIP_MAX * 2][64]; int nn = 0;
+	struct dirent *e;
+	while ((e = readdir(d)) && nn < VCLIP_MAX * 2) { size_t l = strlen(e->d_name); if (l > 5 && l < 64 && !strcmp(e->d_name + l - 5, ".svic")) snprintf(names[nn++], 64, "%s", e->d_name); }
+	closedir(d);
+	for (int i = 1; i < nn; i++) for (int j = i; j > 0 && strcmp(names[j - 1], names[j]) > 0; j--) { char tmp[64]; memcpy(tmp, names[j], 64); memcpy(names[j], names[j - 1], 64); memcpy(names[j - 1], tmp, 64); }
+	for (int i = 0; i < nn && nvclip < VCLIP_MAX; i++) {
+		char p[400]; snprintf(p, sizeof p, "%s/%s", dir, names[i]);
+		int fd = open(p, O_RDONLY); if (fd < 0) continue;
+		struct stat st; void *m = MAP_FAILED;
+		if (fstat(fd, &st) == 0 && st.st_size >= 44 && st.st_size <= (96L << 20)) m = mmap(NULL, (size_t)st.st_size, PROT_READ, MAP_PRIVATE, fd, 0);
+		close(fd);
+		if (m == MAP_FAILED) continue;
+		const uint8_t *b = m; VClip *v = &vclip[nvclip];
+		v->w = b[4] | b[5] << 8; v->h = b[6] | b[7] << 8; v->n = b[8] | b[9] << 8; v->fps = b[10] | b[11] << 8;
+		if (memcmp(b, "SVIC", 4) || v->w < 4 || v->h < 4 || (v->w | v->h) & 1 || !v->n || !v->fps || 44 + (long)v->w * v->h * 3 / 2 * v->n > st.st_size) { munmap(m, (size_t)st.st_size); continue; }
+		memcpy(v->name, b + 12, 32); v->name[32] = 0;
+		for (char *c = v->name; *c; c++) if (*c < ' ' || *c > '~') *c = ' ';
+		if (!v->name[0]) snprintf(v->name, sizeof v->name, "Clip %d", nvclip + 1);
+		snprintf(v->file, sizeof v->file, "%s", names[i]);
+		v->frames = b + 44;
+		nvclip++;
+	}
+}
+/* draw clip v at time t over the whole screen (filling it), dimmed so the buttons and the clock
+   read on top, the top calmer still; sampled at half resolution, each sample doubled */
+static void vclip_draw(const VClip *v, float t)
+{
+	float len = (float)v->n / v->fps, u = t - len * sg_floor(t / len);
+	int fi = (int)(u * v->fps) % v->n;
+	float dip = sg_min(sg_sat(u / 0.15f), sg_sat((len - u) / 0.15f));         /* a quick dip to dark where it loops */
+	if (t < 0.15f) dip = 1;
+	const uint8_t *Y = v->frames + (size_t)fi * v->w * v->h * 3 / 2, *Ub = Y + v->w * v->h, *Vb = Ub + (v->w / 2) * (v->h / 2);
+	float sc = sg_max((float)W / v->w, (float)H / v->h);
+	float ox = (v->w - W / sc) / 2, oy = (v->h - H / sc) / 2;
+	int step = (int)(65536 * 2 / sc), sx0 = (int)(ox * 65536);
+	for (int y = 0; y < H; y += 2) {
+		float top = y < H * 0.30f ? 1 - (float)y / (H * 0.30f) : 0;
+		int k = (int)(256 * 0.82f * (1 - 0.40f * top) * (0.35f + 0.65f * dip));
+		float fy = oy + (y + 1.0f) / sc - 0.5f;
+		int y0 = (int)fy; if (fy < 0) { y0 = 0; fy = 0; }
+		if (y0 >= v->h - 1) { y0 = v->h - 2; fy = (float)(v->h - 1); }
+		int wy = (int)((fy - y0) * 256); if (wy > 255) wy = 255;
+		const uint8_t *r0 = Y + y0 * v->w, *r1 = r0 + v->w, *ur = Ub + (y0 / 2) * (v->w / 2), *vr = Vb + (y0 / 2) * (v->w / 2);
+		uint32_t *d0 = fb.px + y * W, *d1 = y + 1 < H ? d0 + W : d0;
+		int sx = sx0 + step / 2 - 32768;
+		for (int x = 0; x < W; x += 2, sx += step) {
+			int x0 = sx >> 16, wx = (sx >> 8) & 255;
+			if (sx < 0) { x0 = 0; wx = 0; }
+			if (x0 >= v->w - 1) { x0 = v->w - 2; wx = 255; }
+			int l = ((r0[x0] * (256 - wx) + r0[x0 + 1] * wx) * (256 - wy) + (r1[x0] * (256 - wx) + r1[x0 + 1] * wx) * wy) >> 16;
+			int C = 298 * (l - 16), D = ur[x0 / 2] - 128, E = vr[x0 / 2] - 128;
+			int R = (C + 409 * E + 128) >> 8, G = (C - 100 * D - 208 * E + 128) >> 8, B = (C + 516 * D + 128) >> 8;
+			R = R < 0 ? 0 : R > 255 ? 255 : R; G = G < 0 ? 0 : G > 255 ? 255 : G; B = B < 0 ? 0 : B > 255 ? 255 : B;
+			uint32_t c = (uint32_t)((R * k >> 8) << 16 | (G * k >> 8) << 8 | (B * k >> 8));
+			d0[x] = c; d1[x] = c;
+			if (x + 1 < W) { d0[x + 1] = c; d1[x + 1] = c; }
+		}
+	}
+}
+
+/* which background: 0 cosmic (the default), 1 the Search pane's moving clip (see rooms.h), then
+   each moving background found; your choice lives in ~/.config/silver/background */
+enum { BG_COSMIC, BG_SEARCH, BG_FIXED };
+static int bg_n(void) { return BG_FIXED + nvclip; }
+static const char *bg_name(int st) { return st == BG_COSMIC ? "Cosmic" : st == BG_SEARCH ? "Search" : vclip[st - BG_FIXED].name; }
+static void bg_key_of(int st, char *out, size_t n) { if (st >= BG_FIXED) snprintf(out, n, "clip:%s", vclip[st - BG_FIXED].file); else snprintf(out, n, "%s", st == BG_SEARCH ? "search" : "cosmic"); }
 static int bg_style;
 static char homedir[160];                                                 /* (set below) */
 static void bg_style_load(void)
 {
+	vclip_scan();
+	char v[96] = "";
 #ifndef RENDER
-	char p[300], v[16] = ""; snprintf(p, sizeof p, "%s/.config/silver/background", homedir);
+	char p[300]; snprintf(p, sizeof p, "%s/.config/silver/background", homedir);
 	FILE *f = fopen(p, "r"); if (f) { if (!fgets(v, sizeof v, f)) v[0] = 0; fclose(f); }
-	bg_style = !strncmp(v, "search", 6) ? BG_SEARCH : BG_COSMIC;
+	v[strcspn(v, "\n")] = 0;
 #endif
+	bg_style = BG_COSMIC;
+	for (int st = 1; st < bg_n(); st++) { char k[96]; bg_key_of(st, k, sizeof k); if (!strcmp(v, k)) bg_style = st; }
 }
 static void bake_home(void)
 {
@@ -904,15 +983,25 @@ static void home_emblem(float t, float sc)
    since the emblem cracked (99 once settled) */
 /* the Search pane's clip as the home background, timed by the home screen's own clock */
 static void home_clip_bg(float t) { float keep = s_age; s_age = t; scene_focus = 0.5f; scene_bg(t); scene_focus = 0.74f; s_age = keep; }   /* centred: off-centre, the clip runs out on the left and its edge smears */
+/* draw background st full screen into fb */
+static void bg_render(int st, float t)
+{
+	if (st == BG_SEARCH) home_clip_bg(t);
+	else if (st >= BG_FIXED) vclip_draw(&vclip[st - BG_FIXED], t);
+	else memcpy(fb.px, bg_dark, (size_t)W * H * 4);
+}
+static uint32_t *bg_live;                       /* the splash's source when a moving background is chosen */
 
 static void home_draw(const Home *h, float reveal, float t, float sc)
 {
 	int n = W * H;
 	float beat = sg_heart(t, 0.9f);
-	if (bg_style == BG_SEARCH && reveal > 0 && reveal < 1 && canvas) {         /* the splash reveals the clip's current frame */
-		memcpy(canvas, fb.px, (size_t)n * 4); home_clip_bg(t); memcpy(bg_dark, fb.px, (size_t)n * 4); memcpy(fb.px, canvas, (size_t)n * 4);
-	}
-	if (reveal >= 1) { if (bg_style == BG_SEARCH) home_clip_bg(t); else memcpy(fb.px, bg_dark, (size_t)n * 4); }
+	const uint32_t *src = bg_dark;
+	if (bg_style != BG_COSMIC && reveal > 0 && reveal < 1 && canvas) {         /* the splash reveals the clip's current frame */
+		if (!bg_live) bg_live = malloc((size_t)n * 4);
+		if (bg_live) { memcpy(canvas, fb.px, (size_t)n * 4); bg_render(bg_style, t); memcpy(bg_live, fb.px, (size_t)n * 4); memcpy(fb.px, canvas, (size_t)n * 4); src = bg_live; }
+	} else if (bg_live && reveal >= 1) { free(bg_live); bg_live = NULL; }
+	if (reveal >= 1) bg_render(bg_style, t);
 	else if (reveal > 0) {
 		/* The splash: what was packed into the gem bursts out through the crack. Long tendrils shoot
 		   out first, mostly down towards the far corner, droplets fly ahead of them, then it all
@@ -930,8 +1019,8 @@ static void home_draw(const Home *h, float reveal, float t, float sc)
 				lobe = lobe > 0 ? lobe * 1.5f : lobe * 0.6f;                              /* sharp tendrils, round valleys */
 				float edge = reach * dirk * (1 + lobe) - wob * (qmap[y * W + x] / 255.f);
 				int i = y * W + x;
-				if (d < edge - rim) fb.px[i] = bg_dark[i];
-				else if (d < edge) fb.px[i] = sg_add(bg_dark[i], RGB(210, 170, 255), 0.9f * (d - (edge - rim)) / rim);   /* the wet, glowing edge */
+				if (d < edge - rim) fb.px[i] = src[i];
+				else if (d < edge) fb.px[i] = sg_add(src[i], RGB(210, 170, 255), 0.9f * (d - (edge - rim)) / rim);   /* the wet, glowing edge */
 				else if (d < edge + rim * 0.7f) fb.px[i] = sg_add(fb.px[i], RGB(130, 80, 255), 0.6f * (1 - (d - edge) / (rim * 0.7f)));
 			}
 		/* droplets flung out ahead, with short trails */
@@ -968,33 +1057,31 @@ static void home_draw(const Home *h, float reveal, float t, float sc)
 }
 
 /* ================================================================ backgrounds (click the emblem) */
-/* Two previews side by side: the background it lands on (Cosmic, the default) and the other one
-   (Search: the Search pane's moving clip). Left/Right or the mouse choose, Enter or a click uses it, Esc goes back. */
-static uint32_t *bg_thumb[BG_N];
-static int tb_w, tb_h;
+/* A row of previews: the background it lands on (Cosmic, the default), the Search pane's clip,
+   and each moving background. Left/Right or the mouse choose, Enter or a click uses it, Esc goes back. */
+static uint32_t *bg_thumb[BG_FIXED + VCLIP_MAX];
+static int tb_w, tb_h, tb_n;
 static int em_hit(float x, float y) { float dx = x - em_x(), dy = y - em_y(); return dx * dx + dy * dy < EM_R * EM_R * 4.4f; }
+static float bg_gap(void) { return W * 0.025f; }
 
 static void bg_thumbs_make(void)
 {
-	tb_w = (int)(W * 0.36f); tb_h = tb_w * H / W;
-	for (int st = 0; st < BG_N; st++) {
+	int n = bg_n();
+	int w = (int)sg_min(W * 0.36f, (W * 0.90f - bg_gap() * (n - 1)) / n);
+	if (w != tb_w) { for (int i = 0; i < BG_FIXED + VCLIP_MAX; i++) { free(bg_thumb[i]); bg_thumb[i] = NULL; } tb_w = w; tb_h = tb_w * H / W; }
+	tb_n = n;
+	for (int st = 0; st < n; st++) {
 		if (!bg_thumb[st]) bg_thumb[st] = malloc((size_t)tb_w * tb_h * 4);
 		if (!bg_thumb[st]) return;
-		const uint32_t *src = bg_dark;
-		if (st == BG_SEARCH) { home_clip_bg(2.0f); src = fb.px; }               /* a frame of the clip (fb is redrawn next frame) */
-		else if (bg_style != BG_COSMIC) {                                        /* bg_dark holds a clip frame: bake the cosmos aside */
-			uint32_t *tmp = malloc((size_t)W * H * 4);
-			if (!tmp) continue;
-			bake_cosmic(tmp); src = tmp;
-		}
+		bg_render(st, st >= BG_FIXED ? 1.5f : 2.0f);                  /* a frame of it into fb (fb is redrawn next frame) */
+		const uint32_t *src = fb.px;
 		for (int y = 0; y < tb_h; y++)                                        /* shrink: average a little block */
 			for (int x = 0; x < tb_w; x++) {
 				int sx0 = x * W / tb_w, sy0 = y * H / tb_h, sx1 = (x + 1) * W / tb_w, sy1 = (y + 1) * H / tb_h;
-				unsigned r = 0, g = 0, b = 0, n = 0;
-				for (int yy = sy0; yy < sy1; yy += 2) for (int xx = sx0; xx < sx1; xx += 2) { uint32_t c = src[yy * W + xx]; r += c >> 16 & 255; g += c >> 8 & 255; b += c & 255; n++; }
-				bg_thumb[st][y * tb_w + x] = n ? RGB(r / n, g / n, b / n) : 0;
+				unsigned r = 0, g = 0, b = 0, c = 0;
+				for (int yy = sy0; yy < sy1; yy += 2) for (int xx = sx0; xx < sx1; xx += 2) { uint32_t p = src[yy * W + xx]; r += p >> 16 & 255; g += p >> 8 & 255; b += p & 255; c++; }
+				bg_thumb[st][y * tb_w + x] = c ? RGB(r / c, g / c, b / c) : 0;
 			}
-		if (src != bg_dark && src != fb.px) free((void *)src);
 	}
 }
 static void bg_open(Home *h) { h->row = bg_style; bg_thumbs_make(); }
@@ -1002,22 +1089,23 @@ static void bg_choose(int st)
 {
 	if (st == bg_style) return;
 	bg_style = st;
-	if (st == BG_COSMIC) bake_cosmic(bg_dark);
 #ifndef RENDER
-	char p[300]; snprintf(p, sizeof p, "%s/.config", homedir); mkdir(p, 0755);
+	char p[300], k[96]; snprintf(p, sizeof p, "%s/.config", homedir); mkdir(p, 0755);
 	snprintf(p, sizeof p, "%s/.config/silver", homedir); mkdir(p, 0755);
 	snprintf(p, sizeof p, "%s/.config/silver/background", homedir);
-	FILE *f = fopen(p, "w"); if (f) { fprintf(f, "%s\n", BG_KEY[st]); fclose(f); }
+	bg_key_of(st, k, sizeof k);
+	FILE *f = fopen(p, "w"); if (f) { fprintf(f, "%s\n", k); fclose(f); }
 #endif
 }
-static void bg_rect(int st, float *x, float *y) { float gap = W * 0.06f; *x = (W - 2 * tb_w - gap) / 2 + st * (tb_w + gap); *y = H * 0.30f; }
-static int bg_at(float mx) { return mx > W / 2.0f; }
+static void bg_rect(int st, float *x, float *y) { float g = bg_gap(); *x = (W - tb_n * tb_w - (tb_n - 1) * g) / 2 + st * (tb_w + g); *y = H * 0.5f - tb_h * 0.62f; }
+static int bg_at(float mx) { float x0, y0; bg_rect(0, &x0, &y0); int q = (int)((mx - x0 + bg_gap() / 2) / (tb_w + bg_gap())); return q < 0 ? 0 : q >= tb_n ? tb_n - 1 : q; }
 
 static void draw_backgrounds(Home *h, float t)
 {
 	memcpy(fb.px, bg_sec, (size_t)W * H * 4);
 	title_block("BACKGROUNDS", "HOME SCREEN", I_SCREEN);
-	for (int st = 0; st < BG_N; st++) {
+	float ls = tb_n > 2 ? U * 2.1f : U * 2.6f;
+	for (int st = 0; st < tb_n; st++) {
 		if (!bg_thumb[st]) continue;
 		float x, y; bg_rect(st, &x, &y);
 		int sel = h->row == st, cur = bg_style == st;
@@ -1028,9 +1116,9 @@ static void draw_backgrounds(Home *h, float t)
 		}
 		float bw = sel ? sg_max(2, U * 0.45f) : sg_max(1.2f, U * 0.14f);
 		sg_rrect(&fb, x - bw, y - bw, tb_w + 2 * bw, tb_h + 2 * bw, U * 0.8f, bw, sel ? RGB(196, 160, 255) : RGB(120, 120, 136), 1);
-		char label[48]; snprintf(label, sizeof label, "%s%s", BG_NAME[st], st == BG_COSMIC ? "  (default)" : "");
-		sg_text(&fb, &FT, x, y + tb_h + U * 4.4f, label, U * 2.6f, WHITE, 1, 0.01f);
-		if (cur) sg_text(&fb, &FC, x + tb_w - sg_text_w(&FC, "IN USE", U * 1.2f, 0.2f), y + tb_h + U * 4.0f, "IN USE", U * 1.2f, RGB(150, 230, 170), 1, 0.2f);
+		sg_text(&fb, &FT, x, y + tb_h + ls * 1.7f, bg_name(st), ls, WHITE, 1, 0.01f);
+		const char *tag = cur ? "IN USE" : st == BG_COSMIC ? "DEFAULT" : st >= BG_FIXED ? "MOVING" : "";
+		if (*tag) sg_text(&fb, &FC, x + tb_w - sg_text_w(&FC, tag, U * 1.1f, 0.2f), y + tb_h + ls * 1.55f, tag, U * 1.1f, cur ? RGB(150, 230, 170) : RGB(150, 150, 166), 1, 0.2f);
 	}
 	foot_hints("LEFT RIGHT  choose      ENTER  use it      ESC  home");
 }
@@ -1038,7 +1126,7 @@ static int bg_key(Home *h, int k)                       /* returns 1 to go back 
 {
 	if (k == K_ESC || k == K_BACK) return 1;
 	if (k == K_LEFT && h->row > 0) h->row--;
-	else if (k == K_RIGHT && h->row < BG_N - 1) h->row++;
+	else if (k == K_RIGHT && h->row < tb_n - 1) h->row++;
 	else if (k == K_ENTER) bg_choose(h->row);
 	return 0;
 }
