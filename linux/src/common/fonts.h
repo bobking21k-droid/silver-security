@@ -5,6 +5,7 @@
  *   font_scrawl   Silver Scrawl           (titles: thick, messy; derived from Bowlby One)
  *   font_caption  Michroma                (tiny wide captions)
  *   font_text     Inter Medium            (readable sentences)
+ *   font_mono     JetBrains Mono Medium   (code and boot logs; ASCII)
  * All SIL Open Font License 1.1; see fonts/LICENSES.md.
  */
 #pragma once
@@ -20,3 +21,4 @@
 SG_EMBED(font_scrawl, "scrawl.sdf");
 SG_EMBED(font_caption, "caption.sdf");
 SG_EMBED(font_text, "text.sdf");
+SG_EMBED(font_mono, "mono.sdf");

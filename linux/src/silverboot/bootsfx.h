@@ -9,9 +9,9 @@
  *   go       Enter: a deep thump with a rising swell
  *   trans    everything after Enter, start to finish: the fake Windows start-up bloom (an
  *            original chime, not Windows' own), a tape stop as the picture flips, a sinking,
- *            crackling drone as it melts, electric zaps on every flash, then the system check:
- *            a tick as each line appears, the dotted leader rattling in, a two-note "OK",
- *            a heartbeat under it all and a rising tone for "STARTING SILVEROS"
+ *            crackling drone as it melts, electric zaps on every flash, then the system check
+ *            (a boot console): a faint terminal hum, typing ticks as each line appears, a short
+ *            two-tone beep on every [  OK  ] and a rising tone for "Starting SilverOS"
  *   shatter  picking Windows: glass breaking over a low boom
  */
 #pragma once
@@ -130,20 +130,24 @@ static SfxClip build_trans(int quiet)
 		}
 		if (!quiet) sfx_thump(&m, t_flash, 90, 35, 0.08f, 0.4f, 0.7f, 1.2f);
 	}
-	/* 5. the system check */
-	for (float b = 0.07f * 0.9f; b < T_CHECKS - 0.4f; b += 0.9f) {                       /* heartbeat */
-		sfx_thump(&m, t_chk + b, 75, 45, 0.03f, 0.07f, 0.45f, 0);
-		sfx_thump(&m, t_chk + b + 0.21f, 70, 45, 0.03f, 0.06f, 0.30f, 0);
+	/* 5. the system check, a boot console: a faint terminal hum, quick typing ticks as each line
+	   appears, a short two-tone beep on every [  OK  ], and a rising tone for "Starting SilverOS" */
+	for (int i = 0; i < (int)(T_CHECKS * SFX_RATE); i++) {
+		float tt = (float)i / SFX_RATE, env = sg_sat(tt / 0.3f) * sg_sat((T_CHECKS - tt) / 0.4f);
+		float v = (sfx_sin(SFX_TAU * 60 * tt) * 0.5f + sfx_sin(SFX_TAU * 120 * tt) * 0.25f) * 0.035f * env;
+		sfx_put(&m, (int)(t_chk * SFX_RATE) + i, v, 0);
 	}
-	for (int i = 0; i < 4; i++) {
-		float ti = t_chk + 0.55f + i * 0.72f;
-		sfx_noise_burst(&m, ti, 0.03f, 0.006f, 0.30f, 1, 0, -0.3f);                    /* the line appears */
-		sfx_ping(&m, ti, 1760, 0.05f, 0.04f, -0.3f, 0);
-		for (int d = 0; d < 8; d++) sfx_ping(&m, ti + 0.1f + d * 0.05f, 2600 + d * 60, 0.025f, 0.015f, -0.2f + d * 0.06f, 0);   /* the leader */
-		sfx_ping(&m, ti + 0.52f, 880, 0.10f, 0.12f, 0.3f, 0.002f);                      /* OK */
-		sfx_ping(&m, ti + 0.60f, 1318.5f, 0.10f, 0.18f, 0.3f, 0.002f);
+	for (int i = 0; i < N_CHECK_LINES; i++) {
+		const CheckLine *ln = &CHECK_LINES[i];
+		float ti = t_chk + check_t(i);
+		for (int k = 0; k < 5; k++)                                                    /* typing */
+			sfx_noise_burst(&m, ti + k * 0.014f + 0.004f * sfx_rand01(), 0.008f, 0.0015f, 0.10f, 1, 0, -0.2f + 0.1f * k);
+		if (ln->kind == 1) {
+			sfx_ping(&m, ti + 0.02f, 1046.5f, 0.06f, 0.05f, 0.25f, 0.001f);   /* beep */
+			sfx_ping(&m, ti + 0.08f, 1568.0f, 0.05f, 0.07f, 0.25f, 0.001f);                /* bip */
+		}
 	}
-	sfx_glide(&m, t_chk + 0.55f + 3 * 0.72f + 0.9f, 0.9f, 220, 660, 0.08f, 0, 0);     /* STARTING SILVEROS */
+	sfx_glide(&m, t_chk + check_t(N_CHECK_LINES - 1), 0.9f, 220, 660, 0.07f, 0, 0);   /* Starting SilverOS */
 	sfx_room(&m, 0.28f, 1.0f);
 	SfxClip c = sfx_clip(&m, 1.0f); sfx_free_mix(&m); return c;
 }

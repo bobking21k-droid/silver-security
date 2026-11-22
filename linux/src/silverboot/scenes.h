@@ -14,14 +14,14 @@
 #include "../common/emblem.h"
 
 extern void *sb_alloc(size_t bytes);
-extern const uint8_t font_scrawl[], font_text[], font_caption[];
+extern const uint8_t font_scrawl[], font_text[], font_caption[], font_mono[];
 
 #define WHITE RGB(255, 255, 255)
 #define BLACK RGB(0, 0, 0)
 #define INK RGB(12, 12, 14)
 #define TIMEOUT_S 8.0f
 
-static Font FD, FT, FC;                  /* display (Silver Scrawl), text (Inter), caption (Michroma) */
+static Font FD, FT, FC, FM;              /* display (Silver Scrawl), text (Inter), caption (Michroma), mono (JetBrains Mono) */
 #define BLOOD RGB(232, 16, 24)
 static int calm;                         /* calm mode: no strobing, flashes become fades */
 static int W, H;
@@ -544,55 +544,143 @@ static int trans_frame(Surf *s, float t)
 	return 1;
 }
 
-/* ================================================================ hardware check (black and white) */
+/* ================================================================ hardware check: a boot console */
+/* Black and white, like a Linux machine starting: a log scrolls past in a code font, the real
+ * hardware values marked [  OK  ] (or an inverted [FAILED]), the emblem turning in the corner,
+ * a thin progress bar and "Starting SilverOS" at the end. The lines and their times are one
+ * table (CHECK_LINES) so the sounds (bootsfx.h) land on them. */
 typedef struct { char cpu[64], gpu[48], ram[32], disk[48]; int ok[4]; } SysInfo;
 #define T_CHECKS 4.6f
 
+/* kind: 0 a log line with a timestamp, 1 a check with a status ([  OK  ] or [FAILED]); val: which
+   SysInfo value follows the text (-1 none) */
+typedef struct { int kind, val; const char *text; } CheckLine;
+static const CheckLine CHECK_LINES[] = {
+	{0, -1, "silverboot: starting SilverOS"},
+	{0, -1, "efi: reading the firmware memory map"},
+	{0, -1, "efi: graphics output protocol found"},
+	{0, -1, "acpi: reading the firmware tables"},
+	{0, -1, "cpu: probing processor"},
+	{1,  0, "Processor: "},
+	{0, -1, "cpu: x86-64, long mode, SSE2, AVX"},
+	{0, -1, "smp: counting cores"},
+	{0, -1, "rtc: reading the hardware clock"},
+	{0, -1, "fb: setting up the framebuffer"},
+	{1,  1, "Display: "},
+	{0, -1, "fb: 32-bit colour, double buffered"},
+	{0, -1, "mm: building the page allocator"},
+	{0, -1, "mm: zones DMA, DMA32, Normal"},
+	{1,  2, "Memory: "},
+	{0, -1, "usb: host controllers found"},
+	{0, -1, "blk: scanning disks"},
+	{0, -1, "blk: GPT partition table"},
+	{0, -1, "blk: EFI system partition found"},
+	{1,  3, "Storage: "},
+	{0, -1, "boot: kernel image located"},
+	{0, -1, "boot: initial ramdisk located"},
+	{0, -1, "random: entropy pool seeded"},
+	{0, -1, "audio: output ready"},
+	{0, -1, "input: keyboard and mouse ready"},
+	{0, -1, "net: network interfaces found"},
+	{0, -1, "boot: kernel command line set"},
+	{1, -1, "Boot chooser finished"},
+	{0, -1, "boot: handing over to the kernel"},
+	{1, -1, "Starting SilverOS"},
+};
+#define N_CHECK_LINES ((int)(sizeof CHECK_LINES / sizeof CHECK_LINES[0]))
+static float check_t(int i) { return 0.20f + i * 0.104f; }   /* when line i appears */
+
+static void ck_cat(char *d, const char *s2, int cap) { int n = 0; while (d[n]) n++; while (*s2 && n < cap - 1) d[n++] = *s2++; d[n] = 0; }
+/* a kernel-style timestamp: "[    0.412817]" */
+static void ck_stamp(char *out, float t)
+{
+	int us = (int)(t * 1000000.0f * 0.37f) + 1311, sec = us / 1000000, frac = us % 1000000;
+	char b[16]; int k = 0;
+	b[k++] = '[';
+	char sb[8]; int sn = 0; do sb[sn++] = (char)('0' + sec % 10); while ((sec /= 10) && sn < 6);
+	for (int i = sn; i < 5; i++) b[k++] = ' ';
+	while (sn) b[k++] = sb[--sn];
+	b[k++] = '.';
+	for (int d = 100000; d >= 1; d /= 10) b[k++] = (char)('0' + (frac / d) % 10);
+	b[k++] = ']'; b[k] = 0;
+	out[0] = 0; ck_cat(out, b, 16);
+}
+
 static int checks_frame(Surf *s, float t, const SysInfo *si)
 {
-	static const char *name[4] = {"CPU", "GPU", "RAM", "STORAGE"};
-	const char *info[4] = {si->cpu, si->gpu, si->ram, si->disk};
-	float x0 = W * 0.115f, row0 = H * 0.47f, dy = U * 9.4f, ns = U * 1.9f;
+	const char *val[4] = {si->cpu, si->gpu, si->ram, si->disk};
 	float fade = sg_smooth(t / 0.30f) * (1 - sg_smooth((t - (T_CHECKS - 0.4f)) / 0.4f));
-	float hb = sg_heart(t, 0.9f);
 	sg_clear(s, BLACK);
-	sg_glow(s, W * 0.5f, H * 1.12f, H * 0.95f, BLOOD, (0.10f + 0.10f * hb) * fade);              /* a red glow from below, beating */
-	sg_text(s, &FC, x0, H * 0.155f, "SILVER OS  //  BOOT", U * 1.0f, RGB(130, 130, 136), fade, 0.30f);
-	sg_text(s, &FD, x0 + U * 0.5f, H * 0.155f + U * 10.2f, "SYSTEM CHECK", U * 8.6f, BLOOD, fade * 0.85f, 0.0f);          /* red echo, offset */
-	sg_text(s, &FD, x0, H * 0.155f + U * 10.2f, "SYSTEM CHECK", U * 8.6f, WHITE, fade, 0.0f);
-	float done = 0;
-	for (int i = 0; i < 4; i++) {
-		float ti = t - 0.55f - i * 0.72f, y = row0 + i * dy;
-		if (ti < 0) break;
-		float in = sg_ease_out(ti / 0.22f);
-		float jit = (ti < 0.18f && (sg_rand() & 3) == 0) ? (sg_frand() - .5f) * U * 1.6f : 0;       /* a flicker as it appears */
-		sg_text(s, &FC, x0 + jit - (1 - in) * U * 2, y, name[i], ns, WHITE, in * fade, 0.22f);
-		float lx0 = x0 + U * 24, lx1 = x0 + U * 46, k = sg_sat((ti - 0.1f) / 0.40f);
-		for (int d = 0; d < 16; d++) {                        /* dotted leader fills in, red */
-			float f = d / 15.f;
-			if (f <= k) sg_disc(s, lx0 + (lx1 - lx0) * f, y - ns * 0.30f, sg_max(1.1f, U * 0.24f), BLOOD, fade * (0.30f + 0.70f * sg_sat((k - f) * 6)));
-		}
-		float tc = ti - 0.52f;
-		if (tc > 0) {
-			float pop = 1 - sg_ease_out(tc / 0.3f), cx = lx1 + U * 3.4f, cy = y - ns * 0.32f;
-			if (si->ok[i]) {
-				sg_glow(s, cx, cy, U * 4.6f * (1 + pop), BLOOD, 0.55f * fade * (0.6f + 0.4f * hb));
-				sg_disc(s, cx, cy, U * 1.05f * (1 + 0.5f * pop), BLOOD, fade);
-				sg_text(s, &FC, cx + U * 2.2f, y, "OK", ns, BLOOD, fade, 0.22f);
-			} else sg_text(s, &FC, cx - U * 1.0f, y, "FAIL", ns, WHITE, fade, 0.22f);
-			sg_text(s, &FT, lx1 + U * 12.5f, y - ns * 0.05f, info[i], U * 2.2f, RGB(176, 176, 182), sg_sat(tc / 0.3f) * fade, 0.01f);
-			done = (i + sg_sat(tc / 0.3f)) / 4.f;
-		}
+	const uint32_t dim = RGB(112, 112, 116), mid = RGB(176, 176, 180), hi = RGB(236, 236, 238);
+	float x0 = W * 0.07f;
+
+	/* the header: the emblem turning, the name and a thin rule */
+	{
+		Emblem e = emblem_rest();
+		e.t = t; e.rot[0] = t * 0.9f; e.rot[1] = -t * 1.3f; e.rot[2] = t * 1.8f; e.rot[3] = -t * 0.6f;
+		e.gem = 0.9f + 0.3f * sg_heart(t, 0.9f);
+		for (int l = 0; l < 4; l++) e.alpha[l] = fade;
+		float R = U * 2.9f, ey = U * 7.0f;
+		emblem_draw(s, x0 + R, ey + R * 0.5f, R, &e);
+		float tx = x0 + R * 2 + U * 3.2f;
+		sg_text(s, &FM, tx, ey - U * 0.2f, "SilverOS 0.1.0", U * 2.6f, hi, fade, 0);
+		sg_text(s, &FM, tx, ey + U * 3.0f, "x86_64  /  hardware check", U * 1.5f, dim, fade, 0);
+		sg_rect(s, x0, U * 14.0f, W - 2 * x0, sg_max(1, U * 0.12f), RGB(60, 60, 64), fade);
 	}
-	float bx = x0, bw = W - 2 * x0, by = H * 0.885f;
-	sg_rect(s, bx, by, bw, sg_max(2, U * 0.30f), RGB(44, 44, 48), fade);
-	sg_rect(s, bx, by, bw * sg_sat(done + 0.02f), sg_max(2, U * 0.30f), BLOOD, fade);
-	if (t > 0.55f + 3 * 0.72f + 0.9f)
-		sg_text(s, &FC, bx, by - U * 2.2f, "STARTING SILVEROS", U * 1.05f, WHITE, fade * sg_sat((t - (0.55f + 3 * 0.72f + 0.9f)) / 0.3f), 0.28f);
-	sg_text_c(s, &FC, W / 2.0f, H - U * 3.0f, "-- PLEASE WAIT --", U * 0.8f, RGB(110, 110, 116), fade * (0.5f + 0.5f * sg_heart(t, 1.8f)), 0.3f);
+
+	/* the log: lines appear on time, the newest typing in, the block scrolling up */
+	float sz = U * 1.62f, lh = U * 2.55f, ytop = U * 17.5f, ybot = H - U * 11.5f;
+	int vis = (int)((ybot - ytop) / lh), shown = 0;
+	for (int i = 0; i < N_CHECK_LINES; i++) if (t >= check_t(i)) shown = i + 1;
+	float done = 0;
+	for (int i = (shown > vis ? shown - vis : 0); i < shown; i++) {
+		const CheckLine *ln = &CHECK_LINES[i];
+		float age = t - check_t(i), y = ytop + (vis < shown ? i - (shown - vis) : i) * lh + sz;
+		char text[160]; text[0] = 0;
+		ck_cat(text, ln->text, 160);
+		if (ln->val >= 0) ck_cat(text, val[ln->val], 160);
+		int n = 0; while (text[n]) n++;
+		int reveal = (int)(n * sg_sat(age / 0.07f));                       /* typed in */
+		char part[160]; for (int k = 0; k < reveal; k++) part[k] = text[k]; part[reveal] = 0;
+		float x = x0;
+		if (ln->kind == 0) {
+			char st[24]; ck_stamp(st, check_t(i));
+			x = sg_text(s, &FM, x, y, st, sz, dim, fade, 0);
+			x = sg_text(s, &FM, x + sz * 0.6f, y, part, sz, mid, fade, 0);
+		} else {
+			int ok = ln->val < 0 ? 1 : si->ok[ln->val];
+			float bw = sg_text_w(&FM, "[FAILED]", sz, 0);
+			if (ok) {
+				float xb = sg_text(s, &FM, x, y, "[", sz, hi, fade, 0);
+				xb = sg_text(s, &FM, xb, y, "  OK  ", sz, WHITE, fade * sg_sat(age / 0.05f), 0);
+				sg_text(s, &FM, xb, y, "]", sz, hi, fade, 0);
+			} else {                                                         /* inverted: white box, black text */
+				sg_rect(s, x - sz * 0.15f, y - sz * 0.82f, bw + sz * 0.3f, sz * 1.08f, WHITE, fade);
+				sg_text(s, &FM, x, y, "[FAILED]", sz, BLACK, fade, 0);
+			}
+			x = sg_text(s, &FM, x + bw + sz * 0.9f, y, part, sz, ok ? hi : WHITE, fade, 0);
+		}
+		if (i == shown - 1 && ((int)(t * 3.2f) & 1) == 0)                  /* the cursor, blinking */
+			sg_rect(s, x + sz * 0.25f, y - sz * 0.78f, sz * 0.55f, sz * 0.98f, hi, fade * 0.9f);
+	}
+	if (shown) done = sg_sat((t - check_t(0)) / (check_t(N_CHECK_LINES - 1) - check_t(0) + 0.2f));
+
+	/* the progress bar and the percentage */
+	{
+		float by = H - U * 6.6f, bw = W - 2 * x0, bh = sg_max(2, U * 0.22f);
+		sg_rect(s, x0, by, bw, bh, RGB(46, 46, 50), fade);
+		sg_rect(s, x0, by, bw * done, bh, hi, fade);
+		char pc[8]; int v = (int)(done * 100 + 0.5f), k = 0;
+		if (v >= 100) pc[k++] = '1';
+		if (v >= 10) pc[k++] = (char)('0' + (v / 10) % 10);
+		pc[k++] = (char)('0' + v % 10); pc[k++] = '%'; pc[k] = 0;
+		float pw = sg_text_w(&FM, pc, U * 1.4f, 0);
+		sg_text(s, &FM, x0 + bw - pw, by - U * 1.3f, pc, U * 1.4f, mid, fade, 0);
+		sg_text(s, &FM, x0, by - U * 1.3f, done >= 1 ? "starting silveros..." : "checking hardware...", U * 1.4f, dim, fade, 0);
+	}
 	for (int y = 1; y < H; y += 3) {                          /* faint scanlines */
 		uint32_t *row = s->px + y * W;
-		for (int x = 0; x < W; x++) row[x] = (row[x] >> 1) & 0x7f7f7f;
+		for (int x = 0; x < W; x++) row[x] = (row[x] >> 1 & 0x7f7f7f) + (row[x] >> 2 & 0x3f3f3f);
 	}
 	return t >= T_CHECKS;
 }
@@ -658,7 +746,7 @@ static int shatter_frame(Surf *s, float t)
 static int scenes_init(int w, int h)
 {
 	W = w; H = h; U = H / 100.0f;
-	if (sg_font_load(&FD, font_scrawl) || sg_font_load(&FT, font_text) || sg_font_load(&FC, font_caption)) return -1;
+	if (sg_font_load(&FD, font_scrawl) || sg_font_load(&FT, font_text) || sg_font_load(&FC, font_caption) || sg_font_load(&FM, font_mono)) return -1;
 	bg_a = sb_alloc((size_t)W * H * 4); bg_b = sb_alloc((size_t)W * H * 4);
 	snap = sb_alloc((size_t)W * H * 4); scene = sb_alloc((size_t)W * H * 4);
 	return bg_a && bg_b && snap && scene ? 0 : -1;

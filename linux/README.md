@@ -25,8 +25,10 @@ reference, not its content.)
 2. **Pick SilverOS:** a fake modern Windows boot appears (black, the blue four-pane logo, the
    ring of dots chasing round), then flips upside-down in grey and melts, in pure black and white: columns drip at their own speeds, blocks slip
    sideways and flip to negative. A white flash, the emblem flickers (with one red cut),
-   and then the system check runs (CPU, GPU, RAM, STORAGE) with values read from the real
-   hardware, each confirmed by a beating red dot.
+   and then the system check runs: a black-and-white boot console in a code font (JetBrains
+   Mono), log lines scrolling past with the real hardware values (processor, display, memory,
+   storage) marked `[  OK  ]`, the emblem spinning in the top-left corner and a thin progress
+   bar.
 3. **The greeter** (`src/greeter`): the emblem's violet gem glows and beats in the dark. Its
    three silver layers spin in from outside, each locking into place, and with a flash the
    emblem is complete. It then shrinks into the middle of the screen while two clean lines run
@@ -39,7 +41,7 @@ reference, not its content.)
      of the countdown, a deep thump on Enter;
    - the fake Windows: a soft start-up bloom (an original chime), a tape stop as it flips, a
      sinking, crackling drone as it melts, electric zaps on the flashes; the system check
-     ticks, rattles and beeps "OK" over a heartbeat; picking Windows sounds like glass breaking;
+     hums like a terminal, ticks as each line types in and beeps on every `[  OK  ]`; picking Windows sounds like glass breaking;
    - the intro: a warm synth pad as the gem fades in and a soft bending "bloop" on each beat,
      a rising, wobbling tone for each spinning layer and a magnetic "ch-chk" over a deep tom as
      it locks, a reverse swell into the lock, then a sub drop, a big chord opening up, a bell and
@@ -191,7 +193,7 @@ exact code that ships, so the look can be changed and reviewed without rebooting
 Fonts: **Silver Scrawl**, a thick, messy display face made for SilverOS by `src/art/mkfont.py
 --messy` (it fattens Bowlby One and roughens its outline: wobble, bumps, grit, dry-brush bites,
 splatter, and a different tilt, size and baseline for every letter); Michroma for the tiny wide
-captions; Inter for readable sentences. All under the SIL Open Font License 1.1 (see
+captions; Inter for readable sentences; JetBrains Mono for the boot console. All under the SIL Open Font License 1.1 (see
 `src/common/fonts/LICENSES.md`). They are baked into `src/common/fonts/*.sdf` and committed, so
 building needs neither the font files nor that script's dependencies.
 
