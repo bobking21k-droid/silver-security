@@ -212,8 +212,8 @@ static void home_init(Home *h)
 #define T_FORM 0.55f     /* the layers start to come in */
 #define T_LOCK 1.95f     /* the last layer locks: the emblem is complete */
 #define T_OPEN 3.10f     /* the emblem flies to the corner */
-#define T_CRACK 3.80f    /* it cracks; the colours burst out */
-#define T_END 5.10f
+#define T_CRACK 3.75f    /* it starts to crack under the pressure (the burst is CRACK_BURST later) */
+#define T_END 6.05f
 #include "sound.h"
 
 /* the emblem during the intro at time t (seconds); R is its full size */
@@ -253,9 +253,8 @@ static void intro(Home *h)
 		if (t > T_END) break;
 		if (key_waiting()) { snd('x'); spin_t0 = now(); break; }   /* skipped: stop the sound too */
 		sg_clear(&fb, BLACK);
-		float open = sg_sat((t - T_CRACK) / 0.5f);
 		/* a cold light from above, and dust hanging in it, before the panes appear */
-		float lit = sg_sat((t - 0.1f) / 0.6f) * (1 - open);
+		float lit = sg_sat((t - 0.1f) / 0.6f) * (1 - sg_sat((t - T_OPEN) / 0.5f));   /* (gone once the emblem has flown) */
 		if (lit > 0) {
 			sg_glow(&fb, cx, cy - H * 0.1f, H * 0.62f, RGB(38, 36, 50), lit);
 			sg_glow(&fb, cx, cy, H * 0.30f, RGB(26, 24, 36), lit);
@@ -265,7 +264,7 @@ static void intro(Home *h)
 				sg_disc(&fb, x, y, U * (0.08f + 0.06f * (i % 3)), WHITE, 0.30f * lit * sg_sat(1 - d));
 			}
 		}
-		float sc = t - T_CRACK, reveal = sg_sat((sc - 0.14f) / 1.0f);    /* the splash: fast out, then flooding */
+		float sc = t - T_CRACK, reveal = sg_sat((sc - CRACK_BURST) / 0.85f);   /* the splash erupts at the burst */
 		if (t > T_OPEN) home_draw(h, reveal, t, sc);           /* the cosmos spreading, the buttons, the corner emblem */
 
 		/* the emblem: big in the middle, then flying up into the top-right corner */
@@ -273,14 +272,15 @@ static void intro(Home *h)
 		float k = sg_ease_io((t - T_OPEN) / 0.55f), R = sg_lerp(RB, EM_R, k);
 		float ex = sg_lerp(cx, em_x(), k), ey = sg_lerp(cy, em_y(), k);
 		if (sc < -0.15f) emblem_draw(&fb, ex, ey + R * 0.5f, R, &e);   /* (once there, the home screen draws it) */
-		if (sc > 0 && sc < 0.5f) {                             /* the crack: a flash and a ring from the corner */
-			float q = sc / 0.5f;
-			sg_glow(&fb, em_x(), em_y(), EM_R * 5 * sg_ease_out(q), RGB(255, 240, 170), (calm ? 0.3f : 0.7f) * (1 - q));
-			sg_ring(&fb, em_x(), em_y(), H * 0.5f * sg_ease_out(q), sg_max(1, U * 0.4f * (1 - q)), WHITE, 0.6f * (1 - q));
+		float bt = sc - CRACK_BURST;
+		if (bt > 0 && bt < 0.35f) {                             /* the burst: a white-violet flash from the corner */
+			float q = bt / 0.35f;
+			sg_glow(&fb, em_x(), em_y(), EM_R * 7 * sg_ease_out(q), RGB(230, 200, 255), (calm ? 0.3f : 0.85f) * (1 - q));
+			if (!calm && bt < 0.05f) sg_rect(&fb, 0, 0, W, H, WHITE, 0.45f * (1 - bt / 0.05f));
 		}
-		if (!calm && sc > 0 && sc < 0.25f) {
-			float th = 1 - sc / 0.25f;
-			shake_frame(sg_sin(t * 101) * U * 0.9f * th * th, sg_cos(t * 89) * U * 0.9f * th * th);
+		if (!calm && bt > 0 && bt < 0.45f) {                    /* a hard shake */
+			float th = 1 - bt / 0.45f;
+			shake_frame(sg_sin(t * 101) * U * 1.8f * th * th, sg_cos(t * 89) * U * 1.8f * th * th);
 		}
 		if (lt > 0 && lt < 0.7f) {                             /* the lock: a flash of light and a ring going out */
 			float q = lt / 0.7f;

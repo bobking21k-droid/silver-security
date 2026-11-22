@@ -2,16 +2,15 @@
  * The intro's sound, synthesised at start-up (no sound files) and played through ALSA directly
  * (no libraries): the kernel's PCM and control interfaces, as in <sound/asound.h>.
  *
- * The track follows the intro's timeline (T_GEM, T_FORM, T_LOCK, T_OPEN in silver-greeter.c):
- *   the gem fades in on a warm synth pad and beats with a soft bending "bloop"; each silver
- *   layer spins in on a rising, wobbling synth tone (panned to where it comes from) and lands
- *   with a two-part magnetic "ch-chk" over a deep tom; a reverse swell sucks in towards the
- *   lock; the LOCK: a sub drop, a big filtered chord opening up, a bell and a quick rising
- *   bell arpeggio; two airy "zips" follow the sheens; a rising zip as the emblem flies into the
- *   corner; the CRACK (a sharp snap, glassy splinters, a low thoom) and the cosmic colours
- *   splashing out (a deep falling whoosh over a sub, droplets plinking as they land, a shimmer
- *   of high bells drifting across); then a plucked note climbing
- *   as each button pops in, and the pad settling into a calm chord.
+ * The track follows the intro's timeline (T_GEM, T_FORM, T_LOCK, T_OPEN, T_CRACK in silver-greeter.c),
+ * in two styles mixed: digital ("code-y": square-wave blips, data chatter, bit-crushed glitches)
+ * and JoJo-like drama (a menacing "gogogo" rumble building up, heavy impact hits, reverse swells):
+ *   the gem boots up with three square blips and the rumble begins; each layer spins in on a
+ *   chirping data sweep and lands with a heavy hit; a reverse swell into the LOCK: a huge hit, a
+ *   glitch stutter and a short stab; a digital zip to the corner; then the PRESSURE: the rumble
+ *   comes back harder, a sharp digital tick on every jump of the cracks, a reverse swell, and the
+ *   BURST: the biggest hit, a bit-crushed explosion falling away, data spraying out and droplets
+ *   blipping as they land; four rising blips as the buttons appear.
  * A little reverb puts it all in one room. Calm mode plays it quieter, without the deep hit.
  *
  * Playback runs in a child process so drawing never waits for audio. If there is no sound
@@ -37,7 +36,7 @@ static void s_ping(float *L, float *R, int n, float at, float f, float amp, floa
 	}
 }
 
-/* a warm pad: detuned saw-ish voices through a low-pass that opens and closes */
+/* a pad: detuned saw-ish voices through a low-pass that opens and closes */
 static void s_pad(float *L, float *R, int n, float at, float dur, const float *f, int nf, float amp, float cut0, float cut1, float attack, float release)
 {
 	int i0 = (int)(at * SR), len = (int)(dur * SR);
@@ -57,71 +56,86 @@ static void s_pad(float *L, float *R, int n, float at, float dur, const float *f
 		}
 }
 
-/* an FM bell: carrier f, modulator at f * ratio; the brightness fades with the note */
-static void s_bell(float *L, float *R, int n, float at, float f, float amp, float decay, float ratio, float index, float pan)
-{
-	int i0 = (int)(at * SR);
-	float pc = 0, pm = 0;
-	for (int i = 0; i < (int)(decay * 5 * SR) && i0 + i < n; i++) {
-		if (i0 + i < 0) continue;
-		float tt = (float)i / SR, env = expf(-tt / decay) * (1 - expf(-tt / 0.002f));
-		pm += 2 * (float)M_PI * f * ratio / SR; pc += 2 * (float)M_PI * f / SR;
-		float v = sinf(pc + index * expf(-tt / (decay * 0.5f)) * sinf(pm)) * env * amp;
-		L[i0 + i] += v * (1 - pan); R[i0 + i] += v * (1 + pan);
-	}
-}
-
-/* a plucked string (Karplus-Strong) */
-static void s_pluck(float *L, float *R, int n, float at, float f, float amp, float pan)
-{
-	int d = (int)(SR / f), i0 = (int)(at * SR);
-	if (d < 2) return;
-	float *line = calloc((size_t)d, sizeof(float));
-	if (!line) return;
-	for (int k = 0; k < d; k++) line[k] = nrand();
-	int p = 0; float prev = 0;
-	for (int i = 0; i < (int)(1.6f * SR) && i0 + i < n; i++) {
-		float y = line[p], nv = 0.4985f * (y + prev); prev = y; line[p] = nv; p = (p + 1) % d;
-		float v = y * amp * (1 - expf(-(float)i / (0.001f * SR)));
-		if (i0 + i >= 0) { L[i0 + i] += v * (1 - pan); R[i0 + i] += v * (1 + pan); }
-	}
-	free(line);
-}
-
-/* a rising synth tone that wobbles faster as it spins, sliding into place */
-static void s_spin(float *L, float *R, int n, float at, float dur, float f0, float f1, float amp, float pan0, float pan1, float wob0, float wob1)
+/* a square wave sliding from f0 to f1 (log), with a fast attack and an exponential fade */
+static void s_square(float *L, float *R, int n, float at, float dur, float f0, float f1, float amp, float pan, float duty)
 {
 	int i0 = (int)(at * SR), len = (int)(dur * SR);
-	float ph = 0, wp = 0;
+	float ph = 0;
 	for (int i = 0; i < len && i0 + i < n; i++) {
 		if (i0 + i < 0) continue;
-		float x = (float)i / len, f = f0 * powf(f1 / f0, sg_ease_out(x)), wob = wob0 + (wob1 - wob0) * x;
-		wp += 2 * (float)M_PI * wob / SR;
-		ph += 2 * (float)M_PI * f * (1 + 0.025f * sinf(wp)) / SR;
-		float tone = sinf(ph) * 0.7f + sinf(ph * 2) * 0.2f + sinf(ph * 3.0f) * 0.1f;
-		float env = sg_sat(x * 6) * (0.35f + 0.65f * x) * (0.75f + 0.25f * sinf(wp * 0.5f)), pan = pan0 + (pan1 - pan0) * x;
-		float v = tone * env * amp;
+		float x = (float)i / len, f = f0 * powf(f1 / f0, x);
+		ph += f / SR; ph -= (int)ph;
+		float v = (ph < duty ? 1.0f : -1.0f) * amp * sg_sat(i / (0.002f * SR)) * expf(-x * 3.0f);
 		L[i0 + i] += v * (1 - pan); R[i0 + i] += v * (1 + pan);
 	}
 }
 
-/* the magnetic "ch-chk" of a part locking, over a deep tom */
-static void s_lock(float *L, float *R, int n, float at, float tom, float amp, float pan)
+/* bit-crush a stretch: fewer levels and held samples, the sound of cheap digital */
+static void s_crush(float *L, float *R, int n, float at, float dur, float levels, int hold)
 {
-	for (int k = 0; k < 2; k++) {
-		int i0 = (int)((at + k * 0.045f) * SR);
-		float lp = 0;
-		for (int i = 0; i < (int)(0.05f * SR) && i0 + i < n; i++) {               /* filtered clicks */
-			float x = nrand(); lp += (x - lp) * (k ? 0.5f : 0.25f);
-			float v = (x - lp) * expf(-(float)i / (0.006f * SR)) * amp * (k ? 1.0f : 0.6f);
-			L[i0 + i] += v * (1 - pan); R[i0 + i] += v * (1 + pan);
-		}
+	int i0 = (int)(at * SR), len = (int)(dur * SR);
+	float hl = 0, hr = 0;
+	for (int i = 0; i < len && i0 + i < n; i++) {
+		if (i0 + i < 0) continue;
+		if (i % hold == 0) { hl = L[i0 + i]; hr = R[i0 + i]; }
+		L[i0 + i] = floorf(hl * levels + 0.5f) / levels; R[i0 + i] = floorf(hr * levels + 0.5f) / levels;
 	}
-	int i0 = (int)(at * SR); float ph = 0;
-	for (int i = 0; i < (int)(0.5f * SR) && i0 + i < n; i++) {                     /* the tom */
-		float tt = (float)i / SR, f = tom * (1 + 0.8f * expf(-tt / 0.03f));
+}
+
+/* data chatter: a stream of tiny random square blips */
+static void s_data(float *L, float *R, int n, float at, float dur, float amp, float pan0, float pan1)
+{
+	for (float t = 0; t < dur; t += 0.018f + 0.02f * (nrand() * 0.5f + 0.5f)) {
+		float x = t / dur, f = 700 + 2600 * (nrand() * 0.5f + 0.5f);
+		s_square(L, R, n, at + t, 0.016f, f, f * (nrand() > 0 ? 1.3f : 0.8f), amp * (0.5f + 0.5f * (nrand() * 0.5f + 0.5f)), pan0 + (pan1 - pan0) * x, 0.5f);
+	}
+}
+
+/* the menacing rumble ("gogogo"): a low growl, distorted, pulsing like heavy footsteps, growing */
+static void s_menace(float *L, float *R, int n, float at, float dur, float amp)
+{
+	int i0 = (int)(at * SR), len = (int)(dur * SR);
+	float p1 = 0, p2 = 0, lp = 0;
+	for (int i = 0; i < len && i0 + i < n; i++) {
+		if (i0 + i < 0) continue;
+		float x = (float)i / len, tt = (float)i / SR, f = 41 + 8 * x;
+		p1 += f / SR; p1 -= (int)p1; p2 += f * 2.01f / SR; p2 -= (int)p2;
+		float raw = (2 * p1 - 1) * 0.6f + (2 * p2 - 1) * 0.4f + nrand() * 0.15f;
+		lp += (raw - lp) * 0.06f;
+		float go = 0.55f + 0.45f * sinf(2 * (float)M_PI * (5.5f + 4 * x) * tt);          /* go-go-go */
+		float v = tanhf(lp * 3.0f) * go * amp * sg_sat(x * 3) * (0.4f + 0.6f * x) * sg_sat((1 - x) * 12);
+		L[i0 + i] += v; R[i0 + i] += v * 0.96f;
+	}
+}
+
+/* a heavy dramatic hit: a sub dropping hard, driven into distortion, a crack, and a low metal clang */
+static void s_impact(float *L, float *R, int n, float at, float amp, int quiet)
+{
+	int i0 = (int)(at * SR);
+	float ph = 0, prev = 0;
+	for (int i = 0; i < (int)(1.1f * SR) && i0 + i < n; i++) {
+		if (i0 + i < 0) continue;
+		float tt = (float)i / SR, f = 34 + 110 * expf(-tt / 0.05f);
 		ph += 2 * (float)M_PI * f / SR;
-		float v = sinf(ph) * expf(-tt / 0.14f) * amp * 1.6f;
+		float sub = quiet ? 0 : tanhf(sinf(ph) * expf(-tt / 0.32f) * 3.0f) * 0.75f;
+		float x = nrand(), hp = x - prev; prev = x;
+		float crack = hp * expf(-tt / 0.012f) * 0.9f;
+		float v = (sub + crack) * amp;
+		L[i0 + i] += v; R[i0 + i] += v;
+	}
+	static const float part[4] = {1.0f, 2.76f, 5.40f, 8.93f};
+	for (int k = 0; k < 4; k++) s_ping(L, R, n, at, 196.0f * part[k], amp * 0.12f / (1 + k), 0.5f / (1 + k * 0.5f), (k & 1) ? 0.3f : -0.3f, 0.001f);
+}
+
+/* a reverse swell: noise rising and brightening, cut off at `end` */
+static void s_revswell(float *L, float *R, int n, float end, float dur, float amp)
+{
+	int i0 = (int)((end - dur) * SR), len = (int)(dur * SR);
+	float lp = 0;
+	for (int i = 0; i < len && i0 + i < n; i++) {
+		if (i0 + i < 0) continue;
+		float x = (float)i / len; lp += (nrand() - lp) * (0.02f + 0.5f * x * x);
+		float v = lp * x * x * x * amp;
 		L[i0 + i] += v; R[i0 + i] += v;
 	}
 }
@@ -133,129 +147,64 @@ static int intro_track(int16_t **out, float t_gem, float t_form, float t_lock, f
 	float *L = calloc((size_t)n, sizeof(float)), *R = calloc((size_t)n, sizeof(float));
 	int16_t *o = malloc((size_t)n * 4);
 	if (!L || !R || !o) { free(L); free(R); free(o); return 0; }
-	/* the gem fades in on a warm pad (D minor, low), opening slowly */
+	float t_burst = t_crack + CRACK_BURST;
+	/* the gem boots: three square blips going up, and the rumble begins underneath */
+	static const float boot[3] = {1046.5f, 1318.5f, 1568.0f};
+	for (int k = 0; k < 3; k++) s_square(L, R, n, t_gem + k * 0.07f, 0.09f, boot[k], boot[k], 0.05f, 0, 0.25f);
+	s_menace(L, R, n, t_gem + 0.1f, t_lock - t_gem - 0.1f, 0.22f);
+	/* its beat: a short low square "bip" */
+	for (float b = t_gem + 0.82f * 0.07f - 0.02f; b < t_lock - 0.1f; b += 0.82f) s_square(L, R, n, b, 0.06f, 196, 180, 0.06f, 0, 0.5f);
+	/* the layers: a chirping data sweep each, landing with a heavy hit */
 	{
-		static const float dm[3] = {73.42f, 110.0f, 174.61f};
-		s_pad(L, R, n, t_gem, t_lock - t_gem + 0.3f, dm, 3, 0.10f, 0.004f, 0.05f, 0.6f, 0.3f);
-	}
-	/* its beat: a soft "bloop" that bends up */
-	for (float b = t_gem + 0.82f * 0.07f - 0.02f; b < t_lock - 0.1f; b += 0.82f) {
-		float ph = 0;
-		for (int i = 0; i < (int)(0.22f * SR); i++) {
-			int j = (int)(b * SR) + i; if (j < 0 || j >= n) continue;
-			float tt = (float)i / SR, f = 140 + 220 * (1 - expf(-tt / 0.05f));
-			ph += 2 * (float)M_PI * f / SR;
-			float v = sinf(ph) * expf(-tt / 0.06f) * (1 - expf(-tt / 0.003f)) * 0.30f;
-			L[j] += v; R[j] += v;
-		}
-	}
-	/* the three layers: a rising wobbling tone each, then the lock */
-	{
-		const float start[3] = {t_form, t_form + 0.25f, t_form + 0.50f};                 /* inner, middle, outer */
-		const float land[3] = {t_lock - 0.50f, t_lock - 0.25f, t_lock};
-		const float pan0[3] = {0.0f, -0.8f, 0.8f}, f0[3] = {330, 220, 147}, f1[3] = {880, 587, 392}, tom[3] = {110, 87, 65};
+		const float start[3] = {t_form, t_form + 0.25f, t_form + 0.50f}, land[3] = {t_lock - 0.50f, t_lock - 0.25f, t_lock};
+		const float pan0[3] = {0.0f, -0.8f, 0.8f};
 		for (int l = 0; l < 3; l++) {
-			s_spin(L, R, n, start[l], land[l] - start[l], f0[l], f1[l], 0.07f, pan0[l], 0, 26 - 5 * l, 4);
-			s_lock(L, R, n, land[l], tom[l], 0.22f, l == 0 ? 0 : (l == 1 ? -0.35f : 0.35f));
+			s_data(L, R, n, start[l], land[l] - start[l] - 0.05f, 0.022f, pan0[l], 0);
+			s_square(L, R, n, start[l], land[l] - start[l], 160 + 60 * l, 900 + 300 * l, 0.03f, pan0[l] * 0.5f, 0.3f);
+			if (l < 2) s_impact(L, R, n, land[l], 0.35f, quiet);
 		}
 	}
-	/* a reverse swell, sucking in towards the lock */
+	/* the LOCK: a reverse swell into a huge hit, a glitch stutter and a short stab */
+	s_revswell(L, R, n, t_lock, 0.8f, 0.6f);
+	s_impact(L, R, n, t_lock, 0.75f, quiet);
+	for (int k = 0; k < 6; k++) s_square(L, R, n, t_lock + 0.08f + k * 0.045f, 0.03f, 880 - k * 90, 880 - k * 90, 0.05f * (1 - k / 7.f), (k & 1) ? 0.4f : -0.4f, 0.5f);
 	{
-		int i0 = (int)((t_lock - 0.9f) * SR), len = (int)(0.9f * SR);
+		static const float stab[4] = {146.83f, 220.0f, 293.66f, 349.23f};                 /* D minor, short and sharp */
+		s_pad(L, R, n, t_lock, 0.55f, stab, 4, 0.07f, 0.35f, 0.05f, 0.005f, 0.35f);
+	}
+	/* a digital zip up into the corner */
+	s_square(L, R, n, t_open, 0.45f, 220, 1760, 0.04f, 0.5f, 0.5f);
+	s_data(L, R, n, t_open, 0.4f, 0.015f, 0, 0.7f);
+	/* the PRESSURE: the rumble back, harder; a digital tick on every jump of the cracks */
+	s_menace(L, R, n, t_crack - 0.1f, CRACK_BURST + 0.1f, 0.42f);
+	for (int k = 1; k <= 7; k++) {
+		float at = t_crack + k / 7.0f * CRACK_BURST - 0.02f;
+		if (at >= t_burst) break;
+		s_square(L, R, n, at, 0.025f, 3200 - k * 200, 2400 - k * 150, 0.05f + 0.01f * k, 0.6f, 0.5f);
+		int i0 = (int)(at * SR);
+		for (int i = 0; i < (int)(0.01f * SR) && i0 + i < n; i++) { float v = nrand() * expf(-(float)i / (0.0015f * SR)) * (0.2f + 0.04f * k); L[i0 + i] += v * 0.7f; R[i0 + i] += v * 1.2f; }
+	}
+	s_revswell(L, R, n, t_burst, 0.7f, 0.75f);
+	/* the BURST: the biggest hit, a bit-crushed explosion falling away, data spraying, droplets blipping */
+	s_impact(L, R, n, t_burst, 1.0f, quiet);
+	{
+		int i0 = (int)(t_burst * SR), len = (int)(0.9f * SR);
 		float lp = 0;
 		for (int i = 0; i < len && i0 + i < n; i++) {
-			float x = (float)i / len; lp += (nrand() - lp) * (0.02f + 0.3f * x * x);
-			float v = lp * x * x * x * 0.55f;
-			L[i0 + i] += v; R[i0 + i] += v;
-		}
-	}
-	/* the lock */
-	{
-		int i0 = (int)(t_lock * SR);
-		if (!quiet) {                                                              /* a sub drop */
-			float ph = 0;
-			for (int i = 0; i < (int)(1.4f * SR) && i0 + i < n; i++) {
-				float tt = (float)i / SR, f = 30 + 90 * expf(-tt / 0.12f);
-				ph += 2 * (float)M_PI * f / SR;
-				float v = tanhf(sinf(ph) * expf(-tt / 0.45f) * 1.4f) * 0.65f;
-				L[i0 + i] += v; R[i0 + i] += v;
-			}
-		}
-		static const float chord[5] = {146.83f, 220.0f, 293.66f, 369.99f, 440.0f};   /* D major, opening up */
-		s_pad(L, R, n, t_lock, t_crack - t_lock + 0.3f, chord, 5, 0.06f, 0.30f, 0.02f, 0.01f, 0.7f);
-		s_bell(L, R, n, t_lock, 587.33f, 0.16f, 1.2f, 3.5f, 2.2f, 0);              /* a bell */
-		static const float arp[6] = {587.33f, 739.99f, 880.0f, 1174.66f, 1479.98f, 1760.0f};
-		for (int k = 0; k < 6; k++) s_bell(L, R, n, t_lock + 0.10f + k * 0.07f, arp[k], 0.07f, 0.45f, 2.0f, 1.5f, (k - 2.5f) * 0.25f);
-	}
-	/* two airy "zips" with the sheens */
-	for (int z = 0; z < 2; z++) {
-		float at = t_lock + (z ? 0.85f : 0.05f), dur = z ? 0.5f : 0.7f, ph = 0;
-		int i0 = (int)(at * SR), len = (int)(dur * SR);
-		for (int i = 0; i < len && i0 + i < n; i++) {
-			float x = (float)i / len, f = 1200 + 3600 * x;
-			ph += 2 * (float)M_PI * f / SR;
-			float v = (sinf(ph) * 0.5f + nrand() * 0.3f) * sinf((float)M_PI * x) * 0.035f, pan = -0.6f + 1.2f * x;
+			float x = (float)i / len; lp += (nrand() - lp) * (0.5f * (1 - x) + 0.02f);
+			float v = lp * expf(-x * 3.5f) * 0.9f, pan = 0.6f - 1.2f * x;
 			L[i0 + i] += v * (1 - pan); R[i0 + i] += v * (1 + pan);
 		}
+		s_crush(L, R, n, t_burst + 0.01f, 0.5f, 10, 6);
 	}
-	/* the emblem flies up into the corner: a rising zip, moving right */
-	s_spin(L, R, n, t_open, 0.55f, 260, 1300, 0.05f, 0, 0.7f, 30, 8);
-	/* the CRACK: a sharp snap, glassy splinters and a low thoom */
-	{
-		int i0 = (int)(t_crack * SR);
-		float prev = 0;
-		for (int i = 0; i < (int)(0.06f * SR) && i0 + i < n; i++) {
-			float x = nrand(), hp = x - prev; prev = x;
-			float v = hp * (expf(-(float)i / (0.004f * SR)) + 0.3f * expf(-(float)i / (0.02f * SR))) * 0.9f;
-			L[i0 + i] += v * 0.7f; R[i0 + i] += v * 1.2f;
-		}
-		for (int k = 0; k < 14; k++) s_bell(L, R, n, t_crack + 0.005f + k * 0.012f, 2600 + (nrand() * 0.5f + 0.5f) * 3400, 0.03f, 0.06f, 1.41f, 1.0f, 0.3f + nrand() * 0.4f);
-		float ph = 0;
-		for (int i = 0; i < (int)(0.6f * SR) && i0 + i < n; i++) {
-			float tt = (float)i / SR; ph += 2 * (float)M_PI * (55 + 40 * expf(-tt / 0.05f)) / SR;
-			float v = sinf(ph) * expf(-tt / 0.18f) * (quiet ? 0.2f : 0.5f);
-			L[i0 + i] += v; R[i0 + i] += v;
-		}
+	s_data(L, R, n, t_burst + 0.05f, 0.8f, 0.025f, 0.6f, -0.7f);
+	for (int k = 0; k < 16; k++) {
+		float u = nrand() * 0.5f + 0.5f, f = 600 + 900 * (nrand() * 0.5f + 0.5f);
+		s_square(L, R, n, t_burst + 0.25f + u * 0.7f, 0.04f, f, f * 1.8f, 0.025f, 0.6f - 1.3f * u, 0.25f);
 	}
-	/* the cosmic colours pour out: a deep whoosh falling from bright to dark, from the corner across, and a shimmer */
-	{
-		int i0 = (int)((t_crack + 0.08f) * SR), len = (int)(1.0f * SR);
-		float lp = 0, lp2 = 0;
-		for (int i = 0; i < len && i0 + i < n; i++) {
-			float x = (float)i / len, cut = 0.35f * (1 - x) * (1 - x) + 0.01f;
-			lp += (nrand() - lp) * cut; lp2 += (lp - lp2) * cut;
-			float v = lp2 * 3.2f * expf(-x * 3.0f) * sg_sat(x * 30), pan = 0.7f - 1.4f * x;
-			L[i0 + i] += v * (1 - pan); R[i0 + i] += v * (1 + pan);
-		}
-		if (!quiet) {
-			float ph = 0;
-			for (int i = 0; i < (int)(0.8f * SR) && i0 + i < n; i++) {
-				float tt = (float)i / SR; ph += 2 * (float)M_PI * (38 + 60 * expf(-tt / 0.08f)) / SR;
-				float v = tanhf(sinf(ph) * expf(-tt / 0.28f) * 1.6f) * 0.55f;
-				L[i0 + i] += v; R[i0 + i] += v;
-			}
-		}
-	}
-	for (int k = 0; k < 22; k++) {                                                 /* droplets landing: little wet plinks, spreading left */
-		float u = (nrand() * 0.5f + 0.5f), at = t_crack + 0.2f + u * 0.7f, f = 900 + 1400 * (nrand() * 0.5f + 0.5f);
-		float ph = 0; int i0 = (int)(at * SR);
-		for (int i = 0; i < (int)(0.05f * SR) && i0 + i < n; i++) {
-			float tt = (float)i / SR; ph += 2 * (float)M_PI * f * (1 + 2.5f * tt / 0.05f) / SR;      /* a rising "plip" */
-			float v = sinf(ph) * expf(-tt / 0.012f) * 0.05f, pan = 0.6f - 1.3f * u;
-			L[i0 + i] += v * (1 - pan); R[i0 + i] += v * (1 + pan);
-		}
-	}
-	for (int k = 0; k < 18; k++) {                                                 /* the shimmer: high bells drifting across, right to left */
-		float u = k / 17.f;
-		s_bell(L, R, n, t_crack + 0.15f + u * 0.9f + 0.03f * nrand(), 1760.0f * (1 + 0.5f * (nrand() * 0.5f + 0.5f)), 0.025f * (1.1f - u), 0.5f, 2.0f, 0.8f, 0.7f - 1.4f * u);
-	}
-	/* the buttons pop in: a plucked note climbing for each, and a calm chord */
-	{
-		static const float pl[4] = {293.66f, 440.0f, 587.33f, 880.0f}, tp[4] = {-0.6f, -0.2f, 0.2f, 0.6f};
-		for (int k = 0; k < 4; k++) s_pluck(L, R, n, t_crack + 0.62f + k * 0.09f, pl[k], 0.22f, tp[k]);
-		static const float calm_c[4] = {146.83f, 220.0f, 277.18f, 329.63f};
-		s_pad(L, R, n, t_crack + 0.6f, t_end - t_crack + 0.6f, calm_c, 4, 0.05f, 0.01f, 0.03f, 0.25f, 0.9f);
-	}
+	/* the buttons appear: four rising blips */
+	static const float bl[4] = {523.25f, 659.25f, 783.99f, 1046.5f}, bp[4] = {-0.6f, -0.2f, 0.2f, 0.6f};
+	for (int k = 0; k < 4; k++) s_square(L, R, n, t_burst + 0.62f + k * 0.09f, 0.10f, bl[k], bl[k] * 1.02f, 0.045f, bp[k], 0.25f);
 	/* a small room: four comb filters into two all-passes, per side */
 	{
 		static const int comb[4] = {1557, 1617, 1491, 1422}, ap[2] = {225, 556};

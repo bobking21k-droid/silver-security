@@ -31,10 +31,12 @@ reference, not its content.)
    bar.
 3. **The greeter** (`src/greeter`): the emblem's violet gem glows and beats in the dark. Its
    three silver layers spin in from outside, each locking into place, and with a flash the
-   emblem is complete. It flies up into the top-right corner and **cracks**: the cosmic colours
-   of its gem pour out, a violet, blue and pink nebula full of stars spreading down to the far
-   corner. The four buttons, **Settings, Search, Apps and Files**, appear in a row as dark glass
-   cards, and the cracked emblem keeps spinning in its corner. The intro plays once per boot;
+   emblem is complete. It flies up into the top-right corner and strains under the pressure of
+   what it holds: it trembles harder and harder, cracks jump across it and beams of light force
+   their way out, until it **bursts open**: its layers are blown apart and snap back, and the
+   cosmic colours of its gem splash out, a violet, blue and pink nebula full of stars flooding
+   down to the far corner. The four buttons, **Settings, Search, Apps and Files**, appear in a row
+   as dark glass cards, and the cracked emblem keeps spinning in its corner. The intro plays once per boot;
    any key skips it. Add `silver.calm` to the kernel command line (or turn on Calm mode in
    Settings) to turn off its shake and flashes.
    **Sound:** everything has sound effects, all made by code at boot (no sound files):
@@ -44,12 +46,11 @@ reference, not its content.)
    - the fake Windows: a soft start-up bloom (an original chime), a tape stop as it flips, a
      sinking, crackling drone as it melts, electric zaps on the flashes; the system check
      hums like a terminal, ticks as each line types in and beeps on every `[  OK  ]`; picking Windows sounds like glass breaking;
-   - the intro: a warm synth pad as the gem fades in and a soft bending "bloop" on each beat,
-     a rising, wobbling tone for each spinning layer and a magnetic "ch-chk" over a deep tom as
-     it locks, a reverse swell into the lock, then a sub drop, a big chord opening up, a bell and
-     a quick bell arpeggio, two airy "zips" with the sheens, a rising zip as it flies to the
-     corner, the crack (a snap, glassy splinters, a low thoom), a deep falling whoosh with a
-     shimmer of bells as the colours pour out, and a plucked note climbing as each button appears;
+   - the intro, half digital (square-wave blips, data chatter, bit-crushed glitches) and half
+     JoJo-style drama (a menacing "gogogo" rumble, heavy impact hits, reverse swells): boot blips
+     as the gem appears, a data sweep and a hit for each layer, a huge hit and glitch stutter at
+     the lock, a digital zip to the corner, the rumble building with a tick on every crack, and
+     the biggest hit as it bursts, data spraying out, then four rising blips for the buttons;
    - the home screen and every section: clicks as you move, whooshes as you open and go back,
      key taps as you type, a two-note chime when search results arrive, a low buzz on errors.
 

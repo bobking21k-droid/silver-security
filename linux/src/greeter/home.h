@@ -145,7 +145,7 @@ static void emblem_cracks(float cx, float cy, float R, float rot, float grow, fl
 			V2 lp = {sg_cos(aa) * r, sg_sin(aa) * r};
 			V2 p0 = {cx + (prev.x * c - prev.y * s2) * R, cy + (prev.x * s2 + prev.y * c) * R}, p1 = {cx + (lp.x * c - lp.y * s2) * R, cy + (lp.x * s2 + lp.y * c) * R};
 			if (j > 1) {
-				float w = R * (0.050f - 0.006f * j);
+				float w = R * (0.075f - 0.008f * j);
 				sg_line(&fb, p0, p1, sg_max(2.0f, w * 3.0f), RGB(150, 90, 255), 0.35f * a);
 				sg_line(&fb, p0, p1, sg_max(1.0f, w * 0.6f), RGB(246, 226, 255), a);
 			}
@@ -828,21 +828,56 @@ static void glow_text(const Font *f, float x, float y, const char *str, float si
 static double spin_t0;                                   /* when the emblem cracked and started spinning */
 static void clock_text(char *hm, char *date);
 
-/* The emblem in the corner, cracked, spinning on: each layer at its own speed, like its own animation.
-   sc: seconds since it cracked (negative: not yet) */
+/* The emblem in the corner. sc: seconds since it started to crack (negative: not yet; 99: long ago).
+   0 .. CRACK_BURST   the pressure builds: it trembles harder and harder, swells, cracks spread
+                      across it in jumps and light forces its way out of the seams
+   CRACK_BURST        it bursts open: the layers are blown apart for a moment
+   after              they snap back together, cracked, and it spins on, each layer at its own speed */
+#define CRACK_BURST 0.95f
 static void home_emblem(float t, float sc)
 {
-	if (sc >= 0 && sc < 50) spin_t0 = now() - sc;               /* (so it carries on smoothly after the intro) */
+	float bt = sc - CRACK_BURST;                                 /* seconds since the burst */
+	if (bt >= 0 && sc < 50) spin_t0 = now() - bt;               /* (so it carries on smoothly after the intro) */
 	else if (spin_t0 == 0) spin_t0 = now();
-	float rt = sc < 0 ? 0 : sc > 50 ? (float)(now() - spin_t0) : sc, ramp = rt * sg_sat(rt / 1.2f);   /* spins up after the crack */
+	float rt = sc < 50 ? (bt > 0 ? bt : 0) : (float)(now() - spin_t0), ramp = rt * sg_sat(rt / 1.2f);
 	Emblem e = emblem_rest();
 	e.t = t; e.rot[0] = ramp * 0.45f; e.rot[1] = -ramp * 0.70f; e.rot[2] = ramp * 1.05f; e.rot[3] = -ramp * 0.35f;
-	e.gem = 0.9f + 0.35f * sg_heart(t, 0.9f) + (sc >= 0 && sc < 0.6f ? 1.5f * (1 - sc / 0.6f) : 0);
+	float cx = em_x(), cy = em_y(), grow = 1, leak = 0.3f;
+	e.gem = 0.9f + 0.35f * sg_heart(t, 0.9f);
+	if (sc >= 0 && sc < CRACK_BURST) {                           /* the pressure */
+		float k = sc / CRACK_BURST, k2 = k * k;
+		cx += sg_sin(t * 93) * U * 1.1f * k2; cy += sg_cos(t * 77) * U * 1.1f * k2;
+		float swell = 1 + 0.07f * k2 + 0.03f * k * sg_sin(t * 40);
+		for (int l = 0; l < 4; l++) e.scale[l] = swell;
+		e.gem = 1 + 2.2f * k2 * (0.6f + 0.4f * sg_sin(t * (14 + 30 * k)));
+		grow = sg_floor(k * 7.0f) / 7.0f + 0.04f;                 /* the cracks run in jumps */
+		leak = 0.3f + 1.6f * k2;
+	} else if (bt >= 0 && bt < 0.75f) {                          /* the burst: blown apart, snapping back */
+		float u = bt / 0.75f, out = sg_sin(SG_PI * sg_sat(u)) * (1 - 0.4f * u);
+		for (int l = 0; l < 3; l++) { e.scale[l] = 1 + (0.30f + 0.22f * (2 - l)) * out; e.rot[l] += (l & 1 ? -1 : 1) * 1.4f * out; }
+		e.gem = 1 + 2.5f * (1 - u);
+		leak = 2.0f * (1 - u) + 0.3f;
+	}
+	if (sc < 0) grow = 0;
 	float sw = sg_fract(t / 6.0f) * 6.0f;
-	if (sw < 0.8f) e.shine = sg_lerp(-1.4f, 1.4f, sw / 0.8f);
-	float cx = em_x(), cy = em_y();
+	if (sw < 0.8f && bt > 1) e.shine = sg_lerp(-1.4f, 1.4f, sw / 0.8f);
+	if (sc >= 0 && sc < CRACK_BURST) {                           /* beams of light forcing out through the cracks */
+		float k = sc / CRACK_BURST, k2 = k * k, ccx = cx, ccy = cy + EM_R * 0.5f;
+		for (int j = 0; j < 5; j++) {
+			float ang = j * 1.2566f + 0.4f + ((sg_hash(j, 3) & 255) / 255.f - 0.5f) * 0.5f + e.rot[0];
+			if (j / 5.0f > grow + 0.1f) continue;
+			float len = EM_R * (1.5f + 5.5f * k2) * (0.8f + 0.2f * sg_sin(t * 31 + j));
+			V2 a = {ccx, ccy}, b = {ccx + sg_cos(ang) * len, ccy + sg_sin(ang) * len};
+			sg_line(&fb, a, b, EM_R * (0.10f + 0.30f * k2), RGB(150, 90, 255), 0.30f * k);
+			sg_line(&fb, a, b, sg_max(1.2f, EM_R * (0.03f + 0.08f * k2)), RGB(245, 230, 255), 0.75f * k);
+		}
+	}
 	emblem_draw(&fb, cx, cy + EM_R * 0.5f, EM_R, &e);
-	if (sc >= 0) emblem_cracks(cx, cy + EM_R * 0.5f, EM_R, e.rot[0], sg_sat(sc / 0.18f), 1);
+	if (grow > 0) emblem_cracks(cx, cy + EM_R * 0.5f, EM_R * e.scale[0], e.rot[0], grow, 1);
+	if (leak > 0.31f) {                                          /* light forcing its way out */
+		sg_glow(&fb, cx, cy + EM_R * 0.5f, EM_R * (1.0f + 0.8f * leak), RGB(160, 100, 255), sg_min(1, 0.30f * leak));
+		sg_glow(&fb, cx, cy + EM_R * 0.5f, EM_R * 0.6f, RGB(250, 230, 255), sg_min(1, 0.25f * leak));
+	}
 }
 
 /* reveal: 0..1 how far the cosmic colours have spread (1 = whole screen); t: time; sc: seconds
@@ -857,7 +892,7 @@ static void home_draw(const Home *h, float reveal, float t, float sc)
 		   out first, mostly down towards the far corner, droplets fly ahead of them, then it all
 		   floods together until the whole screen is filled. A glowing wet edge, no circle. */
 		float ox = em_x(), oy = em_y() + EM_R * 0.5f, far = sg_sqrt(ox * ox + (H - oy) * (H - oy));
-		float p = reveal, reach = far * (0.15f + 2.9f * p * p * (1.6f - 0.6f * p)), wob = U * 10, rim = U * 2.2f;
+		float p = reveal, ep = sg_ease_out(p), reach = far * (0.12f + 2.9f * ep * ep), wob = U * 10, rim = U * 2.2f;   /* violent at first */
 		float tdir = hm_atan2((float)H - oy, -ox);                                    /* towards the bottom-left corner */
 		for (int y = 0; y < H; y++)
 			for (int x = 0; x < W; x++) {
@@ -874,9 +909,9 @@ static void home_draw(const Home *h, float reveal, float t, float sc)
 				else if (d < edge + rim * 0.7f) fb.px[i] = sg_add(fb.px[i], RGB(130, 80, 255), 0.6f * (1 - (d - edge) / (rim * 0.7f)));
 			}
 		/* droplets flung out ahead, with short trails */
-		for (int k = 0; k < 46; k++) {
+		for (int k = 0; k < 70; k++) {
 			uint32_t hk = sg_hash(k, 77);
-			float spread = ((hk & 1023) / 1023.f - 0.5f) * (k < 30 ? 1.3f : 4.0f), ang = tdir + spread;
+			float spread = ((hk & 1023) / 1023.f - 0.5f) * (k < 44 ? 1.3f : 4.0f), ang = tdir + spread;
 			float sp = 0.55f + ((hk >> 10) & 255) / 255.f * 0.9f, sz = U * (0.25f + ((hk >> 18) & 255) / 255.f * 0.9f);
 			float q = p * sp * 1.25f;
 			if (q <= 0.02f || p > 0.92f) continue;
@@ -890,7 +925,7 @@ static void home_draw(const Home *h, float reveal, float t, float sc)
 		}
 	}
 	/* the name and the clock, top left */
-	float ha = sc < 99 ? sg_sat((sc - 0.75f) / 0.3f) : 1;
+	float ha = sc < 99 ? sg_sat((sc - CRACK_BURST - 0.75f) / 0.3f) : 1;
 	if (ha > 0) {
 		glow_text(&FD, U * 6, U * 12.5f, "SilverOS", U * 7.0f, ha, 0);
 		char hm[8], date[48]; clock_text(hm, date);
@@ -899,9 +934,9 @@ static void home_draw(const Home *h, float reveal, float t, float sc)
 	}
 	/* the buttons, popping in one after another as the colours pass them */
 	for (int q = 0; q < 4; q++) {
-		float pop = sc >= 99 ? 1 : sg_sat((sc - 0.55f - q * 0.09f) / 0.32f);
+		float pop = sc >= 99 ? 1 : sg_sat((sc - CRACK_BURST - 0.60f - q * 0.09f) / 0.32f);
 		draw_button(q, h->blend[q], pop, beat);
 	}
 	if (sc >= -0.15f) home_emblem(t, sc);
-	if (sc >= 99 || sc > 1.0f) foot_hints("LEFT RIGHT  select      ENTER  open");
+	if (sc >= 99 || sc > CRACK_BURST + 1.0f) foot_hints("LEFT RIGHT  select      ENTER  open");
 }
