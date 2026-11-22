@@ -834,7 +834,7 @@ static const struct { float t; int k; } SCRIPT[] = {
 	{88.4f, K_RIGHT}, {89.2f, K_ENTER}, {90.8f, K_RIGHT}, {91.6f, K_DOWN}, {92.4f, K_ENTER}, {93.0f, 'w'}, {93.6f, K_ENTER}, {96.2f, 'p'}, {97.8f, K_ESC}, {98.5f, K_ESC}, {98.9f, K_ESC},                   /* Steam: wishlist, install with Steam */
 	{100.0f, K_RIGHT}, {100.8f, K_ENTER}, {102.4f, K_RIGHT}, {103.2f, K_ENTER}, {105.4f, K_ESC}, {106.2f, K_ESC}, {107.0f, K_ESC},                   /* Microsoft Store */
 	{107.8f, K_RIGHT}, {108.6f, K_ENTER}, {112.2f, K_ESC}, {113.0f, K_ESC},                                       /* Me and my PC */
-	{114.4f, 'b'}, {115.8f, K_RIGHT}, {117.0f, K_ENTER}, {118.2f, K_ESC},                                     /* Backgrounds: use Comic */
+	{114.4f, 'b'}, {115.8f, K_RIGHT}, {117.0f, K_ENTER}, {118.2f, K_ESC},                                     /* Backgrounds: use Search */
 	{120.6f, 'b'}, {121.6f, K_LEFT}, {122.4f, K_ENTER}, {123.4f, K_ESC},                                      /* and back to Cosmic */
 };
 #define SCRIPT_END 125.0f
@@ -849,7 +849,7 @@ static const struct { float t; int screen, sub, open, tab, mute; const char *wha
 	{89.6f, 3, 5, 1, 1, -1, "Steam"}, {94.6f, 3, 5, 1, 1, -1, "Steam: install"}, {99.6f, 3, 5, 0, -1, -1, "front again"},
 	{101.2f, 3, 5, 1, 2, -1, "Microsoft Store"}, {107.4f, 3, 0, -1, -1, -1, "Apps grid again"},
 	{109.2f, 3, 4, -1, -1, -1, "Me and my PC"}, {113.8f, 0, -1, -1, -1, -1, "home from the apps"},
-	{115.2f, 5, -1, -1, -1, -1, "Backgrounds opens"}, {119.4f, 0, -1, -1, -1, -1, "home, in Comic"}, {124.4f, 0, -1, -1, -1, -1, "home at the end"},
+	{115.2f, 5, -1, -1, -1, -1, "Backgrounds opens"}, {119.4f, 0, -1, -1, -1, -1, "home, on the Search clip"}, {124.4f, 0, -1, -1, -1, -1, "home at the end"},
 };
 static int expect_failed;
 #endif

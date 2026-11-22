@@ -38,8 +38,8 @@ reference, not its content.)
    down to the far corner. The four buttons, **Settings, Search, Apps and Files**, appear in a row
    as dark glass cards, and the cracked emblem keeps spinning in its corner.
    **Backgrounds:** click the emblem (or press **B**) to choose the home screen's background.
-   Two previews side by side: **Cosmic**, the nebula it lands on (the default), and **Comic**, a
-   comic-book burst of rays, halftone dots and spiky "POW" shapes. Left/Right (or the mouse)
+   Two previews side by side: **Cosmic**, the nebula it lands on (the default), and **Search**, the
+   moving black-and-red clip from the Search pane, looping behind the buttons. Left/Right (or the mouse)
    choose, Enter or a click uses it, Esc goes back; your choice is kept in
    `~/.config/silver/background`. The intro plays once per boot;
    any key skips it. Add `silver.calm` to the kernel command line (or turn on Calm mode in

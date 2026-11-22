@@ -128,48 +128,10 @@ static void bake_cosmic(uint32_t *dst)
 		}
 }
 
-/* The comic burst, the other background: a sunburst of rays from the emblem, hot yellow at the
-   corner cooling through orange and pink to purple and blue at the far corner, halftone dots like
-   cheap comic print, and two spiky "POW" bursts with black outlines behind the emblem. */
-static uint32_t comic_ramp(float d)
-{
-	static const float st[6] = {0.00f, 0.10f, 0.28f, 0.48f, 0.70f, 1.00f};
-	static const int col[6][3] = {{255, 250, 214}, {255, 222, 40}, {255, 146, 30}, {255, 46, 130}, {132, 58, 255}, {26, 116, 255}};
-	if (d <= 0) return RGB(col[0][0], col[0][1], col[0][2]);
-	for (int i = 1; i < 6; i++) if (d <= st[i]) {
-		float f = (d - st[i - 1]) / (st[i] - st[i - 1]);
-		return RGB((int)sg_lerp(col[i - 1][0], col[i][0], f), (int)sg_lerp(col[i - 1][1], col[i][1], f), (int)sg_lerp(col[i - 1][2], col[i][2], f));
-	}
-	return RGB(col[5][0], col[5][1], col[5][2]);
-}
-static void bake_comic(uint32_t *dst)
-{
-	float ox = em_x(), oy = em_y() + EM_R * 0.3f, far = sg_sqrt(ox * ox + (H - oy) * (H - oy));
-	float cell = U * 1.55f, ol = sg_max(2.0f, U * 0.55f);
-	for (int y = 0; y < H; y++)
-		for (int x = 0; x < W; x++) {
-			float dx = x + .5f - ox, dy = y + .5f - oy, d = sg_sqrt(dx * dx + dy * dy), dn = d / far;
-			float ang = hm_atan2(dy, dx), turn = (ang + SG_PI) / (2 * SG_PI);
-			qmap[y * W + x] = (uint8_t)(tri_wave(turn * 15 + 0.3f) * 255);
-			uint32_t c = comic_ramp(dn);
-			int sector = (int)(turn * 56);
-			c = (sector & 1) ? sg_mix(c, BLACK, 0.11f) : sg_mix(c, WHITE, 0.05f);
-			float u = (x + y) / cell, v = (x - y) / cell, fu = u - sg_floor(u) - 0.5f, fv = v - sg_floor(v) - 0.5f;
-			float dd = sg_sqrt(fu * fu + fv * fv), rr = 0.10f + 0.30f * dn;
-			float dot = sg_sat((rr - dd) * cell + 0.5f);
-			c = sg_mix(c, sg_mix(c, BLACK, 0.38f), dot * 0.8f);
-			float sp1 = sg_lerp(U * 15, U * 22, tri_wave(turn * 14)), sp2 = sg_lerp(U * 26, U * 36, tri_wave(turn * 20 + 0.25f));
-			if (d < sp2) c = sg_mix(c, RGB(255, 236, 96), sg_sat((sp2 - ol - d) + 0.5f));
-			if (d < sp2 && d > sp2 - ol) c = sg_mix(c, BLACK, sg_sat(d - (sp2 - ol) + 0.5f) * sg_sat(sp2 - d + 0.5f));
-			if (d < sp1) c = sg_mix(c, RGB(255, 252, 226), sg_sat((sp1 - ol - d) + 0.5f));
-			if (d < sp1 && d > sp1 - ol) c = sg_mix(c, BLACK, sg_sat(d - (sp1 - ol) + 0.5f) * sg_sat(sp1 - d + 0.5f));
-			dst[y * W + x] = c;
-		}
-}
-
-/* which background: 0 cosmic (the default), 1 comic; your choice lives in ~/.config/silver/background */
-enum { BG_COSMIC, BG_COMIC, BG_N };
-static const char *BG_NAME[BG_N] = {"Cosmic", "Comic"}, *BG_KEY[BG_N] = {"cosmic", "comic"};
+/* which background: 0 cosmic (the default), 1 the Search pane's moving clip (see rooms.h);
+   your choice lives in ~/.config/silver/background */
+enum { BG_COSMIC, BG_SEARCH, BG_N };
+static const char *BG_NAME[BG_N] = {"Cosmic", "Search"}, *BG_KEY[BG_N] = {"cosmic", "search"};
 static int bg_style;
 static char homedir[160];                                                 /* (set below) */
 static void bg_style_load(void)
@@ -177,14 +139,13 @@ static void bg_style_load(void)
 #ifndef RENDER
 	char p[300], v[16] = ""; snprintf(p, sizeof p, "%s/.config/silver/background", homedir);
 	FILE *f = fopen(p, "r"); if (f) { if (!fgets(v, sizeof v, f)) v[0] = 0; fclose(f); }
-	bg_style = !strncmp(v, "comic", 5) ? BG_COMIC : BG_COSMIC;
+	bg_style = !strncmp(v, "search", 6) ? BG_SEARCH : BG_COSMIC;
 #endif
 }
-static void bake_style(uint32_t *dst, int style) { if (style == BG_COMIC) bake_comic(dst); else bake_cosmic(dst); }
 static void bake_home(void)
 {
 	bg_style_load();
-	bake_style(bg_dark, bg_style);
+	bake_cosmic(bg_dark);                 /* (also with the clip chosen: it fills qmap, the splash's edge noise) */
 	for (int y = 0; y < H; y++) for (int x = 0; x < W; x++) bg_sec[y * W + x] = glass_px(x, y, 0);
 }
 
@@ -900,7 +861,7 @@ static void home_emblem(float t, float sc)
 	else if (spin_t0 == 0) spin_t0 = now();
 	float rt = sc < 50 ? (bt > 0 ? bt : 0) : (float)(now() - spin_t0), ramp = rt * sg_sat(rt / 1.2f);
 	Emblem e = emblem_rest();
-	e.light_bg = bg_style == BG_COMIC; e.t = t; e.rot[0] = ramp * 0.45f; e.rot[1] = -ramp * 0.70f; e.rot[2] = ramp * 1.05f; e.rot[3] = -ramp * 0.35f;
+	e.t = t; e.rot[0] = ramp * 0.45f; e.rot[1] = -ramp * 0.70f; e.rot[2] = ramp * 1.05f; e.rot[3] = -ramp * 0.35f;
 	float cx = em_x(), cy = em_y(), grow = 1, leak = 0.3f;
 	e.gem = 0.9f + 0.35f * sg_heart(t, 0.9f);
 	if (sc >= 0 && sc < CRACK_BURST) {                           /* the pressure */
@@ -941,11 +902,17 @@ static void home_emblem(float t, float sc)
 
 /* reveal: 0..1 how far the cosmic colours have spread (1 = whole screen); t: time; sc: seconds
    since the emblem cracked (99 once settled) */
+/* the Search pane's clip as the home background, timed by the home screen's own clock */
+static void home_clip_bg(float t) { float keep = s_age; s_age = t; scene_bg(t); s_age = keep; }
+
 static void home_draw(const Home *h, float reveal, float t, float sc)
 {
 	int n = W * H;
 	float beat = sg_heart(t, 0.9f);
-	if (reveal >= 1) memcpy(fb.px, bg_dark, (size_t)n * 4);
+	if (bg_style == BG_SEARCH && reveal > 0 && reveal < 1 && canvas) {         /* the splash reveals the clip's current frame */
+		memcpy(canvas, fb.px, (size_t)n * 4); home_clip_bg(t); memcpy(bg_dark, fb.px, (size_t)n * 4); memcpy(fb.px, canvas, (size_t)n * 4);
+	}
+	if (reveal >= 1) { if (bg_style == BG_SEARCH) home_clip_bg(t); else memcpy(fb.px, bg_dark, (size_t)n * 4); }
 	else if (reveal > 0) {
 		/* The splash: what was packed into the gem bursts out through the crack. Long tendrils shoot
 		   out first, mostly down towards the far corner, droplets fly ahead of them, then it all
@@ -1002,7 +969,7 @@ static void home_draw(const Home *h, float reveal, float t, float sc)
 
 /* ================================================================ backgrounds (click the emblem) */
 /* Two previews side by side: the background it lands on (Cosmic, the default) and the other one
-   (Comic). Left/Right or the mouse choose, Enter or a click uses it, Esc goes back. */
+   (Search: the Search pane's moving clip). Left/Right or the mouse choose, Enter or a click uses it, Esc goes back. */
 static uint32_t *bg_thumb[BG_N];
 static int tb_w, tb_h;
 static int em_hit(float x, float y) { float dx = x - em_x(), dy = y - em_y(); return dx * dx + dy * dy < EM_R * EM_R * 4.4f; }
@@ -1013,8 +980,13 @@ static void bg_thumbs_make(void)
 	for (int st = 0; st < BG_N; st++) {
 		if (!bg_thumb[st]) bg_thumb[st] = malloc((size_t)tb_w * tb_h * 4);
 		if (!bg_thumb[st]) return;
-		uint32_t *src = st == bg_style ? bg_dark : canvas;
-		if (st != bg_style) { uint8_t *keep = malloc((size_t)W * H); if (keep) memcpy(keep, qmap, (size_t)W * H); bake_style(canvas, st); if (keep) { memcpy(qmap, keep, (size_t)W * H); free(keep); } }
+		const uint32_t *src = bg_dark;
+		if (st == BG_SEARCH) { home_clip_bg(2.0f); src = fb.px; }               /* a frame of the clip (fb is redrawn next frame) */
+		else if (bg_style != BG_COSMIC) {                                        /* bg_dark holds a clip frame: bake the cosmos aside */
+			uint32_t *tmp = malloc((size_t)W * H * 4);
+			if (!tmp) continue;
+			bake_cosmic(tmp); src = tmp;
+		}
 		for (int y = 0; y < tb_h; y++)                                        /* shrink: average a little block */
 			for (int x = 0; x < tb_w; x++) {
 				int sx0 = x * W / tb_w, sy0 = y * H / tb_h, sx1 = (x + 1) * W / tb_w, sy1 = (y + 1) * H / tb_h;
@@ -1022,6 +994,7 @@ static void bg_thumbs_make(void)
 				for (int yy = sy0; yy < sy1; yy += 2) for (int xx = sx0; xx < sx1; xx += 2) { uint32_t c = src[yy * W + xx]; r += c >> 16 & 255; g += c >> 8 & 255; b += c & 255; n++; }
 				bg_thumb[st][y * tb_w + x] = n ? RGB(r / n, g / n, b / n) : 0;
 			}
+		if (src != bg_dark && src != fb.px) free((void *)src);
 	}
 }
 static void bg_open(Home *h) { h->row = bg_style; bg_thumbs_make(); }
@@ -1029,7 +1002,7 @@ static void bg_choose(int st)
 {
 	if (st == bg_style) return;
 	bg_style = st;
-	bake_style(bg_dark, bg_style);
+	if (st == BG_COSMIC) bake_cosmic(bg_dark);
 #ifndef RENDER
 	char p[300]; snprintf(p, sizeof p, "%s/.config", homedir); mkdir(p, 0755);
 	snprintf(p, sizeof p, "%s/.config/silver", homedir); mkdir(p, 0755);
