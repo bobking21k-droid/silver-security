@@ -7,8 +7,11 @@
  *   layer spins in on a rising, wobbling synth tone (panned to where it comes from) and lands
  *   with a two-part magnetic "ch-chk" over a deep tom; a reverse swell sucks in towards the
  *   lock; the LOCK: a sub drop, a big filtered chord opening up, a bell and a quick rising
- *   bell arpeggio; two airy "zips" follow the sheens; then the panes open with four plucked
- *   notes climbing and the pad settling into a calm chord.
+ *   bell arpeggio; two airy "zips" follow the sheens; a rising zip as the emblem flies into the
+ *   corner; the CRACK (a sharp snap, glassy splinters, a low thoom) and the cosmic colours
+ *   pouring out (a deep falling whoosh over a sub, with a shimmer of high bells drifting
+ *   across); then a plucked note climbing
+ *   as each button pops in, and the pad settling into a calm chord.
  * A little reverb puts it all in one room. Calm mode plays it quieter, without the deep hit.
  *
  * Playback runs in a child process so drawing never waits for audio. If there is no sound
@@ -124,7 +127,7 @@ static void s_lock(float *L, float *R, int n, float at, float tom, float amp, fl
 }
 
 /* Render the intro track into interleaved 16-bit stereo. Returns the number of frames. */
-static int intro_track(int16_t **out, float t_gem, float t_form, float t_lock, float t_open, float t_end, int quiet)
+static int intro_track(int16_t **out, float t_gem, float t_form, float t_lock, float t_open, float t_crack, float t_end, int quiet)
 {
 	int n = (int)((t_end + 1.6f) * SR);
 	float *L = calloc((size_t)n, sizeof(float)), *R = calloc((size_t)n, sizeof(float));
@@ -179,7 +182,7 @@ static int intro_track(int16_t **out, float t_gem, float t_form, float t_lock, f
 			}
 		}
 		static const float chord[5] = {146.83f, 220.0f, 293.66f, 369.99f, 440.0f};   /* D major, opening up */
-		s_pad(L, R, n, t_lock, t_open - t_lock + 0.7f, chord, 5, 0.06f, 0.30f, 0.02f, 0.01f, 0.7f);
+		s_pad(L, R, n, t_lock, t_crack - t_lock + 0.3f, chord, 5, 0.06f, 0.30f, 0.02f, 0.01f, 0.7f);
 		s_bell(L, R, n, t_lock, 587.33f, 0.16f, 1.2f, 3.5f, 2.2f, 0);              /* a bell */
 		static const float arp[6] = {587.33f, 739.99f, 880.0f, 1174.66f, 1479.98f, 1760.0f};
 		for (int k = 0; k < 6; k++) s_bell(L, R, n, t_lock + 0.10f + k * 0.07f, arp[k], 0.07f, 0.45f, 2.0f, 1.5f, (k - 2.5f) * 0.25f);
@@ -195,12 +198,54 @@ static int intro_track(int16_t **out, float t_gem, float t_form, float t_lock, f
 			L[i0 + i] += v * (1 - pan); R[i0 + i] += v * (1 + pan);
 		}
 	}
-	/* the panes open: four plucked notes climbing, and a calm chord */
+	/* the emblem flies up into the corner: a rising zip, moving right */
+	s_spin(L, R, n, t_open, 0.55f, 260, 1300, 0.05f, 0, 0.7f, 30, 8);
+	/* the CRACK: a sharp snap, glassy splinters and a low thoom */
 	{
-		static const float pl[4] = {293.66f, 440.0f, 587.33f, 880.0f}, tp[4] = {-0.7f, 0.7f, -0.25f, 0.25f};
-		for (int k = 0; k < 4; k++) s_pluck(L, R, n, t_open + 0.05f + k * 0.09f, pl[k], 0.22f, tp[k]);
+		int i0 = (int)(t_crack * SR);
+		float prev = 0;
+		for (int i = 0; i < (int)(0.06f * SR) && i0 + i < n; i++) {
+			float x = nrand(), hp = x - prev; prev = x;
+			float v = hp * (expf(-(float)i / (0.004f * SR)) + 0.3f * expf(-(float)i / (0.02f * SR))) * 0.9f;
+			L[i0 + i] += v * 0.7f; R[i0 + i] += v * 1.2f;
+		}
+		for (int k = 0; k < 14; k++) s_bell(L, R, n, t_crack + 0.005f + k * 0.012f, 2600 + (nrand() * 0.5f + 0.5f) * 3400, 0.03f, 0.06f, 1.41f, 1.0f, 0.3f + nrand() * 0.4f);
+		float ph = 0;
+		for (int i = 0; i < (int)(0.6f * SR) && i0 + i < n; i++) {
+			float tt = (float)i / SR; ph += 2 * (float)M_PI * (55 + 40 * expf(-tt / 0.05f)) / SR;
+			float v = sinf(ph) * expf(-tt / 0.18f) * (quiet ? 0.2f : 0.5f);
+			L[i0 + i] += v; R[i0 + i] += v;
+		}
+	}
+	/* the cosmic colours pour out: a deep whoosh falling from bright to dark, from the corner across, and a shimmer */
+	{
+		int i0 = (int)((t_crack + 0.08f) * SR), len = (int)(1.0f * SR);
+		float lp = 0, lp2 = 0;
+		for (int i = 0; i < len && i0 + i < n; i++) {
+			float x = (float)i / len, cut = 0.35f * (1 - x) * (1 - x) + 0.01f;
+			lp += (nrand() - lp) * cut; lp2 += (lp - lp2) * cut;
+			float v = lp2 * 3.2f * expf(-x * 3.0f) * sg_sat(x * 30), pan = 0.7f - 1.4f * x;
+			L[i0 + i] += v * (1 - pan); R[i0 + i] += v * (1 + pan);
+		}
+		if (!quiet) {
+			float ph = 0;
+			for (int i = 0; i < (int)(0.8f * SR) && i0 + i < n; i++) {
+				float tt = (float)i / SR; ph += 2 * (float)M_PI * (38 + 60 * expf(-tt / 0.08f)) / SR;
+				float v = tanhf(sinf(ph) * expf(-tt / 0.28f) * 1.6f) * 0.55f;
+				L[i0 + i] += v; R[i0 + i] += v;
+			}
+		}
+	}
+	for (int k = 0; k < 18; k++) {                                                 /* the shimmer: high bells drifting across, right to left */
+		float u = k / 17.f;
+		s_bell(L, R, n, t_crack + 0.15f + u * 0.9f + 0.03f * nrand(), 1760.0f * (1 + 0.5f * (nrand() * 0.5f + 0.5f)), 0.025f * (1.1f - u), 0.5f, 2.0f, 0.8f, 0.7f - 1.4f * u);
+	}
+	/* the buttons pop in: a plucked note climbing for each, and a calm chord */
+	{
+		static const float pl[4] = {293.66f, 440.0f, 587.33f, 880.0f}, tp[4] = {-0.6f, -0.2f, 0.2f, 0.6f};
+		for (int k = 0; k < 4; k++) s_pluck(L, R, n, t_crack + 0.62f + k * 0.09f, pl[k], 0.22f, tp[k]);
 		static const float calm_c[4] = {146.83f, 220.0f, 277.18f, 329.63f};
-		s_pad(L, R, n, t_open + 0.1f, t_end - t_open + 1.2f, calm_c, 4, 0.05f, 0.01f, 0.03f, 0.25f, 0.9f);
+		s_pad(L, R, n, t_crack + 0.6f, t_end - t_crack + 0.6f, calm_c, 4, 0.05f, 0.01f, 0.03f, 0.25f, 0.9f);
 	}
 	/* a small room: four comb filters into two all-passes, per side */
 	{
@@ -275,7 +320,7 @@ static void ui_sfx_play(SfxPlayer *p, UiSfx *u, char ev)
 	}
 }
 
-#define INTRO_TIMES T_GEM, T_FORM, T_LOCK, T_OPEN, T_END
+#define INTRO_TIMES T_GEM, T_FORM, T_LOCK, T_OPEN, T_CRACK, T_END
 static int snd_fd = -1;
 
 #ifdef RENDER

@@ -4,8 +4,9 @@
  * Intro (once per boot, ~4 s, any key skips):
  *   black, a cold light and dust -> the violet gem glows and pulses -> the emblem's three
  *   silver layers spin in from outside, each locking into place -> a flash as it completes ->
- *   the emblem shrinks into the middle of the screen while the four panes open along clean
- *   lines: SETTINGS, SEARCH, APPS and FILES.
+ *   the emblem flies up into the top-right corner, CRACKS, and the cosmic colours of its gem
+ *   pour out of it, a nebula with stars spreading down to the far corner -> the four buttons pop in, in a row, and the
+ *   cracked emblem keeps spinning.
  *
  * Home: arrow keys choose a pane, Enter opens it, Esc comes back (see home.h). Each section
  * works: browse and preview files, search files/apps/settings, a terminal and a live system
@@ -109,8 +110,8 @@ static int buffers(void)
 	U = H / 100.0f;
 	fb = sg_surf(malloc((size_t)W * H * 4), W, H);
 	canvas = malloc((size_t)W * H * 4);
-	qmap = malloc((size_t)W * H); bg_dark = malloc((size_t)W * H * 4); bg_light = malloc((size_t)W * H * 4); bg_sec = malloc((size_t)W * H * 4);
-	return fb.px && canvas && qmap && bg_dark && bg_light && bg_sec && !sg_font_load(&FD, font_scrawl) && !sg_font_load(&FT, font_text) && !sg_font_load(&FC, font_caption) ? 0 : -1;
+	qmap = malloc((size_t)W * H); bg_dark = malloc((size_t)W * H * 4); bg_sec = malloc((size_t)W * H * 4);
+	return fb.px && canvas && qmap && bg_dark && bg_sec && !sg_font_load(&FD, font_scrawl) && !sg_font_load(&FT, font_text) && !sg_font_load(&FC, font_caption) ? 0 : -1;
 }
 /* The privileged parent only waits for requests while the home screen (a child) runs, so it gives
  * its copies of the screen buffers back: they would otherwise sit in memory twice. The child has
@@ -118,13 +119,13 @@ static int buffers(void)
 static void ui_release(void)
 {
 	free(fb.px); fb.px = NULL; free(canvas); canvas = NULL; free(qmap); qmap = NULL;
-	free(bg_dark); free(bg_light); free(bg_sec); bg_dark = bg_light = bg_sec = NULL;
+	free(bg_dark); free(bg_sec); bg_dark = bg_sec = NULL;
 }
 static int ui_again(void)
 {
 	fb = sg_surf(malloc((size_t)W * H * 4), W, H);
-	qmap = malloc((size_t)W * H); bg_dark = malloc((size_t)W * H * 4); bg_light = malloc((size_t)W * H * 4); bg_sec = malloc((size_t)W * H * 4);
-	if (!fb.px || !qmap || !bg_dark || !bg_light || !bg_sec) return -1;
+	qmap = malloc((size_t)W * H); bg_dark = malloc((size_t)W * H * 4); bg_sec = malloc((size_t)W * H * 4);
+	if (!fb.px || !qmap || !bg_dark || !bg_sec) return -1;
 	bake_home();
 	return 0;
 }
@@ -210,8 +211,9 @@ static void home_init(Home *h)
 #define T_GEM 0.25f      /* the gem appears */
 #define T_FORM 0.55f     /* the layers start to come in */
 #define T_LOCK 1.95f     /* the last layer locks: the emblem is complete */
-#define T_OPEN 3.10f     /* the panes open */
-#define T_END 3.95f
+#define T_OPEN 3.10f     /* the emblem flies to the corner */
+#define T_CRACK 3.80f    /* it cracks; the colours burst out */
+#define T_END 5.10f
 #include "sound.h"
 
 /* the emblem during the intro at time t (seconds); R is its full size */
@@ -249,9 +251,9 @@ static void intro(Home *h)
 	for (;;) {
 		float t = (float)(now() - t0), lt = t - T_LOCK;
 		if (t > T_END) break;
-		if (key_waiting()) { snd('x'); break; }               /* skipped: stop the sound too */
+		if (key_waiting()) { snd('x'); spin_t0 = now(); break; }   /* skipped: stop the sound too */
 		sg_clear(&fb, BLACK);
-		float open = sg_sat((t - T_OPEN) / 0.75f);
+		float open = sg_sat((t - T_CRACK) / 0.5f);
 		/* a cold light from above, and dust hanging in it, before the panes appear */
 		float lit = sg_sat((t - 0.1f) / 0.6f) * (1 - open);
 		if (lit > 0) {
@@ -263,13 +265,24 @@ static void intro(Home *h)
 				sg_disc(&fb, x, y, U * (0.08f + 0.06f * (i % 3)), WHITE, 0.30f * lit * sg_sat(1 - d));
 			}
 		}
-		home_draw(h, open, t, lt);                            /* the panes, once they open */
+		float sc = t - T_CRACK, reveal = sg_sat((sc - 0.10f) / 0.85f);
+		reveal = 1 - (1 - reveal) * (1 - reveal);
+		if (t > T_OPEN) home_draw(h, reveal, t, sc);           /* the cosmos spreading, the buttons, the corner emblem */
 
-		/* the emblem: big in the middle, then shrinking into the centre of the panes */
+		/* the emblem: big in the middle, then flying up into the top-right corner */
 		Emblem e = intro_emblem(t);
-		float k = sg_ease_io(open), R = sg_lerp(RB, HOME_EMBLEM_R, k);
-		if (open <= 0) emblem_draw(&fb, cx, cy + R * 0.5f, R, &e);   /* (centred on its height, not its middle) */
-		else if (open < 1) center_mark(&e, R, k);       /* (once open, the home screen draws it) */
+		float k = sg_ease_io((t - T_OPEN) / 0.55f), R = sg_lerp(RB, EM_R, k);
+		float ex = sg_lerp(cx, em_x(), k), ey = sg_lerp(cy, em_y(), k);
+		if (sc < -0.15f) emblem_draw(&fb, ex, ey + R * 0.5f, R, &e);   /* (once there, the home screen draws it) */
+		if (sc > 0 && sc < 0.5f) {                             /* the crack: a flash and a ring from the corner */
+			float q = sc / 0.5f;
+			sg_glow(&fb, em_x(), em_y(), EM_R * 5 * sg_ease_out(q), RGB(255, 240, 170), (calm ? 0.3f : 0.7f) * (1 - q));
+			sg_ring(&fb, em_x(), em_y(), H * 0.5f * sg_ease_out(q), sg_max(1, U * 0.4f * (1 - q)), WHITE, 0.6f * (1 - q));
+		}
+		if (!calm && sc > 0 && sc < 0.25f) {
+			float th = 1 - sc / 0.25f;
+			shake_frame(sg_sin(t * 101) * U * 0.9f * th * th, sg_cos(t * 89) * U * 0.9f * th * th);
+		}
 		if (lt > 0 && lt < 0.7f) {                             /* the lock: a flash of light and a ring going out */
 			float q = lt / 0.7f;
 			sg_glow(&fb, cx, cy + RB * 0.5f, RB * 1.4f * sg_sat(lt * 6), RGB(170, 120, 255), (calm ? 0.25f : 0.55f) * (1 - q));
@@ -570,9 +583,9 @@ static void handle_key(Home *h, int k)
 	}
 	switch (h->screen) {
 	case 0:
-		if (k == K_LEFT) h->sel &= ~1;
-		else if (k == K_RIGHT) h->sel |= 1;
-		else if (k == K_UP) h->sel &= ~2;
+		if (k == K_LEFT && h->sel > 0) h->sel--;              /* the buttons are a row */
+		else if (k == K_RIGHT && h->sel < 3) h->sel++;
+		else if (k == K_UP) h->sel &= ~2;                     /* (up/down jump by two, as before) */
 		else if (k == K_DOWN) h->sel |= 2;
 		else if (k == K_ENTER) open_screen(h, h->sel + 1);
 		break;

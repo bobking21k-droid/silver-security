@@ -31,8 +31,10 @@ reference, not its content.)
    bar.
 3. **The greeter** (`src/greeter`): the emblem's violet gem glows and beats in the dark. Its
    three silver layers spin in from outside, each locking into place, and with a flash the
-   emblem is complete. It then shrinks into the middle of the screen while two clean lines run
-   out from it and open the glass into four panes: **Settings, Search, Apps and Files**. The intro plays once per boot;
+   emblem is complete. It flies up into the top-right corner and **cracks**: the cosmic colours
+   of its gem pour out, a violet, blue and pink nebula full of stars spreading down to the far
+   corner. The four buttons, **Settings, Search, Apps and Files**, appear in a row as dark glass
+   cards, and the cracked emblem keeps spinning in its corner. The intro plays once per boot;
    any key skips it. Add `silver.calm` to the kernel command line (or turn on Calm mode in
    Settings) to turn off its shake and flashes.
    **Sound:** everything has sound effects, all made by code at boot (no sound files):
@@ -45,8 +47,9 @@ reference, not its content.)
    - the intro: a warm synth pad as the gem fades in and a soft bending "bloop" on each beat,
      a rising, wobbling tone for each spinning layer and a magnetic "ch-chk" over a deep tom as
      it locks, a reverse swell into the lock, then a sub drop, a big chord opening up, a bell and
-     a quick bell arpeggio, two airy "zips" with the sheens, and four plucked notes climbing as
-     the panes open over a calm chord;
+     a quick bell arpeggio, two airy "zips" with the sheens, a rising zip as it flies to the
+     corner, the crack (a snap, glassy splinters, a low thoom), a deep falling whoosh with a
+     shimmer of bells as the colours pour out, and a plucked note climbing as each button appears;
    - the home screen and every section: clicks as you move, whooshes as you open and go back,
      key taps as you type, a two-note chime when search results arrive, a low buzz on errors.
 

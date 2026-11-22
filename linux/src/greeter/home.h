@@ -1,11 +1,11 @@
 /*
- * SilverOS home screen: the glass launcher and its four sections.
+ * SilverOS home screen: cosmic colours pouring out of the cracked emblem, and a row of four buttons.
  *
- *      +-----------+-----------+
- *      | SETTINGS  |  SEARCH   |      The glass is split into four panes by two clean lines;
- *      +-----------+-----------+      the emblem sits where they cross.
- *      |   APPS    |   FILES   |      Arrow keys choose a pane, Enter opens it, Esc comes back.
- *      +-----------+-----------+
+ *      SilverOS  9:41                                   /\  <- the emblem, cracked, spinning;
+ *                                                      /__\    the colours burst out of it
+ *      +----------+  +----------+  +----------+  +----------+
+ *      | SETTINGS |  |  SEARCH  |  |   APPS   |  |  FILES   |    Left/Right choose, Enter opens,
+ *      +----------+  +----------+  +----------+  +----------+    Esc comes back.
  *
  * Included by silver-greeter.c (which provides the framebuffer, fonts, clock and the privileged
  * parent) and, with -DRENDER, by the offline demo renderer, which uses a built-in sample tree
@@ -48,13 +48,9 @@ static void ucp_pop(char *b)                             /* remove the last lett
 }
 #define K_SHOT 1010                      /* F12: screenshot */
 
-/* the two lines that divide the glass into four panes */
-static float vx_at(float y) { (void)y; return W / 2.0f; }
-static float hy_at(float x) { (void)x; return H / 2.0f; }
-
 /* ================================================================ the glass */
-static uint8_t *qmap;                   /* which pane every pixel belongs to: 0 TL, 1 TR, 2 BL, 3 BR */
-static uint32_t *bg_dark, *bg_light, *bg_sec;
+static uint8_t *qmap;                   /* the cosmic wave's ragged edge, per pixel (used while it spreads out) */
+static uint32_t *bg_dark, *bg_sec;      /* the cosmic background of the home screen; plain dark glass for the sections */
 
 static uint32_t glass_px(int x, int y, int light)
 {
@@ -73,36 +69,90 @@ static uint32_t glass_px(int x, int y, int light)
 	return RGB(r, gg, b);
 }
 
+/* atan2 without libm (to ~0.005 rad) */
+static float hm_atan2(float y, float x)
+{
+	float ax = x < 0 ? -x : x, ay = y < 0 ? -y : y, mx = ax > ay ? ax : ay, mn = ax > ay ? ay : ax;
+	float a = mn / (mx + 1e-9f), q = a * a;
+	float r = ((-0.0464964749f * q + 0.15931422f) * q - 0.327622764f) * q * a + a;
+	if (ay > ax) r = 1.57079633f - r;
+	if (x < 0) r = 3.14159265f - r;
+	return y < 0 ? -r : r;
+}
+
+/* where the emblem lives: the top-right corner (its visual centre) and its size */
+#define EM_R (U * 5.8f)
+static float em_x(void) { return W - U * 14.5f; }
+static float em_y(void) { return U * 14.0f; }
+static float tri_wave(float x) { x = x - sg_floor(x); return x < 0.5f ? x * 2 : 2 - x * 2; }
+
+/* The cosmos, baked once: deep space lit from the emblem's corner, nebula clouds in the gem's
+   own colours (violet, blue, pink) thinning out towards the far corner, and stars. */
 static void bake_home(void)
 {
-	float gapw = sg_max(2.0f, U * 0.40f), bevel = U * 0.35f;
-	for (int y = 0; y < H; y++) {
-		float vx = vx_at(y + .5f);
+	float ox = em_x(), oy = em_y() + EM_R * 0.3f, far = sg_sqrt(ox * ox + (H - oy) * (H - oy));
+	float f = 3.2f / H, cell = U * 2.2f;
+	for (int y = 0; y < H; y++)
 		for (int x = 0; x < W; x++) {
-			float hy = hy_at(x + .5f);
-			int i = y * W + x, q = (x + .5f > vx) + 2 * (y + .5f > hy);
-			float d = sg_min(sg_abs(x + .5f - vx), sg_abs(y + .5f - hy));
-			qmap[i] = (uint8_t)q;
-			float cov = sg_sat(gapw / 2 - d + .5f), edge = sg_sat(1 - (d - gapw / 2) / bevel);
-			uint32_t dk = glass_px(x, y, 0), lt = glass_px(x, y, 1);
-			dk = sg_mix(dk, WHITE, 0.30f * edge * edge); lt = sg_mix(lt, RGB(90, 94, 104), 0.32f * edge * edge);
-			bg_dark[i] = sg_mix(dk, BLACK, cov); bg_light[i] = sg_mix(lt, BLACK, cov);
+			float dx = x + .5f - ox, dy = y + .5f - oy, d = sg_sqrt(dx * dx + dy * dy), dn = d / far;
+			/* along the diagonal the clouds stretch from the corner */
+			float n1 = sg_fbm(x * f + 3.1f, y * f * 1.15f + 7.7f, 5), n2 = sg_fbm(x * f * 1.7f + 11.3f, y * f * 1.7f + 2.9f, 4);
+			float n3 = sg_fbm(x * f * 0.6f - 4.0f, y * f * 0.6f + 9.0f, 3);
+			qmap[y * W + x] = (uint8_t)(sg_clamp(n3, 0, 1) * 255);                            /* the wave's ragged edge, for later */
+			float fall = 1 - 0.72f * sg_smooth(dn);
+			/* deep space: a little warmer near the corner, near black far away */
+			uint32_t c = sg_mix(RGB(34, 18, 66), RGB(3, 3, 12), sg_smooth(dn * 1.1f));
+			/* nebula */
+			float dens = sg_smooth((n1 - 0.38f) / 0.40f) * fall;
+			uint32_t neb = sg_mix(RGB(108, 52, 236), RGB(54, 96, 255), sg_sat(n2 * 1.4f - 0.2f));
+			neb = sg_mix(neb, RGB(236, 112, 246), sg_smooth((n2 - 0.55f) / 0.25f) * 0.7f);
+			c = sg_add(c, neb, dens * 0.85f);
+			float wisp = sg_smooth((n2 - 0.62f) / 0.18f) * dens;                              /* bright filaments */
+			c = sg_add(c, RGB(255, 210, 255), wisp * 0.35f);
+			float dust = sg_smooth((0.45f - n3) / 0.25f) * 0.55f;                             /* dark dust lanes */
+			c = sg_mix(c, RGB(2, 2, 8), dust * (1 - 0.5f * dens));
+			/* the glow of the corner, where it all comes from */
+			c = sg_add(c, RGB(170, 120, 255), 0.55f * sg_bump(dn, 0.38f));
+			c = sg_add(c, RGB(255, 235, 255), 0.35f * sg_bump(dn, 0.12f));
+			/* stars: one in some cells, a soft point */
+			int gx = (int)(x / cell), gy = (int)(y / cell);
+			uint32_t hs = sg_hash(gx * 7 + 13, gy * 11 + 5);
+			if ((hs & 15) < 3) {
+				float sx = (gx + ((hs >> 4) & 255) / 255.f) * cell, sy = (gy + ((hs >> 12) & 255) / 255.f) * cell;
+				float sd = (x + .5f - sx) * (x + .5f - sx) + (y + .5f - sy) * (y + .5f - sy);
+				float b0 = ((hs >> 20) & 255) / 255.f, br = 0.15f + 0.85f * b0 * b0 * b0, rr = U * (0.05f + 0.10f * br);
+				float st = br * sg_sat(1 - sd / (rr * rr * 4));
+				c = sg_add(c, ((hs >> 3) & 1) ? RGB(220, 230, 255) : RGB(255, 236, 250), st);
+			}
+			bg_dark[y * W + x] = c;
 		}
-	}
 	for (int y = 0; y < H; y++) for (int x = 0; x < W; x++) bg_sec[y * W + x] = glass_px(x, y, 0);
 }
 
-/* the emblem where the lines cross: a dark disc with a fine ring, the emblem on it.
-   k: 0..1 how far the disc has appeared (it grows in as the intro's emblem shrinks onto it) */
-#define HOME_EMBLEM_R (U * 2.6f)
-static void center_mark(const Emblem *e, float R, float k)
+/* cracks across the emblem, in its own units (R), turning with it; grow: 0..1 how far they have run */
+static void emblem_cracks(float cx, float cy, float R, float rot, float grow, float a)
 {
-	float cx = W / 2.0f, cy = H / 2.0f;
-	if (k > 0) {
-		sg_disc(&fb, cx, cy, U * 6.2f * sg_ease_out(k), RGB(8, 8, 11), 0.96f * k);
-		sg_ring(&fb, cx, cy, U * 6.2f * sg_ease_out(k), sg_max(1, U * 0.12f), RGB(150, 150, 162), 0.55f * k);
+	if (grow <= 0 || a <= 0) return;
+	float c = sg_cos(rot), s2 = sg_sin(rot);
+	for (int k = 0; k < 5; k++) {
+		float ang = k * 1.2566f + 0.4f + ((sg_hash(k, 3) & 255) / 255.f - 0.5f) * 0.5f, len = 0.75f + ((sg_hash(k, 9) & 255) / 255.f) * 0.45f;
+		V2 prev = {0, 0};
+		for (int j = 1; j <= 6; j++) {
+			float f = j / 6.f;
+			if (f > grow) break;
+			float jit = ((sg_hash(k * 13 + j, 5) & 255) / 255.f - 0.5f) * 0.32f;
+			float r = 0.10f + f * len, aa = ang + jit;
+			V2 lp = {sg_cos(aa) * r, sg_sin(aa) * r};
+			V2 p0 = {cx + (prev.x * c - prev.y * s2) * R, cy + (prev.x * s2 + prev.y * c) * R}, p1 = {cx + (lp.x * c - lp.y * s2) * R, cy + (lp.x * s2 + lp.y * c) * R};
+			if (j > 1) {
+				float w = R * (0.050f - 0.006f * j);
+				sg_line(&fb, p0, p1, sg_max(2.0f, w * 3.0f), RGB(150, 90, 255), 0.35f * a);
+				sg_line(&fb, p0, p1, sg_max(1.0f, w * 0.6f), RGB(246, 226, 255), a);
+			}
+			prev = lp;
+		}
 	}
-	emblem_draw(&fb, cx, cy + R * 0.5f, R, e);                 /* centred on its height */
+	sg_glow(&fb, cx, cy, R * 1.1f, RGB(170, 110, 255), 0.45f * a * sg_sat(grow * 2));          /* light leaking out of the gem */
 }
 
 /* ================================================================ icons */
@@ -731,56 +781,106 @@ static const char *TILE_NAME[4] = {"SETTINGS", "SEARCH", "APPS", "FILES"};
 static const char *TILE_CAP[4] = {"NETWORK  DISPLAY  SOUND", "THE WEB  VIDEOS", "GAMES  MY PC", "BROWSE YOUR HOME"};
 static const int TILE_ICON[4] = {I_SETTINGS, I_SEARCH, I_APPS, I_FILES};
 
-static void tile_content(int q, float a, float blend, float beat)
+/* the four buttons, in a row across the lower half */
+static void button_rect(int q, float *x, float *y, float *w, float *h)
 {
-	float cx = (q & 1) ? W * 0.75f : W * 0.25f, cy = (q & 2) ? H * 0.75f : H * 0.25f;
-	uint32_t fg = sg_mix(WHITE, INK, blend);
-	icon(TILE_ICON[q], cx, cy - U * 6.8f, U * 6.2f, fg, a);
-	float sz = U * 7.6f, w = sg_text_w(&FD, TILE_NAME[q], sz, 0);
-	sg_text(&fb, &FD, cx - w / 2 + sz * 0.03f, cy + U * 7.8f + sz * 0.03f, TILE_NAME[q], sz, BLACK, a * 0.35f * (1 - blend), 0);
-	sg_text(&fb, &FD, cx - w / 2, cy + U * 7.8f, TILE_NAME[q], sz, fg, a, 0);
-	float cw = sg_text_w(&FC, TILE_CAP[q], U * 1.2f, 0.22f);
-	sg_text(&fb, &FC, cx - cw / 2, cy + U * 12.8f, TILE_CAP[q], U * 1.2f, sg_mix(RGB(170, 170, 176), RGB(64, 64, 72), blend), a, 0.22f);
-	if (blend > 0.01f) {                                                  /* the chosen pane: a red tab and a beating dot */
-		float cxp = (q & 1) ? W * 0.5f + U * 3 : U * 3, cyp = (q & 2) ? H * 0.5f + U * 3 : U * 3;
-		(void)cxp; (void)cyp;
-		sg_disc(&fb, cx, cy + U * 16.8f, U * (0.55f + 0.35f * beat), RED, a * blend);
-		sg_glow(&fb, cx, cy + U * 16.8f, U * 3.4f, RED, 0.5f * a * blend * beat);
+	float x0 = W * 0.065f, gap = U * 3.0f, bw = (W - 2 * x0 - 3 * gap) / 4;
+	*x = x0 + q * (bw + gap); *w = bw; *h = U * 24; *y = H * 0.60f - *h / 2;
+}
+static int button_at(float mx) { float x0 = W * 0.065f; int q = (int)((mx - x0) / ((W - 2 * x0) / 4)); return q < 0 ? 0 : q > 3 ? 3 : q; }
+
+/* a dark glass card with a fine light edge; the chosen one lifts, its edge and a glow behind it
+   turn violet. pop: 0..1 how far it has appeared */
+static void draw_button(int q, float blend, float pop, float beat)
+{
+	if (pop <= 0) return;
+	float x, y, w, h; button_rect(q, &x, &y, &w, &h);
+	float e = sg_ease_out(pop), lift = U * 1.4f * blend;
+	y += (1 - e) * U * 6 - lift;
+	float a = sg_sat(pop * 2.5f), r = U * 1.8f;
+	if (blend > 0.01f) sg_glow(&fb, x + w / 2, y + h / 2, w * 0.75f, RGB(130, 80, 255), 0.45f * a * blend * (0.8f + 0.2f * beat));
+	ui_frost(x, y, w, h, r, 0.62f - 0.18f * blend);
+	sg_rrect(&fb, x, y, w, h, r, 0, RGB(16, 10, 36), 0.35f * a);
+	sg_rrect(&fb, x, y, w, h, r, sg_max(1.2f, U * 0.14f), sg_mix(RGB(150, 150, 170), RGB(196, 160, 255), blend), (0.45f + 0.5f * blend) * a);
+	uint32_t ink = WHITE;
+	float cxi = x + w / 2;
+	icon(TILE_ICON[q], cxi, y + h * 0.30f, U * 4.4f, ink, a);
+	float sz = U * 5.0f, tw = sg_text_w(&FD, TILE_NAME[q], sz, 0);
+	if (tw > w - U * 3) { sz *= (w - U * 3) / tw; tw = w - U * 3; }
+	sg_text(&fb, &FD, cxi - tw / 2, y + h * 0.70f, TILE_NAME[q], sz, ink, a, 0);
+	float cs = U * 1.05f, cw = sg_text_w(&FC, TILE_CAP[q], cs, 0.2f);
+	if (cw > w - U * 2) { cs *= (w - U * 2) / cw; cw = w - U * 2; }
+	sg_text(&fb, &FC, cxi - cw / 2, y + h * 0.86f, TILE_CAP[q], cs, sg_mix(RGB(160, 160, 176), RGB(220, 205, 255), blend), a, 0.2f);
+	if (blend > 0.5f) {                                                                 /* a beating dot under the chosen one */
+		float k2 = (blend - 0.5f) * 2;
+		sg_glow(&fb, cxi, y + h + U * 3.2f, U * 2.6f, RGB(150, 100, 255), 0.6f * a * k2 * beat);
+		sg_disc(&fb, cxi, y + h + U * 3.2f, U * (0.5f + 0.25f * beat), WHITE, a * k2);
 	}
 }
 
-/* open: 0 = glass not yet shown .. 1 = fully open; lt = seconds since the intro's emblem locked */
-static void home_draw(const Home *h, float open, float t, float lt)
+/* white text with a soft dark shadow and a faint violet glow */
+static void glow_text(const Font *f, float x, float y, const char *str, float size, float a, float track)
+{
+	sg_text(&fb, f, x + size * 0.03f, y + size * 0.04f, str, size, BLACK, a * 0.55f, track);
+	sg_text(&fb, f, x, y, str, size, WHITE, a, track);
+}
+
+static double spin_t0;                                   /* when the emblem cracked and started spinning */
+static void clock_text(char *hm, char *date);
+
+/* The emblem in the corner, cracked, spinning on: each layer at its own speed, like its own animation.
+   sc: seconds since it cracked (negative: not yet) */
+static void home_emblem(float t, float sc)
+{
+	if (sc >= 0 && sc < 50) spin_t0 = now() - sc;               /* (so it carries on smoothly after the intro) */
+	else if (spin_t0 == 0) spin_t0 = now();
+	float rt = sc < 0 ? 0 : sc > 50 ? (float)(now() - spin_t0) : sc, ramp = rt * sg_sat(rt / 1.2f);   /* spins up after the crack */
+	Emblem e = emblem_rest();
+	e.t = t; e.rot[0] = ramp * 0.45f; e.rot[1] = -ramp * 0.70f; e.rot[2] = ramp * 1.05f; e.rot[3] = -ramp * 0.35f;
+	e.gem = 0.9f + 0.35f * sg_heart(t, 0.9f) + (sc >= 0 && sc < 0.6f ? 1.5f * (1 - sc / 0.6f) : 0);
+	float sw = sg_fract(t / 6.0f) * 6.0f;
+	if (sw < 0.8f) e.shine = sg_lerp(-1.4f, 1.4f, sw / 0.8f);
+	float cx = em_x(), cy = em_y();
+	emblem_draw(&fb, cx, cy + EM_R * 0.5f, EM_R, &e);
+	if (sc >= 0) emblem_cracks(cx, cy + EM_R * 0.5f, EM_R, e.rot[0], sg_sat(sc / 0.18f), 1);
+}
+
+/* reveal: 0..1 how far the cosmic colours have spread (1 = whole screen); t: time; sc: seconds
+   since the emblem cracked (99 once settled) */
+static void home_draw(const Home *h, float reveal, float t, float sc)
 {
 	int n = W * H;
-	float a = sg_smooth(open), beat = sg_heart(t, 0.9f);
-	if (a >= 1) {
-		int mode[4];                                           /* per pane: all dark, all light, or between */
-		for (int q = 0; q < 4; q++) mode[q] = h->blend[q] < 0.002f ? 0 : h->blend[q] > 0.998f ? 1 : 2;
-		if (mode[0] == mode[1] && mode[1] == mode[2] && mode[2] == mode[3] && mode[0] < 2) memcpy(fb.px, mode[0] ? bg_light : bg_dark, (size_t)n * 4);
-		else for (int i = 0; i < n; i++) {
-			int q = qmap[i];
-			fb.px[i] = mode[q] == 0 ? bg_dark[i] : mode[q] == 1 ? bg_light[i] : sg_mix(bg_dark[i], bg_light[i], h->blend[q]);
-		}
-	} else if (a > 0.003f) {
-		for (int i = 0; i < n; i++) fb.px[i] = sg_mix(fb.px[i], sg_mix(bg_dark[i], bg_light[i], h->blend[qmap[i]]), a);
+	float beat = sg_heart(t, 0.9f);
+	if (reveal >= 1) memcpy(fb.px, bg_dark, (size_t)n * 4);
+	else if (reveal > 0) {                                     /* the wave of light spreading to the far corner, a ragged glowing edge */
+		float ox = em_x(), oy = em_y() + EM_R * 0.3f, far = sg_sqrt(ox * ox + (H - oy) * (H - oy)) * 1.15f;
+		float rad = far * reveal, wob = U * 16, rim = U * 4.5f;
+		for (int y = 0; y < H; y++)
+			for (int x = 0; x < W; x++) {
+				float dx = x + .5f - ox, dy = y + .5f - oy, d = sg_sqrt(dx * dx + dy * dy);
+				float edge = rad - wob * (qmap[y * W + x] / 255.f);
+				int i = y * W + x;
+				if (d < edge - rim) fb.px[i] = bg_dark[i];
+				else if (d < edge + rim * 0.5f) {
+					float k = (d - (edge - rim)) / (rim * 1.5f);                      /* 0 inside .. 1 outside */
+					uint32_t c = k < 0.66f ? bg_dark[i] : fb.px[i];
+					fb.px[i] = sg_add(c, k < 0.66f ? RGB(200, 160, 255) : RGB(120, 70, 255), k < 0.66f ? k * 1.1f : (1 - k) * 2.2f);
+				}
+			}
 	}
-	if (open > 0 && open < 1 && lt > 0) {                      /* the dividing lines run out from the centre as it opens */
-		float cx = W / 2.0f, cy = H / 2.0f, e = sg_ease_out(open), px = e * W * 0.55f, py = e * H * 0.55f, al = 1 - open;
-		float w = sg_max(1.2f, U * 0.22f);
-		sg_line(&fb, (V2){cx - px, cy}, (V2){cx + px, cy}, w, WHITE, 0.8f * al);
-		sg_line(&fb, (V2){cx, cy - py}, (V2){cx, cy + py}, w, WHITE, 0.8f * al);
-		V2 tip[4] = {{cx - px, cy}, {cx + px, cy}, {cx, cy - py}, {cx, cy + py}};
-		for (int i = 0; i < 4; i++) sg_glow(&fb, tip[i].x, tip[i].y, U * 4, RGB(190, 160, 255), 0.6f * al);
+	/* the name and the clock, top left */
+	float ha = sc < 99 ? sg_sat((sc - 0.75f) / 0.3f) : 1;
+	if (ha > 0) {
+		glow_text(&FD, U * 6, U * 12.5f, "SilverOS", U * 7.0f, ha, 0);
+		char hm[8], date[48]; clock_text(hm, date);
+		glow_text(&FT, U * 6.4f, U * 17.8f, hm, U * 2.6f, ha, 0.01f);
+		glow_text(&FC, U * 6.4f + sg_text_w(&FT, hm, U * 2.6f, 0.01f) + U * 1.6f, U * 17.6f, date, U * 1.1f, ha, 0.25f);
 	}
-	float ca = sg_sat((open - 0.35f) / 0.5f);
-	if (ca > 0) for (int q = 0; q < 4; q++) tile_content(q, ca, h->blend[q], beat);
-	if (open >= 1) {                                           /* the emblem where the lines cross, its gem gently beating */
-		Emblem e = emblem_rest();
-		e.t = t; e.gem = 0.75f + 0.45f * beat;
-		float sw = sg_fract(t / 7.0f) * 7.0f;                  /* a sheen every few seconds */
-		if (sw < 0.9f) e.shine = sg_lerp(-1.4f, 1.4f, sw / 0.9f);
-		center_mark(&e, HOME_EMBLEM_R, 1);
+	/* the buttons, popping in one after another as the colours pass them */
+	for (int q = 0; q < 4; q++) {
+		float pop = sc >= 99 ? 1 : sg_sat((sc - 0.55f - q * 0.09f) / 0.32f);
+		draw_button(q, h->blend[q], pop, beat);
 	}
-	if (ca > 0.95f) foot_hints("ARROWS  select      ENTER  open");
+	if (sc >= -0.15f) home_emblem(t, sc);
+	if (sc >= 99 || sc > 1.0f) foot_hints("LEFT RIGHT  select      ENTER  open");
 }

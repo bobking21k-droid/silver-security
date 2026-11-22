@@ -5,7 +5,7 @@
  * feeds it, in the classic PS/2 packet format. We ask it for the wheel extension (IntelliMouse),
  * move a cursor, and turn what you do into the keys the interface already understands:
  *
- *   move         select what is under the cursor (home panes; rows of Settings, Network,
+ *   move         select what is under the cursor (home buttons; rows of Settings, Network,
  *                Bluetooth and Time), with the same little sound as the arrow keys
  *   left click   Enter        right click   Esc (back)        wheel   Up / Down
  *
@@ -51,8 +51,8 @@ static int mouse_hover(Home *h)
 {
 	int changed = 0;
 	switch (h->screen) {
-	case 0: {                                                                       /* the four panes */
-		int q = (ms.x > W / 2.0f) + 2 * (ms.y > H / 2.0f);
+	case 0: {                                                                       /* the row of buttons: by column */
+		int q = button_at(ms.x);
 		if (q != h->sel) { h->sel = q; changed = 1; }
 		break; }
 	case 1:
