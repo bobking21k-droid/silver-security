@@ -927,7 +927,9 @@ static void look_load(void)
 static void look_save(void)
 {
 #ifndef RENDER
-	char p[300]; look_path(p, sizeof p);
+	char p[300]; snprintf(p, sizeof p, "%s/.config", homedir); mkdir(p, 0755);
+	snprintf(p, sizeof p, "%s/.config/silver", homedir); mkdir(p, 0755);
+	look_path(p, sizeof p);
 	FILE *f = fopen(p, "w"); if (!f) return;
 	fprintf(f, "head=%d\nemblem=%d\nbuttons=%d\nhints=%d\ncolor=%d\nink=%d\nclear=%d\nrow=%d\norder=%d%d%d%d\n",
 		look.head, look.emblem, look.buttons, look.hints, look.col, look.ink, look.clear, look.row, look.ord[0], look.ord[1], look.ord[2], look.ord[3]);
@@ -1163,12 +1165,9 @@ static void bg_choose(int st)
 	FILE *f = fopen(p, "w"); if (f) { fprintf(f, "%s\n", k); fclose(f); }
 #endif
 }
-static void look_path(char *p, size_t n)
-{
-	char d[300]; snprintf(d, sizeof d, "%s/.config", homedir); mkdir(d, 0755);
-	snprintf(d, sizeof d, "%s/.config/silver", homedir); mkdir(d, 0755);
-	snprintf(p, n, "%s/.config/silver/home-look", homedir);
-}
+/* (only the path: the folders are made when saving, never when loading, because loading can run
+   before the greeter drops root and the folders would then belong to root) */
+static void look_path(char *p, size_t n) { snprintf(p, n, "%s/.config/silver/home-look", homedir); }
 static void bg_rect(int st, float *x, float *y) { float g = bg_gap(); *x = (W - tb_n * tb_w - (tb_n - 1) * g) / 2 + st * (tb_w + g); *y = H * 0.215f; }
 static int bg_at(float mx) { float x0, y0; bg_rect(0, &x0, &y0); int q = (int)((mx - x0 + bg_gap() / 2) / (tb_w + bg_gap())); return q < 0 ? 0 : q >= tb_n ? tb_n - 1 : q; }
 
