@@ -35,15 +35,16 @@ reference, not its content.)
    Settings) to turn off its shake and flashes.
    **Sound:** everything has sound effects, all made by code at boot (no sound files):
    - the chooser: a low breathing drone, a whoosh and click (or a soft chime) as you move
-     between the sides, with the emblem's metallic clink on the SilverOS side, a tick each second
+     between the sides, with a rising blip and a soft bell on the SilverOS side, a tick each second
      of the countdown, a deep thump on Enter;
    - the fake Windows: a soft start-up bloom (an original chime), a tape stop as it flips, a
      sinking, crackling drone as it melts, electric zaps on the flashes; the system check
      ticks, rattles and beeps "OK" over a heartbeat; picking Windows sounds like glass breaking;
-   - the intro: the gem's glassy swell and soft beat, a fluttering whoosh for each spinning
-     layer and a metallic clink as it locks, a tone rising to the lock, then a deep hit, a bright
-     chord and a shower of sparkles, two sheens "shinging" across, a low hum, and a whoosh, four
-     ticks and a soft chord as the panes open;
+   - the intro: a warm synth pad as the gem fades in and a soft bending "bloop" on each beat,
+     a rising, wobbling tone for each spinning layer and a magnetic "ch-chk" over a deep tom as
+     it locks, a reverse swell into the lock, then a sub drop, a big chord opening up, a bell and
+     a quick bell arpeggio, two airy "zips" with the sheens, and four plucked notes climbing as
+     the panes open over a calm chord;
    - the home screen and every section: clicks as you move, whooshes as you open and go back,
      key taps as you type, a two-note chime when search results arrive, a low buzz on errors.
 

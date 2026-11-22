@@ -2,8 +2,8 @@
  * The boot chooser's sounds, built with ../common/sfx.h and timed against scenes.h:
  *
  *   amb      a low, slowly breathing drone under the chooser (loops)
- *   to_l     moving to SilverOS: a dark whoosh to the left, a dry click and the emblem's
- *            metallic clink with a glint of its gem
+ *   to_l     moving to SilverOS: a dark whoosh to the left, a dry click, a rising blip and a
+ *            soft bell for the emblem
  *   to_r     moving to Windows: a brighter whoosh to the right and a soft two-note chime
  *   tick     the auto-start countdown, once a second
  *   go       Enter: a deep thump with a rising swell
@@ -49,9 +49,9 @@ static SfxClip build_move(int right)
 	if (right) { sfx_ping(&m, 0.11f, 987.8f, 0.10f, 0.20f, 0.4f, 0.004f); sfx_ping(&m, 0.17f, 1480.0f, 0.07f, 0.25f, 0.5f, 0.004f); }
 	else {
 		sfx_thump(&m, 0.10f, 160, 70, 0.03f, 0.06f, 0.35f, 0);
-		static const float part[4] = {1.0f, 2.76f, 5.40f, 8.93f}, pa[4] = {0.09f, 0.055f, 0.035f, 0.02f};
-		for (int k = 0; k < 4; k++) sfx_ping(&m, 0.11f, 930.0f * part[k], pa[k], 0.30f / (1 + k * 0.6f), -0.4f, 0.0008f);   /* the emblem's clink */
-		sfx_ping(&m, 0.16f, 2637.0f, 0.04f, 0.25f, -0.3f, 0.002f);                  /* and its gem */
+		sfx_glide(&m, 0.10f, 0.12f, 330, 660, 0.07f, -0.4f, 0);                        /* the emblem: a rising blip */
+		sfx_ping(&m, 0.20f, 587.33f, 0.05f, 0.35f, -0.3f, 0.004f);                      /* and a soft bell */
+		sfx_ping(&m, 0.20f, 587.33f * 3.5f, 0.015f, 0.12f, -0.3f, 0.002f);
 	}
 	sfx_room(&m, 0.25f, 1.0f);
 	SfxClip c = sfx_clip(&m, 1.0f); sfx_free_mix(&m); return c;
@@ -125,7 +125,7 @@ static SfxClip build_trans(int quiet)
 				sfx_noise_burst(&m, t, 0.06f, 0.02f, a, 1, 0, 0);
 				sfx_glide(&m, t, sg_min(FLICK[i].dur, 0.12f), 120, 60, a * 0.6f, 0, 1);
 			}
-			if (FLICK[i].logo) sfx_ping(&m, t + 0.01f, FLICK[i].inv == 1 ? 1760.0f : 1318.5f, 0.05f, 0.25f, 0, 0.002f);   /* the emblem glints */
+			if (FLICK[i].logo) sfx_glide(&m, t + 0.01f, 0.08f, FLICK[i].inv == 1 ? 880.0f : 587.33f, FLICK[i].inv == 1 ? 1760.0f : 1174.66f, 0.04f, 0, 0);   /* the emblem blips */
 			t += FLICK[i].dur;
 		}
 		if (!quiet) sfx_thump(&m, t_flash, 90, 35, 0.08f, 0.4f, 0.7f, 1.2f);

@@ -3,11 +3,12 @@
  * (no libraries): the kernel's PCM and control interfaces, as in <sound/asound.h>.
  *
  * The track follows the intro's timeline (T_GEM, T_FORM, T_LOCK, T_OPEN in silver-greeter.c):
- *   the gem appears with a glassy swell and beats softly (a low pulse and a crystal tink);
- *   each silver layer spins in on its own whoosh (fluttering as it turns, panned to where it
- *   comes from) and lands with a metallic clink, over a tone rising towards the lock; the
- *   LOCK: a deep hit, a bright chord, a shower of sparkles; two sheens "shing" across; a low
- *   hum holds; then the panes open with a whoosh, four soft ticks and a shimmering chord.
+ *   the gem fades in on a warm synth pad and beats with a soft bending "bloop"; each silver
+ *   layer spins in on a rising, wobbling synth tone (panned to where it comes from) and lands
+ *   with a two-part magnetic "ch-chk" over a deep tom; a reverse swell sucks in towards the
+ *   lock; the LOCK: a sub drop, a big filtered chord opening up, a bell and a quick rising
+ *   bell arpeggio; two airy "zips" follow the sheens; then the panes open with four plucked
+ *   notes climbing and the pad settling into a calm chord.
  * A little reverb puts it all in one room. Calm mode plays it quieter, without the deep hit.
  *
  * Playback runs in a child process so drawing never waits for audio. If there is no sound
@@ -33,31 +34,93 @@ static void s_ping(float *L, float *R, int n, float at, float f, float amp, floa
 	}
 }
 
-/* filtered noise whose brightness, loudness and position move from start to end; trem0/trem1:
-   flutter rate (Hz) at the start and end, for something spinning (0 = none) */
-static void s_swoosh(float *L, float *R, int n, float at, float dur, float cut0, float cut1, float amp, float pan0, float pan1, float trem0, float trem1)
+/* a warm pad: detuned saw-ish voices through a low-pass that opens and closes */
+static void s_pad(float *L, float *R, int n, float at, float dur, const float *f, int nf, float amp, float cut0, float cut1, float attack, float release)
 {
 	int i0 = (int)(at * SR), len = (int)(dur * SR);
-	float lp = 0, lp2 = 0, ph = 0;
-	for (int i = 0; i < len && i0 + i < n; i++) {
+	for (int v = 0; v < nf; v++)
+		for (int side = 0; side < 2; side++) {
+			float ph = side * 0.37f + v * 0.11f, det = side ? 1.004f : 0.996f, lp = 0, lp2 = 0;
+			float *out = side ? R : L;
+			for (int i = 0; i < len && i0 + i < n; i++) {
+				if (i0 + i < 0) continue;
+				float tt = (float)i / SR, x = (float)i / len;
+				ph += f[v] * det / SR; ph -= (int)ph;
+				float saw = 2 * ph - 1, cut = cut0 + (cut1 - cut0) * sg_smooth(x);
+				lp += (saw - lp) * cut; lp2 += (lp - lp2) * cut;
+				float env = sg_sat(tt / attack) * sg_sat((dur - tt) / release);
+				out[i0 + i] += lp2 * env * amp;
+			}
+		}
+}
+
+/* an FM bell: carrier f, modulator at f * ratio; the brightness fades with the note */
+static void s_bell(float *L, float *R, int n, float at, float f, float amp, float decay, float ratio, float index, float pan)
+{
+	int i0 = (int)(at * SR);
+	float pc = 0, pm = 0;
+	for (int i = 0; i < (int)(decay * 5 * SR) && i0 + i < n; i++) {
 		if (i0 + i < 0) continue;
-		float x = (float)i / len, cut = cut0 + (cut1 - cut0) * x * x;
-		lp += (nrand() - lp) * cut; lp2 += (lp - lp2) * cut;
-		float env = sinf((float)M_PI * sg_sat(x)) * (0.4f + 0.6f * x);     /* swells, peaks late */
-		float rate = trem0 + (trem1 - trem0) * x; ph += 2 * (float)M_PI * rate / SR;
-		float flutter = rate > 0 ? 0.65f + 0.35f * sinf(ph) : 1;
-		float v = (lp - lp2 * 0.5f) * 5 * env * amp * flutter, pan = pan0 + (pan1 - pan0) * x;
+		float tt = (float)i / SR, env = expf(-tt / decay) * (1 - expf(-tt / 0.002f));
+		pm += 2 * (float)M_PI * f * ratio / SR; pc += 2 * (float)M_PI * f / SR;
+		float v = sinf(pc + index * expf(-tt / (decay * 0.5f)) * sinf(pm)) * env * amp;
 		L[i0 + i] += v * (1 - pan); R[i0 + i] += v * (1 + pan);
 	}
 }
 
-/* a metallic clink: inharmonic partials of a small plate, and a click */
-static void s_clink(float *L, float *R, int n, float at, float f, float amp, float pan)
+/* a plucked string (Karplus-Strong) */
+static void s_pluck(float *L, float *R, int n, float at, float f, float amp, float pan)
 {
-	static const float part[5] = {1.0f, 2.76f, 5.40f, 8.93f, 13.34f}, pa[5] = {1.0f, 0.6f, 0.38f, 0.22f, 0.12f}, pd[5] = {0.9f, 0.55f, 0.32f, 0.2f, 0.12f};
-	for (int k = 0; k < 5; k++) s_ping(L, R, n, at, f * part[k], amp * pa[k], pd[k] * 0.45f, pan, 0.0008f);
-	int i0 = (int)(at * SR);
-	for (int i = 0; i < (int)(0.006f * SR) && i0 + i < n; i++) { float v = nrand() * expf(-(float)i / (0.0012f * SR)) * amp * 1.4f; L[i0 + i] += v * (1 - pan); R[i0 + i] += v * (1 + pan); }
+	int d = (int)(SR / f), i0 = (int)(at * SR);
+	if (d < 2) return;
+	float *line = calloc((size_t)d, sizeof(float));
+	if (!line) return;
+	for (int k = 0; k < d; k++) line[k] = nrand();
+	int p = 0; float prev = 0;
+	for (int i = 0; i < (int)(1.6f * SR) && i0 + i < n; i++) {
+		float y = line[p], nv = 0.4985f * (y + prev); prev = y; line[p] = nv; p = (p + 1) % d;
+		float v = y * amp * (1 - expf(-(float)i / (0.001f * SR)));
+		if (i0 + i >= 0) { L[i0 + i] += v * (1 - pan); R[i0 + i] += v * (1 + pan); }
+	}
+	free(line);
+}
+
+/* a rising synth tone that wobbles faster as it spins, sliding into place */
+static void s_spin(float *L, float *R, int n, float at, float dur, float f0, float f1, float amp, float pan0, float pan1, float wob0, float wob1)
+{
+	int i0 = (int)(at * SR), len = (int)(dur * SR);
+	float ph = 0, wp = 0;
+	for (int i = 0; i < len && i0 + i < n; i++) {
+		if (i0 + i < 0) continue;
+		float x = (float)i / len, f = f0 * powf(f1 / f0, sg_ease_out(x)), wob = wob0 + (wob1 - wob0) * x;
+		wp += 2 * (float)M_PI * wob / SR;
+		ph += 2 * (float)M_PI * f * (1 + 0.025f * sinf(wp)) / SR;
+		float tone = sinf(ph) * 0.7f + sinf(ph * 2) * 0.2f + sinf(ph * 3.0f) * 0.1f;
+		float env = sg_sat(x * 6) * (0.35f + 0.65f * x) * (0.75f + 0.25f * sinf(wp * 0.5f)), pan = pan0 + (pan1 - pan0) * x;
+		float v = tone * env * amp;
+		L[i0 + i] += v * (1 - pan); R[i0 + i] += v * (1 + pan);
+	}
+}
+
+/* the magnetic "ch-chk" of a part locking, over a deep tom */
+static void s_lock(float *L, float *R, int n, float at, float tom, float amp, float pan)
+{
+	for (int k = 0; k < 2; k++) {
+		int i0 = (int)((at + k * 0.045f) * SR);
+		float lp = 0;
+		for (int i = 0; i < (int)(0.05f * SR) && i0 + i < n; i++) {               /* filtered clicks */
+			float x = nrand(); lp += (x - lp) * (k ? 0.5f : 0.25f);
+			float v = (x - lp) * expf(-(float)i / (0.006f * SR)) * amp * (k ? 1.0f : 0.6f);
+			L[i0 + i] += v * (1 - pan); R[i0 + i] += v * (1 + pan);
+		}
+	}
+	int i0 = (int)(at * SR); float ph = 0;
+	for (int i = 0; i < (int)(0.5f * SR) && i0 + i < n; i++) {                     /* the tom */
+		float tt = (float)i / SR, f = tom * (1 + 0.8f * expf(-tt / 0.03f));
+		ph += 2 * (float)M_PI * f / SR;
+		float v = sinf(ph) * expf(-tt / 0.14f) * amp * 1.6f;
+		L[i0 + i] += v; R[i0 + i] += v;
+	}
 }
 
 /* Render the intro track into interleaved 16-bit stereo. Returns the number of frames. */
@@ -67,96 +130,77 @@ static int intro_track(int16_t **out, float t_gem, float t_form, float t_lock, f
 	float *L = calloc((size_t)n, sizeof(float)), *R = calloc((size_t)n, sizeof(float));
 	int16_t *o = malloc((size_t)n * 4);
 	if (!L || !R || !o) { free(L); free(R); free(o); return 0; }
-	/* the gem appears: a glassy swell */
-	s_ping(L, R, n, t_gem, 880.0f, 0.05f, 1.1f, -0.2f, 0.25f);
-	s_ping(L, R, n, t_gem, 1318.5f, 0.04f, 1.0f, 0.2f, 0.30f);
-	s_ping(L, R, n, t_gem, 1760.0f * 1.003f, 0.025f, 0.9f, 0, 0.35f);
-	/* its beat, every 0.82 s until the lock: a soft low pulse and a crystal tink */
+	/* the gem fades in on a warm pad (D minor, low), opening slowly */
+	{
+		static const float dm[3] = {73.42f, 110.0f, 174.61f};
+		s_pad(L, R, n, t_gem, t_lock - t_gem + 0.3f, dm, 3, 0.10f, 0.004f, 0.05f, 0.6f, 0.3f);
+	}
+	/* its beat: a soft "bloop" that bends up */
 	for (float b = t_gem + 0.82f * 0.07f - 0.02f; b < t_lock - 0.1f; b += 0.82f) {
-		for (int i = 0; i < (int)(0.30f * SR); i++) {
+		float ph = 0;
+		for (int i = 0; i < (int)(0.22f * SR); i++) {
 			int j = (int)(b * SR) + i; if (j < 0 || j >= n) continue;
-			float tt = (float)i / SR, f = 52 + 30 * expf(-tt / 0.03f);
-			float v = sinf(2 * (float)M_PI * f * tt) * expf(-tt / 0.08f) * (1 - expf(-tt / 0.004f)) * 0.45f;
+			float tt = (float)i / SR, f = 140 + 220 * (1 - expf(-tt / 0.05f));
+			ph += 2 * (float)M_PI * f / SR;
+			float v = sinf(ph) * expf(-tt / 0.06f) * (1 - expf(-tt / 0.003f)) * 0.30f;
 			L[j] += v; R[j] += v;
 		}
-		s_ping(L, R, n, b + 0.01f, 2637.0f, 0.035f, 0.18f, 0, 0.001f);
-		s_ping(L, R, n, b + 0.01f, 3951.0f, 0.018f, 0.12f, 0, 0.001f);
 	}
-	/* a tone rising towards the lock */
-	{
-		float ph = 0;
-		int i0 = (int)(t_form * SR), len = (int)((t_lock - t_form) * SR);
-		for (int i = 0; i < len && i0 + i < n; i++) {
-			float x = (float)i / len, f = 180 * (1 + 2.2f * x * x);
-			ph += 2 * (float)M_PI * f / SR;
-			float v = (sinf(ph) + 0.35f * sinf(ph * 2.002f) + 0.15f * sinf(ph * 3.01f)) * x * x * 0.07f;
-			L[i0 + i] += v; R[i0 + i] += v;
-		}
-	}
-	/* the three layers: each spins in on its own whoosh, fluttering slower as it slows, and clinks into place */
+	/* the three layers: a rising wobbling tone each, then the lock */
 	{
 		const float start[3] = {t_form, t_form + 0.25f, t_form + 0.50f};                 /* inner, middle, outer */
 		const float land[3] = {t_lock - 0.50f, t_lock - 0.25f, t_lock};
-		const float pan0[3] = {0.0f, -0.8f, 0.8f}, clinkf[3] = {1240.0f, 930.0f, 660.0f};
+		const float pan0[3] = {0.0f, -0.8f, 0.8f}, f0[3] = {330, 220, 147}, f1[3] = {880, 587, 392}, tom[3] = {110, 87, 65};
 		for (int l = 0; l < 3; l++) {
-			s_swoosh(L, R, n, start[l], land[l] - start[l] + 0.04f, 0.006f, 0.09f + 0.03f * l, 0.30f + 0.06f * l, pan0[l], 0, 22 - 4 * l, 3);
-			s_clink(L, R, n, land[l], clinkf[l], 0.09f, l == 0 ? 0 : (l == 1 ? -0.35f : 0.35f));
+			s_spin(L, R, n, start[l], land[l] - start[l], f0[l], f1[l], 0.07f, pan0[l], 0, 26 - 5 * l, 4);
+			s_lock(L, R, n, land[l], tom[l], 0.22f, l == 0 ? 0 : (l == 1 ? -0.35f : 0.35f));
+		}
+	}
+	/* a reverse swell, sucking in towards the lock */
+	{
+		int i0 = (int)((t_lock - 0.9f) * SR), len = (int)(0.9f * SR);
+		float lp = 0;
+		for (int i = 0; i < len && i0 + i < n; i++) {
+			float x = (float)i / len; lp += (nrand() - lp) * (0.02f + 0.3f * x * x);
+			float v = lp * x * x * x * 0.55f;
+			L[i0 + i] += v; R[i0 + i] += v;
 		}
 	}
 	/* the lock */
 	{
 		int i0 = (int)(t_lock * SR);
-		if (!quiet) {                                                              /* a deep, clean hit */
+		if (!quiet) {                                                              /* a sub drop */
 			float ph = 0;
-			for (int i = 0; i < (int)(1.2f * SR) && i0 + i < n; i++) {
-				float tt = (float)i / SR, f = 42 + 64 * expf(-tt / 0.07f);
+			for (int i = 0; i < (int)(1.4f * SR) && i0 + i < n; i++) {
+				float tt = (float)i / SR, f = 30 + 90 * expf(-tt / 0.12f);
 				ph += 2 * (float)M_PI * f / SR;
-				float v = tanhf(sinf(ph) * expf(-tt / 0.36f) * 1.5f) * 0.70f;
+				float v = tanhf(sinf(ph) * expf(-tt / 0.45f) * 1.4f) * 0.65f;
 				L[i0 + i] += v; R[i0 + i] += v;
 			}
 		}
-		static const float chord[6] = {220.0f, 329.63f, 440.0f, 554.37f, 659.25f, 880.0f};   /* a bright, open chord */
-		for (int k = 0; k < 6; k++) {
-			s_ping(L, R, n, t_lock + k * 0.008f, chord[k], 0.055f, 1.3f, (k - 2.5f) * 0.18f, 0.004f);
-			s_ping(L, R, n, t_lock + k * 0.008f, chord[k] * 1.005f, 0.035f, 1.3f, -(k - 2.5f) * 0.18f, 0.004f);
-		}
-		for (int k = 0; k < 48; k++) {                                             /* a shower of sparkles */
-			float u = nrand() * 0.5f + 0.5f, at = t_lock + 0.02f + u * u * 0.9f;
-			s_ping(L, R, n, at, 3000 + (nrand() * 0.5f + 0.5f) * 5200, 0.035f * (1.2f - u), 0.04f + 0.10f * (nrand() * 0.5f + 0.5f), nrand() * 0.85f, 0.001f);
-		}
-		float lp = 0;                                                              /* and a breath of air */
-		for (int i = 0; i < (int)(0.9f * SR) && i0 + i < n; i++) {
-			float tt = (float)i / SR; lp += (nrand() - lp) * 0.25f;
-			float v = (nrand() - lp) * expf(-tt / 0.20f) * 0.10f;
-			L[i0 + i] += v; R[i0 + i] += v;
-		}
+		static const float chord[5] = {146.83f, 220.0f, 293.66f, 369.99f, 440.0f};   /* D major, opening up */
+		s_pad(L, R, n, t_lock, t_open - t_lock + 0.7f, chord, 5, 0.06f, 0.30f, 0.02f, 0.01f, 0.7f);
+		s_bell(L, R, n, t_lock, 587.33f, 0.16f, 1.2f, 3.5f, 2.2f, 0);              /* a bell */
+		static const float arp[6] = {587.33f, 739.99f, 880.0f, 1174.66f, 1479.98f, 1760.0f};
+		for (int k = 0; k < 6; k++) s_bell(L, R, n, t_lock + 0.10f + k * 0.07f, arp[k], 0.07f, 0.45f, 2.0f, 1.5f, (k - 2.5f) * 0.25f);
 	}
-	/* two sheens across the emblem: a quick bright "shing" each */
-	s_swoosh(L, R, n, t_lock + 0.05f, 0.70f, 0.08f, 0.45f, 0.10f, -0.6f, 0.6f, 0, 0);
-	s_ping(L, R, n, t_lock + 0.42f, 4186.0f, 0.03f, 0.35f, 0.3f, 0.02f);
-	s_swoosh(L, R, n, t_lock + 0.85f, 0.50f, 0.10f, 0.50f, 0.08f, -0.6f, 0.6f, 0, 0);
-	s_ping(L, R, n, t_lock + 1.10f, 5274.0f, 0.022f, 0.30f, 0.3f, 0.02f);
-	/* a low hum while it holds, fading as the panes open */
-	{
-		int i0 = (int)((t_lock + 0.2f) * SR), len = (int)((t_open + 0.6f - t_lock - 0.2f) * SR);
-		float ph = 0;
+	/* two airy "zips" with the sheens */
+	for (int z = 0; z < 2; z++) {
+		float at = t_lock + (z ? 0.85f : 0.05f), dur = z ? 0.5f : 0.7f, ph = 0;
+		int i0 = (int)(at * SR), len = (int)(dur * SR);
 		for (int i = 0; i < len && i0 + i < n; i++) {
-			float x = (float)i / len; ph += 2 * (float)M_PI * 110 / SR;
-			float env = sg_sat(x * 4) * sg_sat((1 - x) * 3) * 0.05f;
-			float v = (sinf(ph) + 0.5f * sinf(ph * 1.5f) + 0.25f * sinf(ph * 2.0f + 0.3f * sinf(x * 9))) * env;
-			L[i0 + i] += v; R[i0 + i] += v * 0.95f;
+			float x = (float)i / len, f = 1200 + 3600 * x;
+			ph += 2 * (float)M_PI * f / SR;
+			float v = (sinf(ph) * 0.5f + nrand() * 0.3f) * sinf((float)M_PI * x) * 0.035f, pan = -0.6f + 1.2f * x;
+			L[i0 + i] += v * (1 - pan); R[i0 + i] += v * (1 + pan);
 		}
 	}
-	/* the panes open: a whoosh, a tick as each line runs out, and a soft shimmering chord */
+	/* the panes open: four plucked notes climbing, and a calm chord */
 	{
-		s_swoosh(L, R, n, t_open - 0.30f, 0.80f, 0.02f, 0.12f, 0.22f, 0, 0, 0, 0);
-		static const float tp[4] = {-0.8f, 0.8f, -0.25f, 0.25f};
-		for (int k = 0; k < 4; k++) s_clink(L, R, n, t_open + 0.10f + k * 0.06f, 2400.0f + k * 180, 0.03f, tp[k]);
-		static const float notes[5] = {220.0f, 277.18f, 329.63f, 440.0f, 659.25f};
-		for (int k = 0; k < 5; k++) {
-			s_ping(L, R, n, t_open + 0.05f + k * 0.03f, notes[k], 0.05f, 0.9f, (k - 2) * 0.25f, 0.12f);
-			s_ping(L, R, n, t_open + 0.05f + k * 0.03f, notes[k] * 1.004f, 0.035f, 0.9f, -(k - 2) * 0.25f, 0.12f);
-		}
+		static const float pl[4] = {293.66f, 440.0f, 587.33f, 880.0f}, tp[4] = {-0.7f, 0.7f, -0.25f, 0.25f};
+		for (int k = 0; k < 4; k++) s_pluck(L, R, n, t_open + 0.05f + k * 0.09f, pl[k], 0.22f, tp[k]);
+		static const float calm_c[4] = {146.83f, 220.0f, 277.18f, 329.63f};
+		s_pad(L, R, n, t_open + 0.1f, t_end - t_open + 1.2f, calm_c, 4, 0.05f, 0.01f, 0.03f, 0.25f, 0.9f);
 	}
 	/* a small room: four comb filters into two all-passes, per side */
 	{
