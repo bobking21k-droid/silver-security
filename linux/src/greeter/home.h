@@ -852,21 +852,42 @@ static void home_draw(const Home *h, float reveal, float t, float sc)
 	int n = W * H;
 	float beat = sg_heart(t, 0.9f);
 	if (reveal >= 1) memcpy(fb.px, bg_dark, (size_t)n * 4);
-	else if (reveal > 0) {                                     /* the wave of light spreading to the far corner, a ragged glowing edge */
-		float ox = em_x(), oy = em_y() + EM_R * 0.3f, far = sg_sqrt(ox * ox + (H - oy) * (H - oy)) * 1.15f;
-		float rad = far * reveal, wob = U * 16, rim = U * 4.5f;
+	else if (reveal > 0) {
+		/* The splash: what was packed into the gem bursts out through the crack. Long tendrils shoot
+		   out first, mostly down towards the far corner, droplets fly ahead of them, then it all
+		   floods together until the whole screen is filled. A glowing wet edge, no circle. */
+		float ox = em_x(), oy = em_y() + EM_R * 0.5f, far = sg_sqrt(ox * ox + (H - oy) * (H - oy));
+		float p = reveal, reach = far * (0.15f + 2.9f * p * p * (1.6f - 0.6f * p)), wob = U * 10, rim = U * 2.2f;
+		float tdir = hm_atan2((float)H - oy, -ox);                                    /* towards the bottom-left corner */
 		for (int y = 0; y < H; y++)
 			for (int x = 0; x < W; x++) {
 				float dx = x + .5f - ox, dy = y + .5f - oy, d = sg_sqrt(dx * dx + dy * dy);
-				float edge = rad - wob * (qmap[y * W + x] / 255.f);
+				if (d > reach * 1.6f + rim) continue;
+				float th = hm_atan2(dy, dx), cd = sg_cos(th - tdir);
+				float dirk = 0.32f + 0.68f * sg_sat(cd) * sg_sat(cd);                     /* faster towards the far corner */
+				float lobe = 0.38f * sg_sin(5 * th + 1.3f) + 0.24f * sg_sin(9 * th + 0.4f) + 0.16f * sg_sin(17 * th + 2.1f) + 0.10f * sg_sin(29 * th + 0.7f);
+				lobe = lobe > 0 ? lobe * 1.5f : lobe * 0.6f;                              /* sharp tendrils, round valleys */
+				float edge = reach * dirk * (1 + lobe) - wob * (qmap[y * W + x] / 255.f);
 				int i = y * W + x;
 				if (d < edge - rim) fb.px[i] = bg_dark[i];
-				else if (d < edge + rim * 0.5f) {
-					float k = (d - (edge - rim)) / (rim * 1.5f);                      /* 0 inside .. 1 outside */
-					uint32_t c = k < 0.66f ? bg_dark[i] : fb.px[i];
-					fb.px[i] = sg_add(c, k < 0.66f ? RGB(200, 160, 255) : RGB(120, 70, 255), k < 0.66f ? k * 1.1f : (1 - k) * 2.2f);
-				}
+				else if (d < edge) fb.px[i] = sg_add(bg_dark[i], RGB(210, 170, 255), 0.9f * (d - (edge - rim)) / rim);   /* the wet, glowing edge */
+				else if (d < edge + rim * 0.7f) fb.px[i] = sg_add(fb.px[i], RGB(130, 80, 255), 0.6f * (1 - (d - edge) / (rim * 0.7f)));
 			}
+		/* droplets flung out ahead, with short trails */
+		for (int k = 0; k < 46; k++) {
+			uint32_t hk = sg_hash(k, 77);
+			float spread = ((hk & 1023) / 1023.f - 0.5f) * (k < 30 ? 1.3f : 4.0f), ang = tdir + spread;
+			float sp = 0.55f + ((hk >> 10) & 255) / 255.f * 0.9f, sz = U * (0.25f + ((hk >> 18) & 255) / 255.f * 0.9f);
+			float q = p * sp * 1.25f;
+			if (q <= 0.02f || p > 0.92f) continue;
+			float dd = far * q, px2 = ox + sg_cos(ang) * dd, py2 = oy + sg_sin(ang) * dd + far * 0.10f * q * q;
+			float al = sg_sat((0.92f - p) * 5) * sg_sat(q * 8);
+			V2 tail = {ox + sg_cos(ang) * dd * 0.86f, oy + sg_sin(ang) * dd * 0.86f + far * 0.10f * q * q * 0.74f};
+			sg_line(&fb, tail, (V2){px2, py2}, sz * 0.9f, RGB(150, 100, 255), 0.45f * al);
+			sg_glow(&fb, px2, py2, sz * 3.2f, RGB(150, 100, 255), 0.5f * al);
+			sg_disc(&fb, px2, py2, sz, (hk >> 26) & 1 ? RGB(236, 112, 246) : RGB(120, 140, 255), al);
+			sg_disc(&fb, px2 - sz * 0.3f, py2 - sz * 0.3f, sz * 0.35f, WHITE, 0.8f * al);
+		}
 	}
 	/* the name and the clock, top left */
 	float ha = sc < 99 ? sg_sat((sc - 0.75f) / 0.3f) : 1;

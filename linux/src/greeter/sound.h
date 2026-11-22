@@ -9,8 +9,8 @@
  *   lock; the LOCK: a sub drop, a big filtered chord opening up, a bell and a quick rising
  *   bell arpeggio; two airy "zips" follow the sheens; a rising zip as the emblem flies into the
  *   corner; the CRACK (a sharp snap, glassy splinters, a low thoom) and the cosmic colours
- *   pouring out (a deep falling whoosh over a sub, with a shimmer of high bells drifting
- *   across); then a plucked note climbing
+ *   splashing out (a deep falling whoosh over a sub, droplets plinking as they land, a shimmer
+ *   of high bells drifting across); then a plucked note climbing
  *   as each button pops in, and the pad settling into a calm chord.
  * A little reverb puts it all in one room. Calm mode plays it quieter, without the deep hit.
  *
@@ -234,6 +234,15 @@ static int intro_track(int16_t **out, float t_gem, float t_form, float t_lock, f
 				float v = tanhf(sinf(ph) * expf(-tt / 0.28f) * 1.6f) * 0.55f;
 				L[i0 + i] += v; R[i0 + i] += v;
 			}
+		}
+	}
+	for (int k = 0; k < 22; k++) {                                                 /* droplets landing: little wet plinks, spreading left */
+		float u = (nrand() * 0.5f + 0.5f), at = t_crack + 0.2f + u * 0.7f, f = 900 + 1400 * (nrand() * 0.5f + 0.5f);
+		float ph = 0; int i0 = (int)(at * SR);
+		for (int i = 0; i < (int)(0.05f * SR) && i0 + i < n; i++) {
+			float tt = (float)i / SR; ph += 2 * (float)M_PI * f * (1 + 2.5f * tt / 0.05f) / SR;      /* a rising "plip" */
+			float v = sinf(ph) * expf(-tt / 0.012f) * 0.05f, pan = 0.6f - 1.3f * u;
+			L[i0 + i] += v * (1 - pan); R[i0 + i] += v * (1 + pan);
 		}
 	}
 	for (int k = 0; k < 18; k++) {                                                 /* the shimmer: high bells drifting across, right to left */

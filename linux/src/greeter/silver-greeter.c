@@ -5,7 +5,7 @@
  *   black, a cold light and dust -> the violet gem glows and pulses -> the emblem's three
  *   silver layers spin in from outside, each locking into place -> a flash as it completes ->
  *   the emblem flies up into the top-right corner, CRACKS, and the cosmic colours of its gem
- *   pour out of it, a nebula with stars spreading down to the far corner -> the four buttons pop in, in a row, and the
+ *   splash out of it, a nebula with stars flooding down to the far corner -> the four buttons pop in, in a row, and the
  *   cracked emblem keeps spinning.
  *
  * Home: arrow keys choose a pane, Enter opens it, Esc comes back (see home.h). Each section
@@ -265,8 +265,7 @@ static void intro(Home *h)
 				sg_disc(&fb, x, y, U * (0.08f + 0.06f * (i % 3)), WHITE, 0.30f * lit * sg_sat(1 - d));
 			}
 		}
-		float sc = t - T_CRACK, reveal = sg_sat((sc - 0.10f) / 0.85f);
-		reveal = 1 - (1 - reveal) * (1 - reveal);
+		float sc = t - T_CRACK, reveal = sg_sat((sc - 0.14f) / 1.0f);    /* the splash: fast out, then flooding */
 		if (t > T_OPEN) home_draw(h, reveal, t, sc);           /* the cosmos spreading, the buttons, the corner emblem */
 
 		/* the emblem: big in the middle, then flying up into the top-right corner */
