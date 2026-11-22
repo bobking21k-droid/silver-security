@@ -1,0 +1,20 @@
+Welcome to SilverOS
+
+This is your home folder. Everything here is yours.
+
+HOME SCREEN
+  Arrow keys choose a pane, Enter opens it, Esc comes back.
+    Settings  network, display, calm mode, restart, shut down
+    Search    find files, apps and settings as you type
+    Apps      a terminal, a live system monitor, about
+    Files     browse and preview files (this is it)
+
+FILES
+  Up/Down moves, Enter opens a folder, Backspace goes up a level.
+
+TERMINAL
+  Apps > Terminal. Type exit to come back to the home screen.
+  su                      become admin
+  su -c silver-install    install next to Windows
+
+Built from nothing.

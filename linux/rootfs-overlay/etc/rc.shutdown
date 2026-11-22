@@ -1,0 +1,4 @@
+#!/bin/sh
+mkdir -p /var/lib && dd if=/dev/urandom of=/var/lib/random-seed bs=512 count=1 2>/dev/null
+killall udhcpc dropbear 2>/dev/null
+sync

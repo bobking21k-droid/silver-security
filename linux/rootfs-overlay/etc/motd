@@ -1,0 +1,7 @@
+
+  @OS_NAME@ @OS_VERSION@ (@OS_CODENAME@)
+
+    su                      become admin
+    su -c silver-install    install next to Windows
+    poweroff                shut down
+

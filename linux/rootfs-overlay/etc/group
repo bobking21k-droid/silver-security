@@ -1,0 +1,14 @@
+root:x:0:
+tty:x:5:
+wheel:x:10:silver
+silver:x:1000:
+netdev:x:30:silver
+audio:x:29:silver
+video:x:44:silver
+input:x:101:silver
+render:x:102:silver
+dbus:x:81:
+bluetooth:x:103:silver
+pulse:x:82:silver
+pulse-access:x:83:silver
+nogroup:x:65534:

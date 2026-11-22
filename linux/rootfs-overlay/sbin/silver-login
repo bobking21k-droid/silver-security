@@ -1,0 +1,29 @@
+#!/bin/sh
+# First boot (live USB or a fresh install): signing in as 'silver' needs no password.
+# Only the administrator account (root) gets one, used for `su` and for silver-install.
+# Setup runs on whichever console you press Enter at first; type "skip" to try SilverOS
+# without an admin password.
+tty=$1; shift
+need_setup() { [ ! -e /run/firstboot-done ] && grep -q '^root:!' /etc/shadow; }
+if need_setup; then
+  clear; cat /etc/issue
+  echo "  Press Enter to set the admin password (needed to install SilverOS),"
+  echo "  or type skip and press Enter to try SilverOS without it."
+  echo "  Signing in needs no password."
+  ans=
+  while need_setup && ! read -t 1 ans; do :; done
+  if need_setup && mkdir /run/firstboot 2>/dev/null; then
+    if [ "$ans" != skip ]; then
+      echo; echo "  Choose the admin (root) password:"; until passwd root; do :; done
+    fi
+    touch /run/firstboot-done
+  else
+    echo "  First boot setup is running on another console..."
+    while need_setup; do sleep 1; done
+  fi
+fi
+# tty1 with a framebuffer: the graphical SilverOS sign-in; everything else: text getty
+if [ "$tty" = tty1 ] && [ -c /dev/fb0 ] && [ -x /sbin/silver-greeter ]; then
+  exec /sbin/silver-greeter "$tty"
+fi
+exec /sbin/getty "$@" "$tty"
