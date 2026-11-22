@@ -88,7 +88,7 @@ static float tri_wave(float x) { x = x - sg_floor(x); return x < 0.5f ? x * 2 : 
 
 /* The cosmos, baked once: deep space lit from the emblem's corner, nebula clouds in the gem's
    own colours (violet, blue, pink) thinning out towards the far corner, and stars. */
-static void bake_home(void)
+static void bake_cosmic(uint32_t *dst)
 {
 	float ox = em_x(), oy = em_y() + EM_R * 0.3f, far = sg_sqrt(ox * ox + (H - oy) * (H - oy));
 	float f = 3.2f / H, cell = U * 2.2f;
@@ -124,8 +124,67 @@ static void bake_home(void)
 				float st = br * sg_sat(1 - sd / (rr * rr * 4));
 				c = sg_add(c, ((hs >> 3) & 1) ? RGB(220, 230, 255) : RGB(255, 236, 250), st);
 			}
-			bg_dark[y * W + x] = c;
+			dst[y * W + x] = c;
 		}
+}
+
+/* The comic burst, the other background: a sunburst of rays from the emblem, hot yellow at the
+   corner cooling through orange and pink to purple and blue at the far corner, halftone dots like
+   cheap comic print, and two spiky "POW" bursts with black outlines behind the emblem. */
+static uint32_t comic_ramp(float d)
+{
+	static const float st[6] = {0.00f, 0.10f, 0.28f, 0.48f, 0.70f, 1.00f};
+	static const int col[6][3] = {{255, 250, 214}, {255, 222, 40}, {255, 146, 30}, {255, 46, 130}, {132, 58, 255}, {26, 116, 255}};
+	if (d <= 0) return RGB(col[0][0], col[0][1], col[0][2]);
+	for (int i = 1; i < 6; i++) if (d <= st[i]) {
+		float f = (d - st[i - 1]) / (st[i] - st[i - 1]);
+		return RGB((int)sg_lerp(col[i - 1][0], col[i][0], f), (int)sg_lerp(col[i - 1][1], col[i][1], f), (int)sg_lerp(col[i - 1][2], col[i][2], f));
+	}
+	return RGB(col[5][0], col[5][1], col[5][2]);
+}
+static void bake_comic(uint32_t *dst)
+{
+	float ox = em_x(), oy = em_y() + EM_R * 0.3f, far = sg_sqrt(ox * ox + (H - oy) * (H - oy));
+	float cell = U * 1.55f, ol = sg_max(2.0f, U * 0.55f);
+	for (int y = 0; y < H; y++)
+		for (int x = 0; x < W; x++) {
+			float dx = x + .5f - ox, dy = y + .5f - oy, d = sg_sqrt(dx * dx + dy * dy), dn = d / far;
+			float ang = hm_atan2(dy, dx), turn = (ang + SG_PI) / (2 * SG_PI);
+			qmap[y * W + x] = (uint8_t)(tri_wave(turn * 15 + 0.3f) * 255);
+			uint32_t c = comic_ramp(dn);
+			int sector = (int)(turn * 56);
+			c = (sector & 1) ? sg_mix(c, BLACK, 0.11f) : sg_mix(c, WHITE, 0.05f);
+			float u = (x + y) / cell, v = (x - y) / cell, fu = u - sg_floor(u) - 0.5f, fv = v - sg_floor(v) - 0.5f;
+			float dd = sg_sqrt(fu * fu + fv * fv), rr = 0.10f + 0.30f * dn;
+			float dot = sg_sat((rr - dd) * cell + 0.5f);
+			c = sg_mix(c, sg_mix(c, BLACK, 0.38f), dot * 0.8f);
+			float sp1 = sg_lerp(U * 15, U * 22, tri_wave(turn * 14)), sp2 = sg_lerp(U * 26, U * 36, tri_wave(turn * 20 + 0.25f));
+			if (d < sp2) c = sg_mix(c, RGB(255, 236, 96), sg_sat((sp2 - ol - d) + 0.5f));
+			if (d < sp2 && d > sp2 - ol) c = sg_mix(c, BLACK, sg_sat(d - (sp2 - ol) + 0.5f) * sg_sat(sp2 - d + 0.5f));
+			if (d < sp1) c = sg_mix(c, RGB(255, 252, 226), sg_sat((sp1 - ol - d) + 0.5f));
+			if (d < sp1 && d > sp1 - ol) c = sg_mix(c, BLACK, sg_sat(d - (sp1 - ol) + 0.5f) * sg_sat(sp1 - d + 0.5f));
+			dst[y * W + x] = c;
+		}
+}
+
+/* which background: 0 cosmic (the default), 1 comic; your choice lives in ~/.config/silver/background */
+enum { BG_COSMIC, BG_COMIC, BG_N };
+static const char *BG_NAME[BG_N] = {"Cosmic", "Comic"}, *BG_KEY[BG_N] = {"cosmic", "comic"};
+static int bg_style;
+static char homedir[160];                                                 /* (set below) */
+static void bg_style_load(void)
+{
+#ifndef RENDER
+	char p[300], v[16] = ""; snprintf(p, sizeof p, "%s/.config/silver/background", homedir);
+	FILE *f = fopen(p, "r"); if (f) { if (!fgets(v, sizeof v, f)) v[0] = 0; fclose(f); }
+	bg_style = !strncmp(v, "comic", 5) ? BG_COMIC : BG_COSMIC;
+#endif
+}
+static void bake_style(uint32_t *dst, int style) { if (style == BG_COMIC) bake_comic(dst); else bake_cosmic(dst); }
+static void bake_home(void)
+{
+	bg_style_load();
+	bake_style(bg_dark, bg_style);
 	for (int y = 0; y < H; y++) for (int x = 0; x < W; x++) bg_sec[y * W + x] = glass_px(x, y, 0);
 }
 
@@ -841,7 +900,7 @@ static void home_emblem(float t, float sc)
 	else if (spin_t0 == 0) spin_t0 = now();
 	float rt = sc < 50 ? (bt > 0 ? bt : 0) : (float)(now() - spin_t0), ramp = rt * sg_sat(rt / 1.2f);
 	Emblem e = emblem_rest();
-	e.t = t; e.rot[0] = ramp * 0.45f; e.rot[1] = -ramp * 0.70f; e.rot[2] = ramp * 1.05f; e.rot[3] = -ramp * 0.35f;
+	e.light_bg = bg_style == BG_COMIC; e.t = t; e.rot[0] = ramp * 0.45f; e.rot[1] = -ramp * 0.70f; e.rot[2] = ramp * 1.05f; e.rot[3] = -ramp * 0.35f;
 	float cx = em_x(), cy = em_y(), grow = 1, leak = 0.3f;
 	e.gem = 0.9f + 0.35f * sg_heart(t, 0.9f);
 	if (sc >= 0 && sc < CRACK_BURST) {                           /* the pressure */
@@ -938,5 +997,75 @@ static void home_draw(const Home *h, float reveal, float t, float sc)
 		draw_button(q, h->blend[q], pop, beat);
 	}
 	if (sc >= -0.15f) home_emblem(t, sc);
-	if (sc >= 99 || sc > CRACK_BURST + 1.0f) foot_hints("LEFT RIGHT  select      ENTER  open");
+	if (sc >= 99 || sc > CRACK_BURST + 1.0f) foot_hints("LEFT RIGHT  select      ENTER  open      B  backgrounds");
+}
+
+/* ================================================================ backgrounds (click the emblem) */
+/* Two previews side by side: the background it lands on (Cosmic, the default) and the other one
+   (Comic). Left/Right or the mouse choose, Enter or a click uses it, Esc goes back. */
+static uint32_t *bg_thumb[BG_N];
+static int tb_w, tb_h;
+static int em_hit(float x, float y) { float dx = x - em_x(), dy = y - em_y(); return dx * dx + dy * dy < EM_R * EM_R * 4.4f; }
+
+static void bg_thumbs_make(void)
+{
+	tb_w = (int)(W * 0.36f); tb_h = tb_w * H / W;
+	for (int st = 0; st < BG_N; st++) {
+		if (!bg_thumb[st]) bg_thumb[st] = malloc((size_t)tb_w * tb_h * 4);
+		if (!bg_thumb[st]) return;
+		uint32_t *src = st == bg_style ? bg_dark : canvas;
+		if (st != bg_style) { uint8_t *keep = malloc((size_t)W * H); if (keep) memcpy(keep, qmap, (size_t)W * H); bake_style(canvas, st); if (keep) { memcpy(qmap, keep, (size_t)W * H); free(keep); } }
+		for (int y = 0; y < tb_h; y++)                                        /* shrink: average a little block */
+			for (int x = 0; x < tb_w; x++) {
+				int sx0 = x * W / tb_w, sy0 = y * H / tb_h, sx1 = (x + 1) * W / tb_w, sy1 = (y + 1) * H / tb_h;
+				unsigned r = 0, g = 0, b = 0, n = 0;
+				for (int yy = sy0; yy < sy1; yy += 2) for (int xx = sx0; xx < sx1; xx += 2) { uint32_t c = src[yy * W + xx]; r += c >> 16 & 255; g += c >> 8 & 255; b += c & 255; n++; }
+				bg_thumb[st][y * tb_w + x] = n ? RGB(r / n, g / n, b / n) : 0;
+			}
+	}
+}
+static void bg_open(Home *h) { h->row = bg_style; bg_thumbs_make(); }
+static void bg_choose(int st)
+{
+	if (st == bg_style) return;
+	bg_style = st;
+	bake_style(bg_dark, bg_style);
+#ifndef RENDER
+	char p[300]; snprintf(p, sizeof p, "%s/.config", homedir); mkdir(p, 0755);
+	snprintf(p, sizeof p, "%s/.config/silver", homedir); mkdir(p, 0755);
+	snprintf(p, sizeof p, "%s/.config/silver/background", homedir);
+	FILE *f = fopen(p, "w"); if (f) { fprintf(f, "%s\n", BG_KEY[st]); fclose(f); }
+#endif
+}
+static void bg_rect(int st, float *x, float *y) { float gap = W * 0.06f; *x = (W - 2 * tb_w - gap) / 2 + st * (tb_w + gap); *y = H * 0.30f; }
+static int bg_at(float mx) { return mx > W / 2.0f; }
+
+static void draw_backgrounds(Home *h, float t)
+{
+	memcpy(fb.px, bg_sec, (size_t)W * H * 4);
+	title_block("BACKGROUNDS", "HOME SCREEN", I_SCREEN);
+	for (int st = 0; st < BG_N; st++) {
+		if (!bg_thumb[st]) continue;
+		float x, y; bg_rect(st, &x, &y);
+		int sel = h->row == st, cur = bg_style == st;
+		if (sel) sg_glow(&fb, x + tb_w / 2.0f, y + tb_h / 2.0f, tb_w * 0.7f, RGB(130, 80, 255), 0.45f * (0.8f + 0.2f * sg_heart(t, 0.9f)));
+		for (int yy = 0; yy < tb_h; yy++) {
+			int py = (int)y + yy; if (py < 0 || py >= H) continue;
+			memcpy(fb.px + py * W + (int)x, bg_thumb[st] + yy * tb_w, (size_t)tb_w * 4);
+		}
+		float bw = sel ? sg_max(2, U * 0.45f) : sg_max(1.2f, U * 0.14f);
+		sg_rrect(&fb, x - bw, y - bw, tb_w + 2 * bw, tb_h + 2 * bw, U * 0.8f, bw, sel ? RGB(196, 160, 255) : RGB(120, 120, 136), 1);
+		char label[48]; snprintf(label, sizeof label, "%s%s", BG_NAME[st], st == BG_COSMIC ? "  (default)" : "");
+		sg_text(&fb, &FT, x, y + tb_h + U * 4.4f, label, U * 2.6f, WHITE, 1, 0.01f);
+		if (cur) sg_text(&fb, &FC, x + tb_w - sg_text_w(&FC, "IN USE", U * 1.2f, 0.2f), y + tb_h + U * 4.0f, "IN USE", U * 1.2f, RGB(150, 230, 170), 1, 0.2f);
+	}
+	foot_hints("LEFT RIGHT  choose      ENTER  use it      ESC  home");
+}
+static int bg_key(Home *h, int k)                       /* returns 1 to go back home */
+{
+	if (k == K_ESC || k == K_BACK) return 1;
+	if (k == K_LEFT && h->row > 0) h->row--;
+	else if (k == K_RIGHT && h->row < BG_N - 1) h->row++;
+	else if (k == K_ENTER) bg_choose(h->row);
+	return 0;
 }

@@ -70,6 +70,10 @@ static int mouse_hover(Home *h)
 			if (r >= 0 && tzs.top + r != tzs.sel) { tzs.sel = tzs.top + r; changed = 1; }
 		}
 		break;
+	case 5: {                                                                       /* backgrounds: left or right preview */
+		int q = bg_at(ms.x);
+		if (q != h->row) { h->row = q; changed = 1; }
+		break; }
 	}
 	return changed;
 }
@@ -89,7 +93,7 @@ static void mouse_poll(Home *h)
 			float sp = W / 1280.0f * 1.4f;
 			if (dx || dy) { ms.x = sg_clamp(ms.x + dx * sp, 0, (float)W - 1); ms.y = sg_clamp(ms.y + dy * sp, 0, (float)H - 1); ms.shown = 1; ms.last = act_t = now(); if (mouse_hover(h)) snd('m'); }
 			if (wheel) { ms.shown = 1; ms.last = act_t = now(); handle_key_snd(h, wheel < 0 ? K_DOWN : K_UP); }
-			if ((btn & 1) && !(ms.btn & 1)) { ms.shown = 1; ms.last = act_t = now(); mouse_hover(h); handle_key_snd(h, K_ENTER); }   /* left: Enter */
+			if ((btn & 1) && !(ms.btn & 1)) { ms.shown = 1; ms.last = act_t = now(); if (h->screen == 0 && em_hit(ms.x, ms.y)) handle_key_snd(h, 'b'); else { mouse_hover(h); handle_key_snd(h, K_ENTER); } }   /* left: Enter (the emblem: backgrounds) */
 			if ((btn & 2) && !(ms.btn & 2)) { ms.shown = 1; ms.last = act_t = now(); handle_key_snd(h, K_ESC); }                      /* right: back */
 			ms.btn = btn;
 		}

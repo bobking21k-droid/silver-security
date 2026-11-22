@@ -587,6 +587,10 @@ static void handle_key(Home *h, int k)
 		else if (k == K_UP) h->sel &= ~2;                     /* (up/down jump by two, as before) */
 		else if (k == K_DOWN) h->sel |= 2;
 		else if (k == K_ENTER) open_screen(h, h->sel + 1);
+		else if (k == 'b' || k == 'B') { open_screen(h, 5); bg_open(h); }   /* (or click the emblem) */
+		break;
+	case 5:                                                                     /* backgrounds */
+		if (bg_key(h, k)) { h->screen = 0; h->fade = 0; }
 		break;
 	case 1:                                                                     /* settings */
 		if (h->sub == 1) { if (wf_key(k)) { h->sub = 0; wel_next(h); } break; }                 /* Network */
@@ -794,6 +798,7 @@ static void home_frame(Home *h, float t, float dt)
 	case 2: draw_search(h, t); break;
 	case 3: if (h->sub == 1 || h->sub == 4) sample_sys(h, t); draw_apps(h, t); break;
 	case 4: if (fo.view) fo_view_draw(); else if (h->fs) draw_files_search(h, t); else draw_files(h, t); break;
+	case 5: draw_backgrounds(h, t); break;
 	}
 	if (h->screen && h->fade < 1) sg_rect(&fb, 0, 0, W, H, BLACK, 1 - h->fade);
 	else if (!h->screen && h->fade < 1) sg_rect(&fb, 0, 0, W, H, BLACK, 1 - h->fade);
@@ -829,8 +834,10 @@ static const struct { float t; int k; } SCRIPT[] = {
 	{88.4f, K_RIGHT}, {89.2f, K_ENTER}, {90.8f, K_RIGHT}, {91.6f, K_DOWN}, {92.4f, K_ENTER}, {93.0f, 'w'}, {93.6f, K_ENTER}, {96.2f, 'p'}, {97.8f, K_ESC}, {98.5f, K_ESC}, {98.9f, K_ESC},                   /* Steam: wishlist, install with Steam */
 	{100.0f, K_RIGHT}, {100.8f, K_ENTER}, {102.4f, K_RIGHT}, {103.2f, K_ENTER}, {105.4f, K_ESC}, {106.2f, K_ESC}, {107.0f, K_ESC},                   /* Microsoft Store */
 	{107.8f, K_RIGHT}, {108.6f, K_ENTER}, {112.2f, K_ESC}, {113.0f, K_ESC},                                       /* Me and my PC */
+	{114.4f, 'b'}, {115.8f, K_RIGHT}, {117.0f, K_ENTER}, {118.2f, K_ESC},                                     /* Backgrounds: use Comic */
+	{120.6f, 'b'}, {121.6f, K_LEFT}, {122.4f, K_ENTER}, {123.4f, K_ESC},                                      /* and back to Cosmic */
 };
-#define SCRIPT_END 114.5f
+#define SCRIPT_END 125.0f
 /* where the script must have got to (-1: don't care); the demo fails if any is wrong */
 static const struct { float t; int screen, sub, open, tab, mute; const char *what; } EXPECT[] = {
 	{5.6f, 4, -1, -1, -1, -1, "Files opens"}, {16.2f, 0, -1, -1, -1, -1, "back home from Files"},
@@ -841,7 +848,8 @@ static const struct { float t; int screen, sub, open, tab, mute; const char *wha
 	{87.2f, 3, 5, 1, 0, -1, "back from Snake"}, {88.0f, 3, 5, 0, -1, -1, "back to the front"},
 	{89.6f, 3, 5, 1, 1, -1, "Steam"}, {94.6f, 3, 5, 1, 1, -1, "Steam: install"}, {99.6f, 3, 5, 0, -1, -1, "front again"},
 	{101.2f, 3, 5, 1, 2, -1, "Microsoft Store"}, {107.4f, 3, 0, -1, -1, -1, "Apps grid again"},
-	{109.2f, 3, 4, -1, -1, -1, "Me and my PC"}, {113.8f, 0, -1, -1, -1, -1, "home at the end"},
+	{109.2f, 3, 4, -1, -1, -1, "Me and my PC"}, {113.8f, 0, -1, -1, -1, -1, "home from the apps"},
+	{115.2f, 5, -1, -1, -1, -1, "Backgrounds opens"}, {119.4f, 0, -1, -1, -1, -1, "home, in Comic"}, {124.4f, 0, -1, -1, -1, -1, "home at the end"},
 };
 static int expect_failed;
 #endif
@@ -894,7 +902,7 @@ static void home_loop(Home *h)
 		if (prof_env) {                                   /* how long each kind of screen takes to draw */
 			clock_gettime(CLOCK_MONOTONIC, &p1);
 			double ms = (p1.tv_sec - p0.tv_sec) * 1e3 + (p1.tv_nsec - p0.tv_nsec) / 1e6;
-			static const char *nm[] = {"home", "settings", "search", "apps", "files"};
+			static const char *nm[] = {"home", "settings", "search", "apps", "files", "backgrounds"};
 			char key[48]; snprintf(key, sizeof key, "%s%s%d", nm[h->screen], h->screen == 3 ? "/sub" : "", h->screen == 3 ? h->sub * 10 + gs.open : 0);
 			static struct { char k[48]; double sum, max; int n; } st[32]; static int ns;
 			int i; for (i = 0; i < ns && strcmp(st[i].k, key); i++) {}

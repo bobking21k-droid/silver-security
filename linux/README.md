@@ -36,7 +36,12 @@ reference, not its content.)
    their way out, until it **bursts open**: its layers are blown apart and snap back, and the
    cosmic colours of its gem splash out, a violet, blue and pink nebula full of stars flooding
    down to the far corner. The four buttons, **Settings, Search, Apps and Files**, appear in a row
-   as dark glass cards, and the cracked emblem keeps spinning in its corner. The intro plays once per boot;
+   as dark glass cards, and the cracked emblem keeps spinning in its corner.
+   **Backgrounds:** click the emblem (or press **B**) to choose the home screen's background.
+   Two previews side by side: **Cosmic**, the nebula it lands on (the default), and **Comic**, a
+   comic-book burst of rays, halftone dots and spiky "POW" shapes. Left/Right (or the mouse)
+   choose, Enter or a click uses it, Esc goes back; your choice is kept in
+   `~/.config/silver/background`. The intro plays once per boot;
    any key skips it. Add `silver.calm` to the kernel command line (or turn on Calm mode in
    Settings) to turn off its shake and flashes.
    **Sound:** everything has sound effects, all made by code at boot (no sound files):
