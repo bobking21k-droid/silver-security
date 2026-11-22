@@ -44,7 +44,14 @@ reference, not its content.)
    recording, to fill a 16:9 screen and stores it in `work/assets/backgrounds/`, not in git: only
    use clips you have the right to use; the build puts them in the image). Left/Right (or the
    mouse) choose, Enter or a click uses it, Esc goes back; your choice is kept in
-   `~/.config/silver/background`. The intro plays once per boot;
+   `~/.config/silver/background`.
+   Under the previews, **Customize** (press Down, or click a row) changes the home screen itself:
+   show or hide the name and clock, the emblem, the buttons (hidden ones come back for a few
+   seconds when you press a key or move the mouse) and the key hints; the buttons' colour
+   (glass, violet, rose, ocean, mint, gold, black, white), their text colour (white, black,
+   violet, gold) and how see-through they are (solid to 90%); where the row sits (middle, bottom,
+   top); and the button order (Enter picks a button up, Left/Right moves it, Enter puts it
+   down). It is kept in `~/.config/silver/home-look`. The intro plays once per boot;
    any key skips it. Add `silver.calm` to the kernel command line (or turn on Calm mode in
    Settings) to turn off its shake and flashes.
    **Sound:** everything has sound effects, all made by code at boot (no sound files):

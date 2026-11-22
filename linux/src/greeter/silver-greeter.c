@@ -582,11 +582,12 @@ static void handle_key(Home *h, int k)
 	}
 	switch (h->screen) {
 	case 0:
+		look_wake = now();                                    /* (hidden buttons show again for a moment) */
 		if (k == K_LEFT && h->sel > 0) h->sel--;              /* the buttons are a row */
 		else if (k == K_RIGHT && h->sel < 3) h->sel++;
 		else if (k == K_UP) h->sel &= ~2;                     /* (up/down jump by two, as before) */
 		else if (k == K_DOWN) h->sel |= 2;
-		else if (k == K_ENTER) open_screen(h, h->sel + 1);
+		else if (k == K_ENTER) open_screen(h, look.ord[h->sel] + 1);   /* (the buttons can be rearranged) */
 		else if (k == 'b' || k == 'B') { open_screen(h, 5); bg_open(h); }   /* (or click the emblem) */
 		break;
 	case 5:                                                                     /* backgrounds */
@@ -836,9 +837,14 @@ static const struct { float t; int k; } SCRIPT[] = {
 	{107.8f, K_RIGHT}, {108.6f, K_ENTER}, {112.2f, K_ESC}, {113.0f, K_ESC},                                       /* Me and my PC */
 	{114.4f, 'b'}, {115.4f, K_RIGHT}, {116.0f, K_RIGHT}, {116.8f, K_ENTER}, {117.6f, K_ESC},                 /* Backgrounds: a moving one */
 	{121.0f, 'b'}, {121.8f, K_RIGHT}, {122.6f, K_ENTER}, {123.4f, K_ESC},                                     /* the next one */
-	{127.0f, 'b'}, {127.6f, K_LEFT}, {128.0f, K_LEFT}, {128.4f, K_LEFT}, {129.0f, K_ENTER}, {129.6f, K_ESC},   /* back to Cosmic */
+	{127.0f, 'b'}, {127.6f, K_LEFT}, {128.0f, K_LEFT}, {128.4f, K_LEFT}, {129.0f, K_ENTER},                   /* back to Cosmic */
+	{129.8f, K_DOWN}, {130.2f, K_DOWN}, {130.6f, K_DOWN}, {131.0f, K_DOWN}, {131.4f, K_DOWN},                 /* Customize: button colour */
+	{131.9f, K_RIGHT}, {132.4f, K_RIGHT}, {133.0f, K_DOWN}, {133.5f, K_DOWN}, {134.0f, K_RIGHT}, {134.5f, K_RIGHT},   /* Rose; 50% see-through */
+	{135.1f, K_DOWN}, {135.6f, K_RIGHT}, {136.2f, K_DOWN}, {136.7f, K_ENTER}, {137.2f, K_RIGHT}, {137.7f, K_RIGHT}, {138.2f, K_ENTER},   /* row at the bottom; Settings moved */
+	{139.0f, K_ESC},
+	{142.0f, 'b'}, {142.6f, K_DOWN}, {143.1f, K_ENTER}, {143.6f, K_DOWN}, {144.1f, K_ENTER}, {144.8f, K_ESC},   /* hide the name and clock, and the emblem */
 };
-#define SCRIPT_END 131.0f
+#define SCRIPT_END 148.0f
 /* where the script must have got to (-1: don't care); the demo fails if any is wrong */
 static const struct { float t; int screen, sub, open, tab, mute; const char *what; } EXPECT[] = {
 	{5.6f, 4, -1, -1, -1, -1, "Files opens"}, {16.2f, 0, -1, -1, -1, -1, "back home from Files"},
@@ -851,7 +857,7 @@ static const struct { float t; int screen, sub, open, tab, mute; const char *wha
 	{101.2f, 3, 5, 1, 2, -1, "Microsoft Store"}, {107.4f, 3, 0, -1, -1, -1, "Apps grid again"},
 	{109.2f, 3, 4, -1, -1, -1, "Me and my PC"}, {113.8f, 0, -1, -1, -1, -1, "home from the apps"},
 	{115.0f, 5, -1, -1, -1, -1, "Backgrounds opens"}, {119.0f, 0, -1, -1, -1, -1, "home, moving background"}, {122.2f, 5, -1, -1, -1, -1, "Backgrounds again"},
-	{125.0f, 0, -1, -1, -1, -1, "home, the next background"}, {130.5f, 0, -1, -1, -1, -1, "home at the end"},
+	{125.0f, 0, -1, -1, -1, -1, "home, the next background"}, {132.0f, 5, -1, -1, -1, -1, "Customize"}, {140.0f, 0, -1, -1, -1, -1, "home, customized"}, {147.5f, 0, -1, -1, -1, -1, "home at the end"},
 };
 static int expect_failed;
 #endif

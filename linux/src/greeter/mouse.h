@@ -52,7 +52,7 @@ static int mouse_hover(Home *h)
 	int changed = 0;
 	switch (h->screen) {
 	case 0: {                                                                       /* the row of buttons: by column */
-		int q = button_at(ms.x);
+		int q = button_at(ms.x); look_wake = now();
 		if (q != h->sel) { h->sel = q; changed = 1; }
 		break; }
 	case 1:
@@ -70,9 +70,19 @@ static int mouse_hover(Home *h)
 			if (r >= 0 && tzs.top + r != tzs.sel) { tzs.sel = tzs.top + r; changed = 1; }
 		}
 		break;
-	case 5: {                                                                       /* backgrounds: left or right preview */
-		int q = bg_at(ms.x);
-		if (q != h->row) { h->row = q; changed = 1; }
+	case 5: {                                                                       /* backgrounds: a preview, or a Customize row */
+		float px, py; bg_rect(0, &px, &py);
+		if (bg_grab) break;                                                         /* (moving a button: keys only) */
+		if (ms.y >= py - U && ms.y <= py + tb_h + U * 5) {
+			int q = bg_at(ms.x);
+			if (q != h->row || bg_area != 0) { h->row = q; bg_area = 0; changed = 1; }
+		} else {
+			int r = lo_row_at(ms.y);
+			if (r >= 0) {
+				int c = r == LO_ORDER ? lo_chip_at(ms.x) : bg_chip;
+				if (r != bg_opt || bg_area != 1 || c != bg_chip) { bg_opt = r; bg_area = 1; bg_chip = c; changed = 1; }
+			}
+		}
 		break; }
 	}
 	return changed;

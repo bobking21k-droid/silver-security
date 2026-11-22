@@ -221,9 +221,11 @@ static void bg_style_load(void)
 	bg_style = BG_COSMIC;
 	for (int st = 1; st < bg_n(); st++) { char k[96]; bg_key_of(st, k, sizeof k); if (!strcmp(v, k)) bg_style = st; }
 }
+static void look_load(void);
 static void bake_home(void)
 {
 	bg_style_load();
+	look_load();
 	bake_cosmic(bg_dark);                 /* (also with the clip chosen: it fills qmap, the splash's edge noise) */
 	for (int y = 0; y < H; y++) for (int x = 0; x < W; x++) bg_sec[y * W + x] = glass_px(x, y, 0);
 }
@@ -880,11 +882,65 @@ static const char *TILE_NAME[4] = {"SETTINGS", "SEARCH", "APPS", "FILES"};
 static const char *TILE_CAP[4] = {"NETWORK  DISPLAY  SOUND", "THE WEB  VIDEOS", "GAMES  MY PC", "BROWSE YOUR HOME"};
 static const int TILE_ICON[4] = {I_SETTINGS, I_SEARCH, I_APPS, I_FILES};
 
+/* How the home screen looks, set in Backgrounds > Customize and kept in ~/.config/silver/home-look:
+   what is shown, the buttons' colour, text colour and see-through level, where the row sits and
+   the order of the buttons. */
+#define LK_NCOL 8
+#define LK_NINK 4
+#define LK_NCLR 5
+#define LK_NROW 3
+static const char *LK_COL_NAME[LK_NCOL] = {"Glass", "Violet", "Rose", "Ocean", "Mint", "Gold", "Black", "White"};
+static const uint32_t LK_COL[LK_NCOL] = {RGB(16, 10, 36), RGB(120, 70, 255), RGB(255, 70, 150), RGB(40, 120, 255), RGB(30, 200, 150), RGB(255, 186, 40), RGB(0, 0, 0), RGB(240, 240, 250)};
+static const char *LK_INK_NAME[LK_NINK] = {"White", "Black", "Violet", "Gold"};
+static const uint32_t LK_INK[LK_NINK] = {RGB(255, 255, 255), RGB(12, 12, 16), RGB(206, 176, 255), RGB(255, 214, 110)};
+static const char *LK_CLR_NAME[LK_NCLR] = {"Solid", "25%", "50%", "75%", "90%"};
+static const float LK_CLR[LK_NCLR] = {0, 0.25f, 0.5f, 0.75f, 0.9f};
+static const char *LK_ROW_NAME[LK_NROW] = {"Middle", "Bottom", "Top"};
+typedef struct { int head, emblem, buttons, hints, col, ink, clear, row, ord[4]; } Look;
+static Look look = {1, 1, 1, 1, 0, 0, 0, 0, {0, 1, 2, 3}};
+static double look_wake;                         /* last key or mouse move on home: hidden buttons show for a while */
+static void look_path(char *p, size_t n);
+static void look_load(void)
+{
+#ifndef RENDER
+	char p[300], ln[64]; look_path(p, sizeof p);
+	FILE *f = fopen(p, "r"); if (!f) return;
+	while (fgets(ln, sizeof ln, f)) {
+		int v = atoi(strchr(ln, '=') ? strchr(ln, '=') + 1 : "0");
+		if (!strncmp(ln, "head=", 5)) look.head = !!v;
+		else if (!strncmp(ln, "emblem=", 7)) look.emblem = !!v;
+		else if (!strncmp(ln, "buttons=", 8)) look.buttons = !!v;
+		else if (!strncmp(ln, "hints=", 6)) look.hints = !!v;
+		else if (!strncmp(ln, "color=", 6)) look.col = v >= 0 && v < LK_NCOL ? v : 0;
+		else if (!strncmp(ln, "ink=", 4)) look.ink = v >= 0 && v < LK_NINK ? v : 0;
+		else if (!strncmp(ln, "clear=", 6)) look.clear = v >= 0 && v < LK_NCLR ? v : 0;
+		else if (!strncmp(ln, "row=", 4)) look.row = v >= 0 && v < LK_NROW ? v : 0;
+		else if (!strncmp(ln, "order=", 6)) {                    /* four distinct digits 0-3, else the usual order */
+			int o[4], seen = 0, ok = 1;
+			for (int i = 0; i < 4; i++) { int c = ln[6 + i] - '0'; if (c < 0 || c > 3 || (seen >> c & 1)) { ok = 0; break; } seen |= 1 << c; o[i] = c; }
+			if (ok) memcpy(look.ord, o, sizeof o);
+		}
+	}
+	fclose(f);
+#endif
+}
+static void look_save(void)
+{
+#ifndef RENDER
+	char p[300]; look_path(p, sizeof p);
+	FILE *f = fopen(p, "w"); if (!f) return;
+	fprintf(f, "head=%d\nemblem=%d\nbuttons=%d\nhints=%d\ncolor=%d\nink=%d\nclear=%d\nrow=%d\norder=%d%d%d%d\n",
+		look.head, look.emblem, look.buttons, look.hints, look.col, look.ink, look.clear, look.row, look.ord[0], look.ord[1], look.ord[2], look.ord[3]);
+	fclose(f);
+#endif
+}
+
 /* the four buttons, in a row across the lower half */
 static void button_rect(int q, float *x, float *y, float *w, float *h)
 {
 	float x0 = W * 0.065f, gap = U * 3.0f, bw = (W - 2 * x0 - 3 * gap) / 4;
-	*x = x0 + q * (bw + gap); *w = bw; *h = U * 24; *y = H * 0.60f - *h / 2;
+	*x = x0 + q * (bw + gap); *w = bw; *h = U * 24;
+	*y = look.row == 1 ? H - U * 13 - *h : look.row == 2 ? U * 29 : H * 0.60f - *h / 2;
 }
 static int button_at(float mx) { float x0 = W * 0.065f; int q = (int)((mx - x0) / ((W - 2 * x0) / 4)); return q < 0 ? 0 : q > 3 ? 3 : q; }
 
@@ -893,26 +949,33 @@ static int button_at(float mx) { float x0 = W * 0.065f; int q = (int)((mx - x0) 
 static void draw_button(int q, float blend, float pop, float beat)
 {
 	if (pop <= 0) return;
+	int b = look.ord[q];                                                        /* slot q shows button b */
 	float x, y, w, h; button_rect(q, &x, &y, &w, &h);
 	float e = sg_ease_out(pop), lift = U * 1.4f * blend;
 	y += (1 - e) * U * 6 - lift;
-	float a = sg_sat(pop * 2.5f), r = U * 1.8f;
-	if (blend > 0.01f) sg_glow(&fb, x + w / 2, y + h / 2, w * 0.75f, RGB(130, 80, 255), 0.45f * a * blend * (0.8f + 0.2f * beat));
-	ui_frost(x, y, w, h, r, 0.62f - 0.18f * blend);
-	sg_rrect(&fb, x, y, w, h, r, 0, RGB(16, 10, 36), 0.35f * a);
-	sg_rrect(&fb, x, y, w, h, r, sg_max(1.2f, U * 0.14f), sg_mix(RGB(150, 150, 170), RGB(196, 160, 255), blend), (0.45f + 0.5f * blend) * a);
-	uint32_t ink = WHITE;
+	float a = sg_sat(pop * 2.5f), r = U * 1.8f, clear = LK_CLR[look.clear], body = 1 - clear;
+	uint32_t tint = LK_COL[look.col], accent = look.col ? sg_mix(tint, WHITE, 0.35f) : RGB(196, 160, 255);
+	if (blend > 0.01f) sg_glow(&fb, x + w / 2, y + h / 2, w * 0.75f, look.col ? tint : RGB(130, 80, 255), 0.45f * a * blend * (0.8f + 0.2f * beat));
+	if (clear < 0.7f) ui_frost(x, y, w, h, r, (0.62f - 0.18f * blend) * body);                 /* frosted glass, thinner as it clears */
+	sg_rrect(&fb, x, y, w, h, r, 0, tint, (look.col ? 0.62f : 0.35f) * a * body);
+	sg_rrect(&fb, x, y, w, h, r, sg_max(1.2f, U * 0.14f), sg_mix(RGB(150, 150, 170), accent, blend), (0.45f + 0.5f * blend) * a * (0.35f + 0.65f * body));
+	uint32_t ink = LK_INK[look.ink];
 	float cxi = x + w / 2;
-	icon(TILE_ICON[q], cxi, y + h * 0.30f, U * 4.4f, ink, a);
-	float sz = U * 5.0f, tw = sg_text_w(&FD, TILE_NAME[q], sz, 0);
+	if (clear > 0.4f && look.ink != 1) {                                        /* a soft shadow keeps the words readable on a busy background */
+		float sz = U * 5.0f, tw = sg_text_w(&FD, TILE_NAME[b], sz, 0);
+		if (tw > w - U * 3) { sz *= (w - U * 3) / tw; tw = w - U * 3; }
+		sg_text(&fb, &FD, cxi - tw / 2 + sz * 0.04f, y + h * 0.70f + sz * 0.05f, TILE_NAME[b], sz, BLACK, a * 0.6f, 0);
+	}
+	icon(TILE_ICON[b], cxi, y + h * 0.30f, U * 4.4f, ink, a);
+	float sz = U * 5.0f, tw = sg_text_w(&FD, TILE_NAME[b], sz, 0);
 	if (tw > w - U * 3) { sz *= (w - U * 3) / tw; tw = w - U * 3; }
-	sg_text(&fb, &FD, cxi - tw / 2, y + h * 0.70f, TILE_NAME[q], sz, ink, a, 0);
-	float cs = U * 1.05f, cw = sg_text_w(&FC, TILE_CAP[q], cs, 0.2f);
+	sg_text(&fb, &FD, cxi - tw / 2, y + h * 0.70f, TILE_NAME[b], sz, ink, a, 0);
+	float cs = U * 1.05f, cw = sg_text_w(&FC, TILE_CAP[b], cs, 0.2f);
 	if (cw > w - U * 2) { cs *= (w - U * 2) / cw; cw = w - U * 2; }
-	sg_text(&fb, &FC, cxi - cw / 2, y + h * 0.86f, TILE_CAP[q], cs, sg_mix(RGB(160, 160, 176), RGB(220, 205, 255), blend), a, 0.2f);
+	sg_text(&fb, &FC, cxi - cw / 2, y + h * 0.86f, TILE_CAP[b], cs, look.ink == 1 ? sg_mix(RGB(40, 40, 50), RGB(70, 40, 120), blend) : sg_mix(RGB(160, 160, 176), RGB(220, 205, 255), blend), a, 0.2f);
 	if (blend > 0.5f) {                                                                 /* a beating dot under the chosen one */
 		float k2 = (blend - 0.5f) * 2;
-		sg_glow(&fb, cxi, y + h + U * 3.2f, U * 2.6f, RGB(150, 100, 255), 0.6f * a * k2 * beat);
+		sg_glow(&fb, cxi, y + h + U * 3.2f, U * 2.6f, look.col ? tint : RGB(150, 100, 255), 0.6f * a * k2 * beat);
 		sg_disc(&fb, cxi, y + h + U * 3.2f, U * (0.5f + 0.25f * beat), WHITE, a * k2);
 	}
 }
@@ -1041,19 +1104,21 @@ static void home_draw(const Home *h, float reveal, float t, float sc)
 	}
 	/* the name and the clock, top left */
 	float ha = sc < 99 ? sg_sat((sc - CRACK_BURST - 0.75f) / 0.3f) : 1;
-	if (ha > 0) {
+	if (ha > 0 && look.head) {
 		glow_text(&FD, U * 6, U * 12.5f, "SilverOS", U * 7.0f, ha, 0);
 		char hm[8], date[48]; clock_text(hm, date);
 		glow_text(&FT, U * 6.4f, U * 17.8f, hm, U * 2.6f, ha, 0.01f);
 		glow_text(&FC, U * 6.4f + sg_text_w(&FT, hm, U * 2.6f, 0.01f) + U * 1.6f, U * 17.6f, date, U * 1.1f, ha, 0.25f);
 	}
 	/* the buttons, popping in one after another as the colours pass them */
-	for (int q = 0; q < 4; q++) {
+	float show = look.buttons ? 1 : sg_sat(1 - ((float)(now() - look_wake) - 3.0f) / 0.6f);   /* hidden: they show for a few seconds after a key or the mouse */
+	if (sc < 99) show = 1;
+	for (int q = 0; q < 4 && show > 0; q++) {
 		float pop = sc >= 99 ? 1 : sg_sat((sc - CRACK_BURST - 0.60f - q * 0.09f) / 0.32f);
-		draw_button(q, h->blend[q], pop, beat);
+		draw_button(q, h->blend[q], pop * show, beat);
 	}
-	if (sc >= -0.15f) home_emblem(t, sc);
-	if (sc >= 99 || sc > CRACK_BURST + 1.0f) foot_hints("LEFT RIGHT  select      ENTER  open      B  backgrounds");
+	if (sc >= -0.15f && (look.emblem || sc < 99)) home_emblem(t, sc);
+	if ((sc >= 99 || sc > CRACK_BURST + 1.0f) && look.hints) foot_hints("LEFT RIGHT  select      ENTER  open      B  backgrounds");
 }
 
 /* ================================================================ backgrounds (click the emblem) */
@@ -1084,7 +1149,8 @@ static void bg_thumbs_make(void)
 			}
 	}
 }
-static void bg_open(Home *h) { h->row = bg_style; bg_thumbs_make(); }
+static int bg_area, bg_opt, bg_chip, bg_grab;          /* focus: 0 the previews, 1 Customize (row bg_opt; on Order: chip, grabbed?) */
+static void bg_open(Home *h) { h->row = bg_style; bg_area = 0; bg_opt = 0; bg_chip = 0; bg_grab = 0; bg_thumbs_make(); }
 static void bg_choose(int st)
 {
 	if (st == bg_style) return;
@@ -1097,8 +1163,57 @@ static void bg_choose(int st)
 	FILE *f = fopen(p, "w"); if (f) { fprintf(f, "%s\n", k); fclose(f); }
 #endif
 }
-static void bg_rect(int st, float *x, float *y) { float g = bg_gap(); *x = (W - tb_n * tb_w - (tb_n - 1) * g) / 2 + st * (tb_w + g); *y = H * 0.5f - tb_h * 0.62f; }
+static void look_path(char *p, size_t n)
+{
+	char d[300]; snprintf(d, sizeof d, "%s/.config", homedir); mkdir(d, 0755);
+	snprintf(d, sizeof d, "%s/.config/silver", homedir); mkdir(d, 0755);
+	snprintf(p, n, "%s/.config/silver/home-look", homedir);
+}
+static void bg_rect(int st, float *x, float *y) { float g = bg_gap(); *x = (W - tb_n * tb_w - (tb_n - 1) * g) / 2 + st * (tb_w + g); *y = H * 0.215f; }
 static int bg_at(float mx) { float x0, y0; bg_rect(0, &x0, &y0); int q = (int)((mx - x0 + bg_gap() / 2) / (tb_w + bg_gap())); return q < 0 ? 0 : q >= tb_n ? tb_n - 1 : q; }
+
+/* Customize: the rows under the previews */
+enum { LO_HEAD, LO_EMBLEM, LO_BUTTONS, LO_HINTS, LO_COL, LO_INK, LO_CLEAR, LO_ROW, LO_ORDER, LO_N };
+static const char *LO_LABEL[LO_N] = {"Name and clock", "Emblem", "Buttons", "Key hints", "Button colour", "Text colour", "See-through", "Button row", "Button order"};
+static float lo_x(void) { return W * 0.22f; }
+static float lo_w(void) { return W * 0.56f; }
+static float lo_y0(void) { float x, y; bg_rect(0, &x, &y); return y + tb_h + U * 11.5f; }
+static float lo_step(void) { return sg_min(U * 4.1f, (H - U * 11 - lo_y0()) / LO_N); }
+static int lo_row_at(float my) { float y0 = lo_y0() - lo_step() * 0.7f; if (my < y0) return -1; int r = (int)((my - y0) / lo_step()); return r < LO_N ? r : -1; }
+static float lo_chip_x(int i) { float cw = lo_w() * 0.105f, gap = U * 0.8f; return lo_x() + lo_w() - U * 1.6f - (4 - i) * cw - (3 - i) * gap; }
+static int lo_chip_at(float mx) { float cw = lo_w() * 0.105f + U * 0.8f; int i = (int)((mx - lo_chip_x(0)) / cw); return i < 0 ? 0 : i > 3 ? 3 : i; }
+static const char *lo_value(int o)
+{
+	static const char *SH[2] = {"Hidden", "Shown"};
+	switch (o) {
+	case LO_HEAD: return SH[look.head];
+	case LO_EMBLEM: return SH[look.emblem];
+	case LO_BUTTONS: return look.buttons ? "Shown" : "Hidden (show on a key)";
+	case LO_HINTS: return SH[look.hints];
+	case LO_COL: return LK_COL_NAME[look.col];
+	case LO_INK: return LK_INK_NAME[look.ink];
+	case LO_CLEAR: return LK_CLR_NAME[look.clear];
+	case LO_ROW: return LK_ROW_NAME[look.row];
+	}
+	return "";
+}
+static void lo_change(int o, int d)                     /* step a setting forwards (d 1) or back (d -1) */
+{
+	int *v = 0, n = 2;
+	switch (o) {
+	case LO_HEAD: v = &look.head; break;
+	case LO_EMBLEM: v = &look.emblem; break;
+	case LO_BUTTONS: v = &look.buttons; break;
+	case LO_HINTS: v = &look.hints; break;
+	case LO_COL: v = &look.col; n = LK_NCOL; break;
+	case LO_INK: v = &look.ink; n = LK_NINK; break;
+	case LO_CLEAR: v = &look.clear; n = LK_NCLR; break;
+	case LO_ROW: v = &look.row; n = LK_NROW; break;
+	default: return;
+	}
+	*v = (*v + d + n) % n;
+	look_save();
+}
 
 static void draw_backgrounds(Home *h, float t)
 {
@@ -1108,25 +1223,81 @@ static void draw_backgrounds(Home *h, float t)
 	for (int st = 0; st < tb_n; st++) {
 		if (!bg_thumb[st]) continue;
 		float x, y; bg_rect(st, &x, &y);
-		int sel = h->row == st, cur = bg_style == st;
+		int sel = bg_area == 0 && h->row == st, cur = bg_style == st;
 		if (sel) sg_glow(&fb, x + tb_w / 2.0f, y + tb_h / 2.0f, tb_w * 0.7f, RGB(130, 80, 255), 0.45f * (0.8f + 0.2f * sg_heart(t, 0.9f)));
 		for (int yy = 0; yy < tb_h; yy++) {
 			int py = (int)y + yy; if (py < 0 || py >= H) continue;
 			memcpy(fb.px + py * W + (int)x, bg_thumb[st] + yy * tb_w, (size_t)tb_w * 4);
 		}
 		float bw = sel ? sg_max(2, U * 0.45f) : sg_max(1.2f, U * 0.14f);
-		sg_rrect(&fb, x - bw, y - bw, tb_w + 2 * bw, tb_h + 2 * bw, U * 0.8f, bw, sel ? RGB(196, 160, 255) : RGB(120, 120, 136), 1);
+		sg_rrect(&fb, x - bw, y - bw, tb_w + 2 * bw, tb_h + 2 * bw, U * 0.8f, bw, sel ? RGB(196, 160, 255) : h->row == st ? RGB(150, 130, 200) : RGB(120, 120, 136), 1);
 		sg_text(&fb, &FT, x, y + tb_h + ls * 1.7f, bg_name(st), ls, WHITE, 1, 0.01f);
 		const char *tag = cur ? "IN USE" : st == BG_COSMIC ? "DEFAULT" : st >= BG_FIXED ? "MOVING" : "";
 		if (*tag) sg_text(&fb, &FC, x + tb_w - sg_text_w(&FC, tag, U * 1.1f, 0.2f), y + tb_h + ls * 1.55f, tag, U * 1.1f, cur ? RGB(150, 230, 170) : RGB(150, 150, 166), 1, 0.2f);
 	}
-	foot_hints("LEFT RIGHT  choose      ENTER  use it      ESC  home");
+	/* Customize */
+	float lx = lo_x(), lw = lo_w(), y0 = lo_y0(), st = lo_step(), fs = sg_min(U * 1.9f, st * 0.46f);
+	cap_text(lx, y0 - st * 1.05f, "CUSTOMIZE  THE  HOME  SCREEN", U * 1.1f, RGB(176, 176, 182), 1, 0);
+	ui_frost(lx - U * 1.2f, y0 - st * 0.78f, lw + U * 2.4f, st * LO_N + U * 0.4f, U * 1.8f, 0.55f);
+	for (int o = 0; o < LO_N; o++) {
+		float ry = y0 + o * st;
+		int sel = bg_area == 1 && bg_opt == o;
+		if (sel) sg_rrect(&fb, lx - U * 0.4f, ry - st * 0.72f, lw + U * 0.8f, st * 0.94f, U * 1.0f, 0, RGB(130, 80, 255), 0.30f);
+		sg_text(&fb, &FT, lx + U * 1.2f, ry, LO_LABEL[o], fs, sel ? WHITE : RGB(214, 214, 222), 1, 0.01f);
+		if (o == LO_ORDER) {                                                        /* four chips: pick one up with Enter, move it with Left/Right */
+			for (int i = 0; i < 4; i++) {
+				float cx = lo_chip_x(i), cw = lw * 0.105f, ch = st * 0.70f, cy = ry - st * 0.60f;
+				int on = sel && bg_chip == i, held = on && bg_grab;
+				if (held) cy -= U * 0.6f;
+				sg_rrect(&fb, cx, cy, cw, ch, U * 0.7f, 0, held ? RGB(150, 100, 255) : on ? RGB(70, 50, 120) : RGB(40, 40, 52), 0.9f);
+				sg_rrect(&fb, cx, cy, cw, ch, U * 0.7f, sg_max(1, U * 0.12f), on ? RGB(206, 176, 255) : RGB(110, 110, 126), 1);
+				const char *nm = TILE_NAME[look.ord[i]]; float ns = U * 0.95f, nw = sg_text_w(&FC, nm, ns, 0.15f);
+				if (nw > cw - U) { ns *= (cw - U) / nw; nw = cw - U; }
+				sg_text(&fb, &FC, cx + (cw - nw) / 2, cy + ch * 0.64f, nm, ns, WHITE, 1, 0.15f);
+			}
+			continue;
+		}
+		const char *v = lo_value(o);
+		float vw = sg_text_w(&FT, v, fs, 0.01f), vx = lx + lw - U * 4.2f - vw;
+		if (o == LO_COL || o == LO_INK) {                                           /* a swatch of the colour */
+			uint32_t sw = o == LO_COL ? LK_COL[look.col] : LK_INK[look.ink];
+			sg_rrect(&fb, vx - U * 3.4f, ry - fs * 0.85f, U * 2.4f, fs * 1.0f, U * 0.5f, 0, sw, 1);
+			sg_rrect(&fb, vx - U * 3.4f, ry - fs * 0.85f, U * 2.4f, fs * 1.0f, U * 0.5f, sg_max(1, U * 0.1f), RGB(150, 150, 166), 1);
+		}
+		sg_text(&fb, &FT, vx, ry, v, fs, sel ? RGB(220, 200, 255) : RGB(190, 190, 200), 1, 0.01f);
+		if (sel) {
+			sg_text(&fb, &FT, vx - U * (o == LO_COL || o == LO_INK ? 5.6f : 2.2f), ry, "<", fs, RGB(206, 176, 255), 1, 0);
+			sg_text(&fb, &FT, lx + lw - U * 2.6f, ry, ">", fs, RGB(206, 176, 255), 1, 0);
+		}
+	}
+	if (bg_area == 0) foot_hints("LEFT RIGHT  choose      ENTER  use it      DOWN  customize      ESC  home");
+	else if (bg_opt == LO_ORDER) foot_hints(bg_grab ? "LEFT RIGHT  move it      ENTER  put down      ESC  home" : "LEFT RIGHT  pick      ENTER  pick up      UP DOWN  move      ESC  home");
+	else foot_hints("LEFT RIGHT  change      ENTER  change      UP DOWN  move      ESC  home");
 }
 static int bg_key(Home *h, int k)                       /* returns 1 to go back home */
 {
-	if (k == K_ESC || k == K_BACK) return 1;
-	if (k == K_LEFT && h->row > 0) h->row--;
-	else if (k == K_RIGHT && h->row < tb_n - 1) h->row++;
-	else if (k == K_ENTER) bg_choose(h->row);
+	if (k == K_ESC || k == K_BACK) { if (bg_grab) { bg_grab = 0; return 0; } return 1; }
+	if (bg_area == 0) {
+		if (k == K_LEFT && h->row > 0) h->row--;
+		else if (k == K_RIGHT && h->row < tb_n - 1) h->row++;
+		else if (k == K_ENTER) bg_choose(h->row);
+		else if (k == K_DOWN) { bg_area = 1; bg_opt = 0; }
+		return 0;
+	}
+	if (bg_opt == LO_ORDER) {
+		if (k == K_ENTER) { bg_grab = !bg_grab; if (!bg_grab) look_save(); }
+		else if (k == K_LEFT || k == K_RIGHT) {
+			int d = k == K_RIGHT ? 1 : -1, to = bg_chip + d;
+			if (to < 0 || to > 3) return 0;
+			if (bg_grab) { int tmp = look.ord[to]; look.ord[to] = look.ord[bg_chip]; look.ord[bg_chip] = tmp; }
+			bg_chip = to;
+		}
+		else if (k == K_UP && !bg_grab) bg_opt--;
+		return 0;
+	}
+	if (k == K_UP) { if (bg_opt > 0) bg_opt--; else bg_area = 0; }
+	else if (k == K_DOWN && bg_opt < LO_N - 1) bg_opt++;
+	else if (k == K_LEFT) lo_change(bg_opt, -1);
+	else if (k == K_RIGHT || k == K_ENTER) lo_change(bg_opt, 1);
 	return 0;
 }
