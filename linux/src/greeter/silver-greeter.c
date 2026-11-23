@@ -583,12 +583,20 @@ static void handle_key(Home *h, int k)
 	switch (h->screen) {
 	case 0:
 		look_wake = now();                                    /* (hidden buttons show again for a moment) */
+		if (home_top >= 0) {                                  /* the Backgrounds / Buttons pills, top right */
+			if (k == K_LEFT) home_top = 0;
+			else if (k == K_RIGHT) home_top = 1;
+			else if (k == K_DOWN || k == K_ESC) home_top = -1;
+			else if (k == K_ENTER) { int pg = home_top; home_top = -1; open_screen(h, 5); bg_open(h, pg); }
+			break;
+		}
+		if (k == K_UP) { home_top = 0; break; }
 		if (k == K_LEFT && h->sel > 0) h->sel--;              /* the buttons are a row */
 		else if (k == K_RIGHT && h->sel < 3) h->sel++;
 		else if (k == K_UP) h->sel &= ~2;                     /* (up/down jump by two, as before) */
 		else if (k == K_DOWN) h->sel |= 2;
 		else if (k == K_ENTER) open_screen(h, look.ord[h->sel] + 1);   /* (the buttons can be rearranged) */
-		else if (k == 'b' || k == 'B') { open_screen(h, 5); bg_open(h); }   /* (or click the emblem) */
+		else if (k == 'b' || k == 'B' || k == 'c' || k == 'C') { open_screen(h, 5); bg_open(h, k == 'c' || k == 'C'); }   /* (or click the emblem or a pill) */
 		break;
 	case 5:                                                                     /* backgrounds */
 		if (bg_key(h, k)) { h->screen = 0; h->fade = 0; }
@@ -784,7 +792,7 @@ static void sample_sys(Home *h, float t)
 
 static void home_frame(Home *h, float t, float dt)
 {
-	for (int q = 0; q < 4; q++) h->blend[q] += (((h->screen == 0 && q == h->sel) ? 1.f : 0.f) - h->blend[q]) * sg_min(1, dt * 11);
+	for (int q = 0; q < 4; q++) h->blend[q] += (((h->screen == 0 && q == h->sel && home_top < 0) ? 1.f : 0.f) - h->blend[q]) * sg_min(1, dt * 11);
 	h->fade = sg_min(1, h->fade + dt * 6);
 	frost_static = h->screen == 1 || h->screen == 3 || h->screen == 4;   /* these screens sit on still glass */
 	{ int before = yt.state; yt_poll(&yt); if (before == Y_LOADING && yt.state == Y_RESULTS) snd('r'); else if (before == Y_LOADING && yt.state == Y_ERROR) snd('e'); }
@@ -812,11 +820,11 @@ static void home_frame(Home *h, float t, float dt)
 #ifdef RENDER
 /* the demo's keystrokes, by seconds after the home screen opens */
 static const struct { float t; int k; } SCRIPT[] = {
-	{0.8f, K_RIGHT}, {1.5f, K_DOWN}, {2.4f, K_LEFT}, {3.0f, K_UP}, {3.7f, K_RIGHT}, {4.3f, K_DOWN},          /* look around, end on Files */
+	{0.8f, K_RIGHT}, {1.5f, K_RIGHT}, {2.4f, K_UP}, {3.0f, K_DOWN}, {3.7f, K_RIGHT}, {4.3f, K_RIGHT},        /* look around (up: the pills), end on Files */
 	{5.0f, K_ENTER},                                                                                          /* Files */
 	{6.0f, K_ENTER}, {7.0f, K_DOWN}, {7.8f, K_DOWN}, {8.6f, K_BACK}, {9.6f, K_DOWN}, {10.2f, K_DOWN},
 	{11.2f, '/'}, {12.0f, 'r'}, {12.4f, 'e'}, {12.8f, 'p'}, {14.0f, K_DOWN}, {15.0f, K_ESC}, {15.8f, K_ESC},  /* search inside Files */
-	{16.6f, K_UP}, {17.3f, K_ENTER},                                                                          /* Search = YouTube */
+	{16.6f, K_LEFT}, {16.95f, K_LEFT}, {17.3f, K_ENTER},                                                                          /* Search = YouTube */
 	{20.2f, 'l'}, {20.5f, 'o'}, {20.8f, 'f'}, {21.1f, 'i'}, {21.6f, K_DOWN}, {21.9f, K_ENTER},             /* suggestions, web results */
 	{24.0f, K_DOWN}, {24.8f, K_DOWN}, {25.6f, K_ENTER}, {26.8f, 'd'}, {29.4f, K_ESC},                          /* a result, downloaded */
 	{30.2f, 9}, {32.2f, K_DOWN}, {33.2f, K_RIGHT}, {34.2f, K_ENTER}, {37.4f, K_ESC},                          /* videos, a watch page */
@@ -827,7 +835,7 @@ static const struct { float t; int k; } SCRIPT[] = {
 	{55.8f, K_DOWN}, {56.4f, K_ENTER}, {57.6f, K_DOWN}, {58.2f, K_DOWN}, {58.8f, K_ENTER}, {60.2f, K_ESC},      /* Bluetooth: pair a controller */
 	{60.6f, K_DOWN}, {60.9f, K_DOWN}, {61.2f, K_DOWN}, {61.5f, K_DOWN}, {62.0f, K_ENTER}, {63.2f, K_DOWN}, {63.8f, K_DOWN}, {64.5f, K_ENTER}, {66.0f, K_ESC},         /* Time: pick a zone */
 	{66.4f, K_UP}, {66.8f, K_LEFT}, {67.1f, K_LEFT}, {67.4f, K_RIGHT}, {67.8f, K_DOWN}, {68.1f, K_DOWN}, {68.4f, K_DOWN}, {68.65f, K_DOWN}, {68.9f, K_ENTER}, {70.4f, K_ENTER}, {71.4f, K_ESC},     /* volume slider, sound effects off, on */
-	{72.2f, K_DOWN}, {72.9f, K_ENTER},                                                                        /* Apps */
+	{72.2f, K_RIGHT}, {72.55f, K_RIGHT}, {72.9f, K_ENTER},                                                                        /* Apps */
 	{74.0f, K_RIGHT}, {74.8f, K_ENTER},                                                                       /* Game Store: three stores */
 	{76.0f, K_RIGHT}, {77.2f, K_RIGHT}, {78.4f, K_LEFT}, {79.4f, K_LEFT}, {80.2f, K_ENTER},                  /* SilverOS games */
 	{81.2f, K_RIGHT}, {82.0f, K_LEFT}, {82.8f, K_ENTER},                                                      /* play Snake */
@@ -838,11 +846,12 @@ static const struct { float t; int k; } SCRIPT[] = {
 	{114.4f, 'b'}, {115.4f, K_RIGHT}, {116.0f, K_RIGHT}, {116.8f, K_ENTER}, {117.6f, K_ESC},                 /* Backgrounds: a moving one */
 	{121.0f, 'b'}, {121.8f, K_RIGHT}, {122.6f, K_ENTER}, {123.4f, K_ESC},                                     /* the next one */
 	{127.0f, 'b'}, {127.6f, K_LEFT}, {128.0f, K_LEFT}, {128.4f, K_LEFT}, {129.0f, K_ENTER},                   /* back to Cosmic */
-	{129.8f, K_DOWN}, {130.2f, K_DOWN}, {130.6f, K_DOWN}, {131.0f, K_DOWN}, {131.4f, K_DOWN},                 /* Customize: button colour */
+	{129.3f, K_UP}, {129.6f, K_RIGHT}, {129.9f, K_DOWN}, {130.3f, K_DOWN}, {130.7f, K_DOWN}, {131.05f, K_DOWN}, {131.4f, K_DOWN},   /* the Buttons tab: colour */
 	{131.9f, K_RIGHT}, {132.4f, K_RIGHT}, {133.0f, K_DOWN}, {133.5f, K_DOWN}, {134.0f, K_RIGHT}, {134.5f, K_RIGHT},   /* Rose; 50% see-through */
 	{135.1f, K_DOWN}, {135.6f, K_RIGHT}, {136.2f, K_DOWN}, {136.7f, K_ENTER}, {137.2f, K_RIGHT}, {137.7f, K_RIGHT}, {138.2f, K_ENTER},   /* row at the bottom; Settings moved */
 	{139.0f, K_ESC},
-	{142.0f, 'b'}, {142.6f, K_DOWN}, {143.1f, K_ENTER}, {143.6f, K_DOWN}, {144.1f, K_ENTER}, {144.8f, K_ESC},   /* hide the name and clock, and the emblem */
+	{140.0f, K_UP}, {140.6f, K_RIGHT},                                                                          /* the pills top right: Buttons */
+	{141.4f, K_ENTER}, {142.2f, K_ENTER}, {142.8f, K_DOWN}, {143.4f, K_ENTER}, {144.4f, K_ESC},                /* hide the name and clock, and the emblem */
 };
 #define SCRIPT_END 148.0f
 /* where the script must have got to (-1: don't care); the demo fails if any is wrong */
@@ -857,7 +866,7 @@ static const struct { float t; int screen, sub, open, tab, mute; const char *wha
 	{101.2f, 3, 5, 1, 2, -1, "Microsoft Store"}, {107.4f, 3, 0, -1, -1, -1, "Apps grid again"},
 	{109.2f, 3, 4, -1, -1, -1, "Me and my PC"}, {113.8f, 0, -1, -1, -1, -1, "home from the apps"},
 	{115.0f, 5, -1, -1, -1, -1, "Backgrounds opens"}, {119.0f, 0, -1, -1, -1, -1, "home, moving background"}, {122.2f, 5, -1, -1, -1, -1, "Backgrounds again"},
-	{125.0f, 0, -1, -1, -1, -1, "home, the next background"}, {132.0f, 5, -1, -1, -1, -1, "Customize"}, {140.0f, 0, -1, -1, -1, -1, "home, customized"}, {147.5f, 0, -1, -1, -1, -1, "home at the end"},
+	{125.0f, 0, -1, -1, -1, -1, "home, the next background"}, {132.0f, 5, -1, -1, -1, -1, "Customize"}, {139.8f, 0, -1, -1, -1, -1, "home, customized"}, {141.9f, 5, -1, -1, -1, -1, "Buttons page from the pill"}, {147.5f, 0, -1, -1, -1, -1, "home at the end"},
 };
 static int expect_failed;
 #endif

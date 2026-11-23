@@ -37,15 +37,17 @@ reference, not its content.)
    cosmic colours of its gem splash out, a violet, blue and pink nebula full of stars flooding
    down to the far corner. The four buttons, **Settings, Search, Apps and Files**, appear in a row
    as dark glass cards, and the cracked emblem keeps spinning in its corner.
-   **Backgrounds:** click the emblem (or press **B**) to choose the home screen's background from
-   a row of previews: **Cosmic**, the nebula it lands on (the default), **Search**, the moving
+   **Backgrounds and Buttons:** two small buttons at the top right of the home screen (press Up to
+   reach them, or click; B and C are shortcuts, and clicking the emblem opens Backgrounds) open a
+   screen with two tabs. **Backgrounds** chooses the home screen's background from a row of
+   previews: **Cosmic**, the nebula it lands on (the default), **Search**, the moving
    black-and-red clip from the Search pane, and any moving backgrounds made with
    `scripts/make-background.sh <clip> <name> [w:h:x:y]` (it crops the clip, e.g. out of a screen
    recording, to fill a 16:9 screen and stores it in `work/assets/backgrounds/`, not in git: only
    use clips you have the right to use; the build puts them in the image). Left/Right (or the
    mouse) choose, Enter or a click uses it, Esc goes back; your choice is kept in
    `~/.config/silver/background`.
-   Under the previews, **Customize** (press Down, or click a row) changes the home screen itself:
+   The **Buttons** tab (Up to the tabs, then Right, or click it) changes the home screen itself:
    show or hide the name and clock, the emblem, the buttons (hidden ones come back for a few
    seconds when you press a key or move the mouse) and the key hints; the buttons' colour
    (glass, violet, rose, ocean, mint, gold, black, white), their text colour (white, black,

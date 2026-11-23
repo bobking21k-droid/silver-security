@@ -982,6 +982,34 @@ static void draw_button(int q, float blend, float pop, float beat)
 	}
 }
 
+/* small glass pill buttons along the top right: on home (Backgrounds, Buttons) and as the tabs
+   of the Backgrounds screen. right: where the last one ends; returns its left edge */
+static const char *TOP_PILL[2] = {"BACKGROUNDS", "BUTTONS"};
+static float pill_w(int i) { return sg_text_w(&FC, TOP_PILL[i], U * 1.25f, 0.22f) + U * 4.4f; }
+static void pill_rect(int i, float right, float *x, float *y, float *w, float *h)
+{
+	float gap = U * 1.2f, x1 = pill_w(1), x0 = pill_w(0);
+	*w = i ? x1 : x0; *h = U * 4.4f; *y = U * 8.4f;
+	*x = i ? right - x1 : right - x1 - gap - x0;
+}
+static int pill_at(float right, float mx, float my)
+{
+	for (int i = 0; i < 2; i++) { float x, y, w, h; pill_rect(i, right, &x, &y, &w, &h); if (mx >= x - U * 0.4f && mx <= x + w + U * 0.4f && my >= y - U * 0.6f && my <= y + h + U * 0.6f) return i; }
+	return -1;
+}
+static void pill_draw(int i, float right, int focus, int active, float a)
+{
+	if (a <= 0) return;
+	float x, y, w, h; pill_rect(i, right, &x, &y, &w, &h);
+	if (focus) sg_glow(&fb, x + w / 2, y + h / 2, w * 0.6f, RGB(130, 80, 255), 0.40f * a);
+	ui_frost(x, y, w, h, h / 2, 0.55f);
+	sg_rrect(&fb, x, y, w, h, h / 2, 0, active ? RGB(110, 64, 230) : RGB(16, 10, 36), (active ? 0.75f : 0.35f) * a);
+	sg_rrect(&fb, x, y, w, h, h / 2, sg_max(1.2f, U * 0.14f), focus ? RGB(206, 176, 255) : RGB(150, 150, 170), (focus ? 1.0f : 0.55f) * a);
+	sg_text(&fb, &FC, x + U * 2.2f, y + h * 0.64f, TOP_PILL[i], U * 1.25f, WHITE, a, 0.22f);
+}
+static int home_top = -1;                                 /* home: -1 the row of buttons has the focus, else that pill */
+static float home_pill_right(void) { return look.emblem ? em_x() - U * 13.0f : W - U * 5.0f; }
+
 /* white text with a soft dark shadow and a faint violet glow */
 static void glow_text(const Font *f, float x, float y, const char *str, float size, float a, float track)
 {
@@ -1120,7 +1148,9 @@ static void home_draw(const Home *h, float reveal, float t, float sc)
 		draw_button(q, h->blend[q], pop * show, beat);
 	}
 	if (sc >= -0.15f && (look.emblem || sc < 99)) home_emblem(t, sc);
-	if ((sc >= 99 || sc > CRACK_BURST + 1.0f) && look.hints) foot_hints("LEFT RIGHT  select      ENTER  open      B  backgrounds");
+	{ float pa = sc >= 99 ? 1 : sg_sat((sc - CRACK_BURST - 0.9f) / 0.3f);                 /* Backgrounds and Buttons, top right */
+	  for (int i = 0; i < 2; i++) pill_draw(i, home_pill_right(), home_top == i, 0, pa); }
+	if ((sc >= 99 || sc > CRACK_BURST + 1.0f) && look.hints) foot_hints(home_top >= 0 ? "LEFT RIGHT  select      ENTER  open      DOWN  back" : "LEFT RIGHT  select      ENTER  open      UP  backgrounds  buttons");
 }
 
 /* ================================================================ backgrounds (click the emblem) */
@@ -1151,8 +1181,10 @@ static void bg_thumbs_make(void)
 			}
 	}
 }
-static int bg_area, bg_opt, bg_chip, bg_grab;          /* focus: 0 the previews, 1 Customize (row bg_opt; on Order: chip, grabbed?) */
-static void bg_open(Home *h) { h->row = bg_style; bg_area = 0; bg_opt = 0; bg_chip = 0; bg_grab = 0; bg_thumbs_make(); }
+static int bg_page, bg_tabf;                           /* the Backgrounds screen's two pages: 0 the backgrounds, 1 the buttons (tabs top right) */
+static int bg_area, bg_opt, bg_chip, bg_grab;          /* focus: 0 the previews, 1 a Buttons row (bg_opt; on Order: chip, grabbed?), 2 the tabs */
+static void bg_open(Home *h, int page) { h->row = bg_style; bg_page = bg_tabf = page; bg_area = page ? 1 : 0; bg_opt = 0; bg_chip = 0; bg_grab = 0; bg_thumbs_make(); }
+static float bg_tab_right(void) { return W - U * 5.0f; }
 static void bg_choose(int st)
 {
 	if (st == bg_style) return;
@@ -1168,7 +1200,7 @@ static void bg_choose(int st)
 /* (only the path: the folders are made when saving, never when loading, because loading can run
    before the greeter drops root and the folders would then belong to root) */
 static void look_path(char *p, size_t n) { snprintf(p, n, "%s/.config/silver/home-look", homedir); }
-static void bg_rect(int st, float *x, float *y) { float g = bg_gap(); *x = (W - tb_n * tb_w - (tb_n - 1) * g) / 2 + st * (tb_w + g); *y = H * 0.215f; }
+static void bg_rect(int st, float *x, float *y) { float g = bg_gap(); *x = (W - tb_n * tb_w - (tb_n - 1) * g) / 2 + st * (tb_w + g); *y = H * 0.5f - tb_h * 0.55f; }
 static int bg_at(float mx) { float x0, y0; bg_rect(0, &x0, &y0); int q = (int)((mx - x0 + bg_gap() / 2) / (tb_w + bg_gap())); return q < 0 ? 0 : q >= tb_n ? tb_n - 1 : q; }
 
 /* Customize: the rows under the previews */
@@ -1176,8 +1208,8 @@ enum { LO_HEAD, LO_EMBLEM, LO_BUTTONS, LO_HINTS, LO_COL, LO_INK, LO_CLEAR, LO_RO
 static const char *LO_LABEL[LO_N] = {"Name and clock", "Emblem", "Buttons", "Key hints", "Button colour", "Text colour", "See-through", "Button row", "Button order"};
 static float lo_x(void) { return W * 0.22f; }
 static float lo_w(void) { return W * 0.56f; }
-static float lo_y0(void) { float x, y; bg_rect(0, &x, &y); return y + tb_h + U * 11.5f; }
-static float lo_step(void) { return sg_min(U * 4.1f, (H - U * 11 - lo_y0()) / LO_N); }
+static float lo_y0(void) { return U * 30.0f; }
+static float lo_step(void) { return sg_min(U * 5.4f, (H - U * 12 - lo_y0()) / LO_N); }
 static int lo_row_at(float my) { float y0 = lo_y0() - lo_step() * 0.7f; if (my < y0) return -1; int r = (int)((my - y0) / lo_step()); return r < LO_N ? r : -1; }
 static float lo_chip_x(int i) { float cw = lo_w() * 0.105f, gap = U * 0.8f; return lo_x() + lo_w() - U * 1.6f - (4 - i) * cw - (3 - i) * gap; }
 static int lo_chip_at(float mx) { float cw = lo_w() * 0.105f + U * 0.8f; int i = (int)((mx - lo_chip_x(0)) / cw); return i < 0 ? 0 : i > 3 ? 3 : i; }
@@ -1217,9 +1249,10 @@ static void lo_change(int o, int d)                     /* step a setting forwar
 static void draw_backgrounds(Home *h, float t)
 {
 	memcpy(fb.px, bg_sec, (size_t)W * H * 4);
-	title_block("BACKGROUNDS", "HOME SCREEN", I_SCREEN);
+	title_block(bg_page ? "BUTTONS" : "BACKGROUNDS", bg_page ? "THE HOME SCREEN'S BUTTONS  AND  WHAT IS SHOWN" : "PICK THE HOME SCREEN'S BACKGROUND", bg_page ? I_SETTINGS : I_SCREEN);
+	for (int i = 0; i < 2; i++) pill_draw(i, bg_tab_right(), bg_area == 2 && bg_tabf == i, bg_page == i, 1);
 	float ls = tb_n > 2 ? U * 2.1f : U * 2.6f;
-	for (int st = 0; st < tb_n; st++) {
+	for (int st = 0; st < tb_n && bg_page == 0; st++) {
 		if (!bg_thumb[st]) continue;
 		float x, y; bg_rect(st, &x, &y);
 		int sel = bg_area == 0 && h->row == st, cur = bg_style == st;
@@ -1234,9 +1267,9 @@ static void draw_backgrounds(Home *h, float t)
 		const char *tag = cur ? "IN USE" : st == BG_COSMIC ? "DEFAULT" : st >= BG_FIXED ? "MOVING" : "";
 		if (*tag) sg_text(&fb, &FC, x + tb_w - sg_text_w(&FC, tag, U * 1.1f, 0.2f), y + tb_h + ls * 1.55f, tag, U * 1.1f, cur ? RGB(150, 230, 170) : RGB(150, 150, 166), 1, 0.2f);
 	}
-	/* Customize */
-	float lx = lo_x(), lw = lo_w(), y0 = lo_y0(), st = lo_step(), fs = sg_min(U * 1.9f, st * 0.46f);
-	cap_text(lx, y0 - st * 1.05f, "CUSTOMIZE  THE  HOME  SCREEN", U * 1.1f, RGB(176, 176, 182), 1, 0);
+	/* the buttons page */
+	if (bg_page == 0) { foot_hints(bg_area == 2 ? "LEFT RIGHT  page      DOWN  back      ESC  home" : "LEFT RIGHT  choose      ENTER  use it      UP  tabs      ESC  home"); return; }
+	float lx = lo_x(), lw = lo_w(), y0 = lo_y0(), st = lo_step(), fs = sg_min(U * 2.1f, st * 0.42f);
 	ui_frost(lx - U * 1.2f, y0 - st * 0.78f, lw + U * 2.4f, st * LO_N + U * 0.4f, U * 1.8f, 0.55f);
 	for (int o = 0; o < LO_N; o++) {
 		float ry = y0 + o * st;
@@ -1269,18 +1302,25 @@ static void draw_backgrounds(Home *h, float t)
 			sg_text(&fb, &FT, lx + lw - U * 2.6f, ry, ">", fs, RGB(206, 176, 255), 1, 0);
 		}
 	}
-	if (bg_area == 0) foot_hints("LEFT RIGHT  choose      ENTER  use it      DOWN  customize      ESC  home");
+	if (bg_area == 2) foot_hints("LEFT RIGHT  page      DOWN  back      ESC  home");
 	else if (bg_opt == LO_ORDER) foot_hints(bg_grab ? "LEFT RIGHT  move it      ENTER  put down      ESC  home" : "LEFT RIGHT  pick      ENTER  pick up      UP DOWN  move      ESC  home");
 	else foot_hints("LEFT RIGHT  change      ENTER  change      UP DOWN  move      ESC  home");
 }
 static int bg_key(Home *h, int k)                       /* returns 1 to go back home */
 {
 	if (k == K_ESC || k == K_BACK) { if (bg_grab) { bg_grab = 0; return 0; } return 1; }
+	if (k == 'b' || k == 'B' || k == 'c' || k == 'C') { bg_open(h, k == 'c' || k == 'C'); return 0; }
+	if (bg_area == 2) {                                                         /* the tabs */
+		if (k == K_LEFT || k == K_RIGHT) { bg_tabf = bg_page = k == K_RIGHT; }
+		else if (k == K_ENTER && bg_tabf != bg_page) bg_page = bg_tabf;
+		else if (k == K_DOWN || k == K_ENTER) { bg_area = bg_page ? 1 : 0; bg_opt = 0; }
+		return 0;
+	}
 	if (bg_area == 0) {
 		if (k == K_LEFT && h->row > 0) h->row--;
 		else if (k == K_RIGHT && h->row < tb_n - 1) h->row++;
 		else if (k == K_ENTER) bg_choose(h->row);
-		else if (k == K_DOWN) { bg_area = 1; bg_opt = 0; }
+		else if (k == K_UP) { bg_area = 2; bg_tabf = bg_page; }
 		return 0;
 	}
 	if (bg_opt == LO_ORDER) {
@@ -1294,7 +1334,7 @@ static int bg_key(Home *h, int k)                       /* returns 1 to go back 
 		else if (k == K_UP && !bg_grab) bg_opt--;
 		return 0;
 	}
-	if (k == K_UP) { if (bg_opt > 0) bg_opt--; else bg_area = 0; }
+	if (k == K_UP) { if (bg_opt > 0) bg_opt--; else { bg_area = 2; bg_tabf = bg_page; } }
 	else if (k == K_DOWN && bg_opt < LO_N - 1) bg_opt++;
 	else if (k == K_LEFT) lo_change(bg_opt, -1);
 	else if (k == K_RIGHT || k == K_ENTER) lo_change(bg_opt, 1);

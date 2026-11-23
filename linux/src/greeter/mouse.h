@@ -52,7 +52,11 @@ static int mouse_hover(Home *h)
 	int changed = 0;
 	switch (h->screen) {
 	case 0: {                                                                       /* the row of buttons: by column */
-		int q = button_at(ms.x); look_wake = now();
+		look_wake = now();
+		int tp = pill_at(home_pill_right(), ms.x, ms.y);
+		if (tp != home_top) { home_top = tp; changed = 1; }
+		if (tp >= 0) break;
+		int q = button_at(ms.x);
 		if (q != h->sel) { h->sel = q; changed = 1; }
 		break; }
 	case 1:
@@ -73,10 +77,12 @@ static int mouse_hover(Home *h)
 	case 5: {                                                                       /* backgrounds: a preview, or a Customize row */
 		float px, py; bg_rect(0, &px, &py);
 		if (bg_grab) break;                                                         /* (moving a button: keys only) */
-		if (ms.y >= py - U && ms.y <= py + tb_h + U * 5) {
+		int tab = pill_at(bg_tab_right(), ms.x, ms.y);
+		if (tab >= 0) { if (bg_area != 2 || bg_tabf != tab) { bg_area = 2; bg_tabf = tab; changed = 1; } }
+		else if (bg_page == 0 && ms.y >= py - U && ms.y <= py + tb_h + U * 5) {
 			int q = bg_at(ms.x);
 			if (q != h->row || bg_area != 0) { h->row = q; bg_area = 0; changed = 1; }
-		} else {
+		} else if (bg_page == 1) {
 			int r = lo_row_at(ms.y);
 			if (r >= 0) {
 				int c = r == LO_ORDER ? lo_chip_at(ms.x) : bg_chip;
