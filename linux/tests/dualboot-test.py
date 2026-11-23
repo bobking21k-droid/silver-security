@@ -128,14 +128,15 @@ for at, name in [(2.0, "intro-1"), (6.0, "intro-2"), (9.0, "intro-3"), (12.0, "i
     time.sleep(max(0, t0 + at - time.time())); vm.shot(name)
 for _ in range(3): vm.key("esc"); time.sleep(2.5)                      # first-run welcome: Keyboard, Time, Network, then home
 time.sleep(2); vm.shot("home")
-vm.key("right"); time.sleep(1); vm.key("down"); time.sleep(1.5); vm.shot("home-files-selected")
+for _ in range(3): vm.key("right"); time.sleep(0.5)       # the buttons are a row: Files is the 4th
+time.sleep(1); vm.shot("home-files-selected")
 vm.key("ret"); time.sleep(2.5); vm.shot("files")
 vm.key("down"); time.sleep(1.5); vm.shot("files-2"); vm.key("esc"); time.sleep(1.5)
-vm.key("up"); time.sleep(0.8); vm.key("ret"); time.sleep(2); vm.key("l"); time.sleep(0.5); vm.key("o"); time.sleep(0.5); vm.key("f"); time.sleep(0.5); vm.key("i"); time.sleep(0.5); vm.key("ret"); time.sleep(6); vm.shot("search")
+vm.key("left"); time.sleep(0.5); vm.key("left"); time.sleep(0.8); vm.key("ret"); time.sleep(2); vm.key("l"); time.sleep(0.5); vm.key("o"); time.sleep(0.5); vm.key("f"); time.sleep(0.5); vm.key("i"); time.sleep(0.5); vm.key("ret"); time.sleep(6); vm.shot("search")
 vm.key("esc"); time.sleep(1.5); vm.key("left"); time.sleep(0.8); vm.key("ret"); time.sleep(2.5); vm.shot("settings")
 for k in ["down"] * 8: vm.key(k); time.sleep(0.5)          # Sound effects is the 9th row
 vm.key("ret"); time.sleep(1.5); vm.shot("settings-sound-off")                      # Sound effects off (also for the boot chooser)
-vm.key("esc"); time.sleep(1.5); vm.key("down"); time.sleep(0.8); vm.key("ret"); time.sleep(2.5); vm.shot("apps")
+vm.key("esc"); time.sleep(1.5); vm.key("right"); time.sleep(0.5); vm.key("right"); time.sleep(0.8); vm.key("ret"); time.sleep(2.5); vm.shot("apps")
 vm.key("right"); time.sleep(0.5); vm.key("ret"); time.sleep(2); vm.shot("game-store")     # three stores
 vm.key("ret"); time.sleep(1.5); vm.key("ret"); time.sleep(2); vm.key("down"); time.sleep(1); vm.shot("game-snake")         # play Snake
 vm.key("esc"); time.sleep(1); vm.key("esc"); time.sleep(1); vm.key("right"); time.sleep(0.5); vm.key("ret"); time.sleep(8); vm.shot("game-steam")
@@ -160,7 +161,7 @@ for ch in "silverpass1": vm.key(ch); time.sleep(0.15)
 time.sleep(1); vm.shot("network-password")
 vm.key("ret"); time.sleep(15); vm.shot("network-joined")
 vm.changed("network", "network-password"); vm.changed("network-password", "network-joined")
-vm.key("esc"); time.sleep(1); vm.key("esc"); time.sleep(1.5); vm.key("down"); time.sleep(0.8); vm.key("ret"); time.sleep(2); vm.key("ret"); time.sleep(5)   # Terminal again, for the reboot
+vm.key("esc"); time.sleep(1); vm.key("esc"); time.sleep(1.5); vm.key("right"); time.sleep(0.5); vm.key("right"); time.sleep(0.8); vm.key("ret"); time.sleep(2); vm.key("ret"); time.sleep(5)   # Terminal again, for the reboot
 for c in ["ip -4 addr show wlan0 | grep inet", "ping -c 1 -W 3 10.42.0.1 | grep -c 'bytes from'", "id"]:
     vm.send(c); out = strip(vm.expect(r"~\$ ")); print(out)
     if c.startswith("ip ") and "inet 10.42.0." not in out: vm.fail("Wi-Fi: no address from the test access point")

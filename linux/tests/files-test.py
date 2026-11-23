@@ -18,8 +18,9 @@ def check(cmd, want, what):
     vm.send(cmd); out = strip(vm.expect(r"~\$ ")); ok = want in out
     print(("   ok: " if ok else "   FAILED: ") + what); 
     if not ok: print(out); vm.fail(what)
-# Home -> Files (the bottom-right pane), then into the test folder 0t (it sorts first)
-vm.key("right"); time.sleep(0.5); vm.key("down"); time.sleep(0.5); vm.key("ret"); time.sleep(3)
+# Home -> Files (the 4th button in the row), then into the test folder 0t (it sorts first)
+for _ in range(3): vm.key("right"); time.sleep(0.5)
+vm.key("ret"); time.sleep(3)
 vm.key("ret"); time.sleep(2); vm.shot("f0-files")
 # entries: sub (folder), a.txt, pic.png
 vm.key("down"); time.sleep(0.5)                         # a.txt

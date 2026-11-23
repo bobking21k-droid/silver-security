@@ -593,8 +593,6 @@ static void handle_key(Home *h, int k)
 		if (k == K_UP) { home_top = 0; break; }
 		if (k == K_LEFT && h->sel > 0) h->sel--;              /* the buttons are a row */
 		else if (k == K_RIGHT && h->sel < 3) h->sel++;
-		else if (k == K_UP) h->sel &= ~2;                     /* (up/down jump by two, as before) */
-		else if (k == K_DOWN) h->sel |= 2;
 		else if (k == K_ENTER) open_screen(h, look.ord[h->sel] + 1);   /* (the buttons can be rearranged) */
 		else if (k == 'b' || k == 'B' || k == 'c' || k == 'C') { open_screen(h, 5); bg_open(h, k == 'c' || k == 'C'); }   /* (or click the emblem or a pill) */
 		break;
